@@ -112,10 +112,12 @@ export interface ReActStep {
   userAction?: UserActionInfo;
 }
 
-/** What a user did to one operator on the canvas, for the chat to show. */
+/** What a user did on the canvas, for the chat to show: edited or ran one
+ * operator, or restored an earlier version of the dataflow. */
 export interface UserActionInfo {
-  kind: "edit" | "run";
-  operatorId: string;
+  kind: "edit" | "run" | "restore";
+  /** The operator edited or run; for a restore, the one the restored version's edit changed. */
+  operatorId?: string;
   /** The statement the user saved (edit). */
   statement?: string;
   /** The operator's statement before the edit. */
@@ -125,6 +127,8 @@ export interface UserActionInfo {
   status: "running" | "ok" | "error";
   /** Rows of the operator's result, when it ran. */
   rows?: number;
+  /** The dataflow version the edit made, or the version a restore brought back. */
+  version?: number;
   error?: string;
 }
 
@@ -311,6 +315,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  and why. The prompt asks for it and its examples show it; an edit that
    *  sets an operator without one gets a reminder in the tool result. Off by default. */
   operatorDoc: boolean;
+  /** When the user runs an operator from the canvas (Run, Save & run), the
+   *  agent responds to the result in a turn of its own. On by default. */
+  respondToCanvasRuns: boolean;
   /** Native mode: the final answer is an `answer` statement, which renders
    *  named tables as the reply verbatim and ends the request. */
   answerStatement: boolean;
@@ -466,6 +473,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataEvidence: true,
   flowEvidence: false,
   operatorDoc: false,
+  respondToCanvasRuns: true,
   answerStatement: false,
   nativeChecks: false,
   resultSelection: "all",
@@ -568,6 +576,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
+  respondToCanvasRuns?: boolean;
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
@@ -661,6 +670,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
+  respondToCanvasRuns?: boolean;
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;

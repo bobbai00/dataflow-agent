@@ -24,6 +24,8 @@
  * and the step's content tells the model what the user did and what came of
  * it, at the point in the conversation where it happened.
  */
+import type { WorkflowContent } from "../types/workflow";
+import { nativeAssignmentText } from "./native/catalog";
 import { renderDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 
 export type UserActionRequest =
@@ -62,12 +64,22 @@ export function userActionRows(result: DataflowActionsResult, operatorId: string
   return undefined;
 }
 
+/** The version the call's edit made, when it changed the dataflow. */
+export function userActionVersion(result: DataflowActionsResult): number | undefined {
+  const edit = result.actions.find(item => item.action.type === "edit" && item.status === "ok");
+  return (edit?.output as { versions?: Array<{ version: number }> } | undefined)?.versions?.at(-1)?.version;
+}
+
 /** What the model reads: what the user did, then the receipt the call produced
- * (absent while the call is still running). */
+ * (absent while the call is still running). `respond`: the agent responds to
+ * the result in a turn of its own (AgentSettings.respondToCanvasRuns). */
 export function userActionContent(
   action: UserActionRequest,
   previous: string | undefined,
-  result?: DataflowActionsResult
+  result?: DataflowActionsResult,
+  respond = false,
+  /** The edit changed the definition but kept the doc written for the old one. */
+  staleDoc = false
 ): string {
   const id = `\`${action.operatorId}\``;
   const lines: string[] = [];
@@ -78,6 +90,36 @@ export function userActionContent(
     if (action.python?.trim()) lines.push("with this Python definition:", action.python.trim());
     if (previous && previous.trim() !== statement) lines.push(`It was: ${previous.trim()}`);
     lines.push(`Keep my change when you restate ${id}.`);
+    // The canvas shows the doc, so it must say what the operator now does.
+    if (staleDoc) lines.push(`Its doc still describes the earlier definition: restate ${id} with a doc that fits.`);
   }
+  if (respond) lines.push("What does this result mean for my request?");
   return result ? `${lines.join("\n")}\n\n${renderDataflowActionsResult(result)}` : lines.join("\n");
+}
+
+/** What the model reads when the user restores a version from the middle of
+ * one of its calls: which of that call's edits are undone. */
+export function restoreContent(
+  version: number,
+  operatorId: string | undefined,
+  restored: WorkflowContent,
+  undone: WorkflowContent
+): string {
+  const now = new Map(restored.operators.map(op => [op.operatorID, op]));
+  const was = new Map(undone.operators.map(op => [op.operatorID, op]));
+  const removed = [...was.keys()].filter(id => !now.has(id));
+  const back = [...now.keys()].filter(
+    id => !was.has(id) || JSON.stringify(was.get(id)!.nativeOp) !== JSON.stringify(now.get(id)!.nativeOp)
+  );
+  const lines = [
+    `I restored v${version} of the dataflow${operatorId ? `, as it was right after your edit of \`${operatorId}\`` : ""}; the later edits of that call are undone.`,
+  ];
+  if (removed.length) lines.push(`No longer defined: ${removed.map(id => `\`${id}\``).join(", ")}.`);
+  const statements = back.flatMap(id => {
+    const view = now.get(id)!.nativeOp;
+    const text = view ? nativeAssignmentText(id, view) : undefined;
+    return text ? [text] : [];
+  });
+  if (statements.length) lines.push("Defined as before:", ...statements);
+  return lines.join("\n");
 }

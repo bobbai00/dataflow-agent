@@ -69,6 +69,8 @@ import { AgentChatComponent } from "./agent-chat/agent-chat.component";
 export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
   protected readonly window = window;
   private static readonly MIN_PANEL_WIDTH = 400;
+  /** Width a closed panel opens at: room for the version rail and a readable chat. */
+  private static readonly DEFAULT_PANEL_WIDTH = 560;
   private static readonly MIN_PANEL_HEIGHT = 450;
 
   /**
@@ -147,7 +149,7 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
 
     // Open the panel if it's closed
     if (this.width === 0) {
-      this.width = AgentPanelComponent.MIN_PANEL_WIDTH;
+      this.width = AgentPanelComponent.DEFAULT_PANEL_WIDTH;
     }
 
     // Switch to the agent's tab and activate it
@@ -180,7 +182,7 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
   public openPanel(): void {
     if (this.width === 0) {
       // Open panel
-      this.width = AgentPanelComponent.MIN_PANEL_WIDTH;
+      this.width = AgentPanelComponent.DEFAULT_PANEL_WIDTH;
     } else {
       // Close panel (dock it)
       this.width = 0;

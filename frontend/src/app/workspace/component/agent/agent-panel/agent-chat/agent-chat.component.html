@@ -210,14 +210,15 @@
             [class.on-path]="node.isOnActivePath"
             [class.off-path]="!node.isOnActivePath"
             [class.is-root]="node.isRoot"
+            [class.by-user]="node.byUser"
             [style.left.px]="node.x - node.width / 2"
             [style.top.px]="node.y - node.height / 2"
             [style.width.px]="node.width"
             [style.height.px]="node.height"
             (click)="onSnapshotNodeClick(node)"
             nz-tooltip
-            [nzTooltipTitle]="node.timeLabel ? node.id + ' · ' + node.timeLabel : node.id">
-            <span class="snapshot-node-label">{{ node.id }}</span>
+            [nzTooltipTitle]="node.timeLabel ? node.title + ' · ' + node.timeLabel : node.title">
+            <span class="snapshot-node-label">{{ node.label }}</span>
           </div>
         </div>
       </div>
@@ -268,27 +269,39 @@
                       class="react-card-check"></i>
                   </ng-template>
                 </span>
-                <!-- Thinking text, truncated with an ellipsis that follows the
-                     panel width (CSS overflow). Models that emit tool calls with
-                     no visible preamble and no reasoning summary leave this
-                     empty; the placeholder is then only worth showing on the
-                     running row, since the action chips already say what the
-                     finished ones did. -->
-                <span
-                  class="react-card-thinking"
-                  [title]="row.thinking">
-                  {{ row.thinking || (isRowRunning(row) ? 'Working…' : '') }}
-                </span>
-                <!-- Actions the agent called this step (one chip each). -->
-                <span class="react-card-actions">
+                <div class="react-card-body">
+                  <!-- Thinking text, truncated with an ellipsis that follows the
+                       panel width (CSS overflow). Models that emit tool calls with
+                       no visible preamble and no reasoning summary leave this
+                       empty; the placeholder is then only worth showing on the
+                       running row, since the action chips already say what the
+                       finished ones did. -->
                   <span
-                    *ngFor="let action of row.actions"
-                    class="react-card-action"
-                    nz-tooltip
-                    [nzTooltipTitle]="action">
-                    {{ action }}
+                    *ngIf="row.thinking || isRowRunning(row)"
+                    class="react-card-thinking"
+                    [title]="row.thinking">
+                    {{ row.thinking || 'Working…' }}
                   </span>
-                </span>
+                  <!-- What the step did: each edit with the version it made
+                       (add records v1, add kept v2), then what it ran and read. -->
+                  <span
+                    *ngIf="row.actions.length"
+                    class="react-card-actions">
+                    <span
+                      *ngFor="let action of row.actions"
+                      class="react-card-action"
+                      [ngClass]="'chip-' + action.kind"
+                      nz-tooltip
+                      [nzTooltipTitle]="action.title ?? action.label">
+                      <span class="chip-label">{{ action.label }}</span>
+                      <span
+                        *ngIf="action.version !== undefined"
+                        class="chip-version"
+                        >v{{ action.version }}</span
+                      >
+                    </span>
+                  </span>
+                </div>
                 <button
                   *ngIf="hoveredMessageIndex === row.index"
                   nz-button
@@ -327,6 +340,11 @@
                 </ng-template>
               </span>
               <span class="user-action-text">{{ userActionText(action.step) }}</span>
+              <span
+                *ngIf="userActionVersion(action.step) !== undefined"
+                class="chip-version"
+                >v{{ userActionVersion(action.step) }}</span
+              >
               <button
                 nz-button
                 nzType="text"
@@ -785,6 +803,35 @@
             <div class="settings-param-hint-block">
               When <strong>enabled</strong> (native mode), the agent gives every operator a one-line doc saying what it
               does and why, and its prompt examples show one. The canvas and the operator's panel show the doc.
+            </div>
+          </div>
+
+          <div class="settings-param-item">
+            <label class="settings-param-label">Canvas Runs</label>
+            <div class="settings-param-input">
+              <nz-select
+                [(ngModel)]="settingsRespondToRuns"
+                nzSize="small"
+                style="width: 180px">
+                <nz-option
+                  nzValue="respond"
+                  nzLabel="Agent responds"></nz-option>
+                <nz-option
+                  nzValue="wait"
+                  nzLabel="Agent waits"></nz-option>
+              </nz-select>
+              <button
+                nz-button
+                nzType="primary"
+                nzSize="small"
+                (click)="saveRespondToRuns()">
+                Save
+              </button>
+            </div>
+            <div class="settings-param-hint-block">
+              When you run an operator from its panel on the canvas (Run, Save &amp; run), the agent
+              <strong>responds</strong> to the result in a turn of its own, or <strong>waits</strong> and reads the run
+              with your next message.
             </div>
           </div>
 

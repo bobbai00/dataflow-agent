@@ -25,6 +25,7 @@ import { TexeraAgent } from "./texera-agent";
 import { assembleContext } from "./util/context-utils";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 import { UserActionError } from "./user-actions";
+import type { EditVersionInfo } from "./workflow-snapshot-storage";
 
 type Reply = { text?: string; call?: { python: string; statements: string } };
 
@@ -121,13 +122,20 @@ test("an edit applies through the dataflow and is recorded as a user step the mo
   expect(step).toBe(outcome.step!);
   expect(step.role).toBe("user");
   expect(step.messageSource).toBe("action");
+  // The agent's call made v0 (records) and v1 (kept); the user's edit is v2.
   expect(step.userAction).toEqual({
     kind: "edit",
     operatorId: "kept",
     statement,
     previous: "set kept: filter(records, lambda row: row['value'] > 15)",
     status: "ok",
+    version: 2,
   });
+  const version = agent
+    .getSnapshotStorage()
+    .getSnapshotTreeNodes()
+    .find(node => node.version === 2);
+  expect(version?.edit).toEqual({ kind: "update", operatorId: "kept", op: "filter", author: "user" });
   expect(source(agent, "kept")).toBe(statement);
   // The step owns the snapshot of the edited workflow, as an agent call would.
   expect(agent.getSnapshotStorage().hasSnapshotFor(step.id)).toBe(true);
@@ -150,9 +158,19 @@ test("a run shows the result to the model and reports the rows", async () => {
   const outcome = await agent.applyUserAction({ kind: "run", operatorId: "kept" });
 
   expect(outcome.status).toBe("ok");
+  // A run changes nothing, so it makes no version.
   expect(outcome.step!.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 1 });
-  expect(outcome.step!.content).toStartWith("I ran `kept` on the canvas.\n\n");
+  // The agent responds to a run, so the user's step asks it to.
+  expect(outcome.respond).toBe(true);
+  expect(outcome.step!.content).toStartWith(
+    "I ran `kept` on the canvas.\nWhat does this result mean for my request?\n\n"
+  );
   expect(outcome.step!.content).toContain("show result kept");
+
+  agent.updateSettings({ respondToCanvasRuns: false });
+  const quiet = await agent.applyUserAction({ kind: "run", operatorId: "kept" });
+  expect(quiet.respond).toBe(false);
+  expect(quiet.step!.content).toStartWith("I ran `kept` on the canvas.\n\n");
 });
 
 test("an edit can run in the same action", async () => {
@@ -164,7 +182,8 @@ test("an edit can run in the same action", async () => {
     run: true,
   });
   expect(outcome.status).toBe("ok");
-  expect(outcome.step!.userAction).toMatchObject({ kind: "edit", run: true, status: "ok", rows: 3 });
+  expect(outcome.step!.userAction).toMatchObject({ kind: "edit", run: true, status: "ok", rows: 3, version: 2 });
+  expect(outcome.respond).toBe(true);
   expect(outcome.step!.content).toStartWith("I edited and ran `kept` on the canvas.");
   expect(agent.getWorkflowState().getOperator("kept")?.nativeOp?.doc).toBe("Every record");
 });
@@ -232,4 +251,119 @@ test("an action needs an available native agent and a native operator", async ()
   (agent as any).state = AgentState.AVAILABLE;
   agent.updateSettings({ agentMode: AgentMode.CODE });
   await expect(agent.applyUserAction({ kind: "run", operatorId: "kept" })).rejects.toMatchObject({ status: 400 });
+});
+
+test("each edit of a call is a version of its own, and the step keeps the last", async () => {
+  const { agent } = await built();
+  const storage = agent.getSnapshotStorage();
+  const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
+  const versions = (build.toolResults![0].output as any).actions.find((item: any) => item.action.type === "edit").output
+    .versions as EditVersionInfo[];
+  expect(versions.map(({ snapshotId: _id, ...version }) => version)).toEqual([
+    { version: 0, kind: "add", operatorId: "records", op: "make_table", functions: ["make_table"], author: "agent" },
+    { version: 1, kind: "add", operatorId: "kept", op: "filter", author: "agent" },
+  ]);
+  const [first, last] = versions.map(version => storage.getSnapshotById(version.snapshotId)!);
+  expect(first.workflow.operators.map(op => op.operatorID)).toEqual(["records"]);
+  expect(first.workflow.links).toEqual([]);
+  expect(last.parentId).toBe(first.id);
+  expect(storage.getOwnedSnapshot(build.id)).toBe(last);
+  expect(last.workflow.operators.map(op => op.operatorID).sort()).toEqual(["kept", "records"]);
+  // The answer after the edits changed nothing: two versions in all.
+  expect(storage.getSnapshotTreeNodes().filter(node => node.version !== undefined).length).toBe(2);
+});
+
+test("checking out a step's last version moves HEAD there; an earlier version is restored as a user step", async () => {
+  const { agent, prompts } = session([
+    { call: BUILD },
+    { text: "2 rows remain." },
+    { call: { python: "", statements: "show result records" } },
+    { text: "3 records." },
+  ]);
+  await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  const storage = agent.getSnapshotStorage();
+  const answer = latest(agent);
+  const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
+  const [records, kept] = (build.toolResults![0].output as any).actions[0].output.versions as Array<{
+    snapshotId: string;
+  }>;
+
+  // The last version of the call is what its turn ended with, the answer included.
+  expect(agent.checkoutVersion(kept.snapshotId)).toBe(answer.id);
+  expect(agent.getHead()).toBe(answer.id);
+
+  const head = agent.checkoutVersion(records.snapshotId)!;
+  const restore = agent.getStepsById().get(head)!;
+  expect(restore.parentId).toBe(build.id);
+  expect(restore.role).toBe("user");
+  expect(restore.messageSource).toBe("action");
+  expect(restore.userAction).toEqual({ kind: "restore", operatorId: "records", version: 0, status: "ok" });
+  expect(restore.content).toStartWith(
+    "I restored v0 of the dataflow, as it was right after your edit of `records`; the later edits of that call are undone."
+  );
+  expect(restore.content).toContain("No longer defined: `kept`.");
+  expect(
+    agent
+      .getWorkflowState()
+      .getAllOperators()
+      .map(op => op.operatorID)
+  ).toEqual(["records"]);
+  // The restore continues from v0 without being a version itself.
+  expect(storage.getOwnedSnapshot(head)?.parentId).toBe(records.snapshotId);
+  expect(storage.getOwnedSnapshot(head)?.version).toBeUndefined();
+
+  await agent.sendMessage("How many records are there?");
+  expect(promptText(prompts[2])).toContain("I restored v0 of the dataflow");
+  expect(agent.checkoutVersion("S999")).toBeUndefined();
+});
+
+test("the agent answers a canvas run in a turn of its own, with no new message", async () => {
+  const { agent, prompts } = session([
+    { call: BUILD },
+    { text: "2 rows remain." },
+    { text: "With your threshold of 25, 1 row remains: id 3." },
+  ]);
+  await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  const outcome = await agent.applyUserAction({
+    kind: "edit",
+    operatorId: "kept",
+    statement: "set kept: filter(records, lambda row: row['value'] > 25)",
+    run: true,
+  });
+
+  await agent.respondToUserAction(outcome.step!);
+
+  const turn = agent.getAllSteps().filter(step => step.messageId === outcome.step!.messageId);
+  expect(turn.map(step => step.role)).toEqual(["user", "agent"]);
+  expect(turn[1]).toMatchObject({ content: "With your threshold of 25, 1 row remains: id 3.", isEnd: true });
+  expect(promptText(prompts[2])).toContain("What does this result mean for my request?");
+  expect(agent.getState()).toBe(AgentState.AVAILABLE);
+  // Only the newest action can be answered.
+  await expect(agent.respondToUserAction(outcome.step!)).rejects.toMatchObject({ status: 409 });
+});
+
+test("an edit that keeps the old doc asks the agent for one that fits; a new doc does not", async () => {
+  const documented = {
+    ...BUILD,
+    statements: BUILD.statements.replace(
+      "lambda row: row['value'] > 15)",
+      "lambda row: row['value'] > 15, doc='Records over 15.')"
+    ),
+  };
+  const { agent } = session([{ call: documented }, { text: "2 rows remain." }]);
+  await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  const kept = await agent.applyUserAction({
+    kind: "edit",
+    operatorId: "kept",
+    statement: "set kept: filter(records, lambda row: row['value'] > 25, doc='Records over 15.')",
+  });
+  expect(kept.step!.content).toContain(
+    "Its doc still describes the earlier definition: restate `kept` with a doc that fits."
+  );
+  const renewed = await agent.applyUserAction({
+    kind: "edit",
+    operatorId: "kept",
+    statement: "set kept: filter(records, lambda row: row['value'] > 20, doc='Records over 20.')",
+  });
+  expect(renewed.step!.content).not.toContain("Its doc still describes");
 });

@@ -121,12 +121,14 @@ import {
   userActionCall,
   userActionContent,
   userActionRows,
+  userActionVersion,
+  restoreContent,
   type UserActionRequest,
 } from "./user-actions";
 import type { RetrievalSettings } from "../types/agent";
 import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
 import { executeDataflowActionBatch } from "./tools/dataflow-action-runtime";
-import { planRegisteredGraphEdit } from "./tools/graph-edits";
+import { editVersions, planRegisteredGraphEdit } from "./tools/graph-edits";
 import {
   executeWorkflowAndPersist,
   TOOL_NAME_EXECUTE_OPERATOR,
@@ -556,8 +558,9 @@ export class TexeraAgent {
     this.head = stepId;
 
     // The init step is action-bearing — create its snapshot as the first
-    // child of the storage's empty root.
-    this.snapshotStorage.createSnapshot(stepId, workflowContent);
+    // child of the storage's empty root. It is v0, the dataflow the agent
+    // starts from, even when that is empty.
+    this.snapshotStorage.createSnapshot(stepId, workflowContent, { edit: { kind: "start", author: "agent" } });
     this.snapshotCallback?.(stepId, workflowContent);
     for (const [opId, info] of collected) {
       this.snapshotStorage.setOperatorResult(stepId, opId, info);
@@ -1028,6 +1031,7 @@ export class TexeraAgent {
       dataEvidence?: boolean;
       flowEvidence?: boolean;
       operatorDoc?: boolean;
+      respondToCanvasRuns?: boolean;
       answerStatement?: boolean;
       nativeChecks?: boolean;
       resultSelection?: ResultSelection;
@@ -1136,6 +1140,7 @@ export class TexeraAgent {
       this.settings.nativeChecks = updates.nativeChecks;
       promptNeedsRebuild = true;
     }
+    if (updates.respondToCanvasRuns !== undefined) this.settings.respondToCanvasRuns = updates.respondToCanvasRuns;
     if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
       this.settings.answerStatement = updates.answerStatement;
       promptNeedsRebuild = true;
@@ -1438,15 +1443,17 @@ export class TexeraAgent {
 
   async sendMessage(
     userMessage: string,
-    messageSource?: "chat" | "feedback",
+    messageSource?: "chat" | "feedback" | "action",
     options: {
       contextRequests?: readonly number[];
       contextTables?: readonly string[];
       contextUpstream?: boolean;
       contextTasks?: readonly number[];
+      /** A recorded canvas action this turn responds to; no new message is recorded. */
+      respondTo?: ReActStep;
     } = {}
   ): Promise<AgentMessageResult> {
-    const messageId = `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
+    const messageId = options.respondTo?.messageId ?? `msg-${this.agentId}-${++this.messageCounter}-${Date.now()}`;
     if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
     let stepIndex = 0;
     // Failed/stopped turns still consumed model responses. Preserve their
@@ -1490,27 +1497,29 @@ export class TexeraAgent {
     this.currentMessageId = messageId;
 
     try {
-      const estimatedInputTokens = Math.ceil(userMessage.length / 4);
-      const userStepId = this.generateStepId();
-      const userStep: ReActStep = {
-        id: userStepId,
-        parentId: this.head,
-        messageId,
-        stepId: 0,
-        timestamp: Date.now(),
-        role: "user",
-        content: userMessage,
-        isBegin: true,
-        isEnd: true,
-        messageSource,
-        usage: {
-          inputTokens: estimatedInputTokens,
-          outputTokens: 0,
-          totalTokens: estimatedInputTokens,
-        },
-      };
-      this.addStep(userStep);
-      this.head = userStepId;
+      if (!options.respondTo) {
+        const estimatedInputTokens = Math.ceil(userMessage.length / 4);
+        const userStepId = this.generateStepId();
+        const userStep: ReActStep = {
+          id: userStepId,
+          parentId: this.head,
+          messageId,
+          stepId: 0,
+          timestamp: Date.now(),
+          role: "user",
+          content: userMessage,
+          isBegin: true,
+          isEnd: true,
+          messageSource,
+          usage: {
+            inputTokens: estimatedInputTokens,
+            outputTokens: 0,
+            totalTokens: estimatedInputTokens,
+          },
+        };
+        this.addStep(userStep);
+        this.head = userStepId;
+      }
       if (this.settings.agentMode === AgentMode.NATIVE) this.rebuildSystemPrompt();
       // User steps carry no tool calls and therefore own no snapshot — the
       // workflow visible here resolves to the nearest action-bearing
@@ -2151,6 +2160,8 @@ export class TexeraAgent {
         ownsSnapshot = true;
       } else if (step.toolCalls && step.toolCalls.length > 0) {
         this.workflowState.setWorkflowContent(parentContent);
+        // One version per replayed edit, as the live run recorded them.
+        const versions: ReturnType<typeof editVersions> = [];
         for (const tc of step.toolCalls) {
           if (tc.toolName === "initialize" || tc.toolName === TOOL_NAME_EXECUTE_OPERATOR) continue;
           if (tc.toolName === TOOL_NAME_DATAFLOW) {
@@ -2161,13 +2172,13 @@ export class TexeraAgent {
               for (const item of saved?.actions ?? []) {
                 if (item.status === "pending" || item.status === "skipped") break;
                 if (item.action.type === "edit" && item.status === "ok") {
-                  const plan = await planRegisteredGraphEdit(
-                    this.workflowState.getWorkflowContent(),
-                    item.action.python,
-                    item.action.changes,
-                    { metadataStore: this.metadataStore, settings: this.settings }
-                  );
+                  const before = this.workflowState.getWorkflowContent();
+                  const plan = await planRegisteredGraphEdit(before, item.action.python, item.action.changes, {
+                    metadataStore: this.metadataStore,
+                    settings: this.settings,
+                  });
                   this.workflowState.setWorkflowContent(plan.workflow);
+                  versions.push(...editVersions(before, plan, step.role === "user" ? "user" : "agent"));
                 }
                 if (item.status === "error") break;
               }
@@ -2188,7 +2199,16 @@ export class TexeraAgent {
           }
         }
         myContent = this.workflowState.getWorkflowContent();
-        this.snapshotStorage.createSnapshot(id, myContent);
+        this.snapshotStorage.createSnapshot(
+          id,
+          myContent,
+          TexeraAgent.isInitializationStep(step)
+            ? { edit: { kind: "start", author: "agent" } }
+            : versions.length
+              ? { edit: false }
+              : {}
+        );
+        this.snapshotStorage.recordEdits(id, versions);
         ownsSnapshot = true;
       }
 
@@ -2420,7 +2440,7 @@ export class TexeraAgent {
   private async runPostStepExecution(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
-    overrides?: { maxChars?: number }
+    overrides?: { maxChars?: number; author?: "agent" | "user" }
   ): Promise<void> {
     if (toolResults?.some(tr => asDataflowActionsResult(tr.output)) && this.head)
       this.mergeResponseCalls(toolCalls, toolResults);
@@ -2445,6 +2465,7 @@ export class TexeraAgent {
           execute: (operatorIds, onExecution) => this.executePostStepChanges([], [], true, operatorIds, onExecution),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
+          author: overrides?.author,
         });
         this.renderAnswerStatement(result, stepId);
       }
@@ -2795,7 +2816,7 @@ export class TexeraAgent {
   async applyUserAction(
     action: UserActionRequest,
     onRecord?: () => void
-  ): Promise<{ status: "ok" | "error" | "unchanged"; step?: ReActStep }> {
+  ): Promise<{ status: "ok" | "error" | "unchanged"; step?: ReActStep; respond?: boolean }> {
     if (this.settings.agentMode !== AgentMode.NATIVE)
       throw new UserActionError(400, "Canvas actions apply to dataflows the agent builds in native mode.");
     if (this.state !== AgentStateEnum.AVAILABLE)
@@ -2813,6 +2834,8 @@ export class TexeraAgent {
       }
       const call = userActionCall(request);
       const result = prepareDataflowCall(call, availableRetrievalViews(this.settings));
+      // A run is answered by the agent, unless the user switched that off.
+      const respond = this.settings.respondToCanvasRuns !== false && (request.kind === "run" || request.run === true);
       if (result.status === "error") throw new UserActionError(400, result.error ?? "The action was rejected.");
       onRecord?.();
 
@@ -2852,7 +2875,7 @@ export class TexeraAgent {
       this.head = step.id;
       this.maybeCreateSnapshotForHead(this.workflowState.getWorkflowContent());
       try {
-        await this.runPostStepExecution(toolCalls, toolResults);
+        await this.runPostStepExecution(toolCalls, toolResults, { author: "user" });
       } catch (error) {
         result.status = "error";
         result.error ??= error instanceof Error ? error.message : String(error);
@@ -2861,17 +2884,106 @@ export class TexeraAgent {
       for (const item of result.actions)
         if (item.action.type === "edit" && item.output && typeof item.output === "object")
           delete (item.output as { missing_docs?: unknown }).missing_docs;
-      step.content = userActionContent(request, previous, result);
+      const before = operator.nativeOp;
+      const after = this.workflowState.getOperator(request.operatorId)?.nativeOp;
+      const staleDoc =
+        request.kind === "edit" &&
+        !!before.doc?.trim() &&
+        after?.doc === before.doc &&
+        after.revision !== before.revision;
+      step.content = userActionContent(request, previous, result, respond, staleDoc);
       info.status = result.status === "error" ? "error" : "ok";
       const rows = userActionRows(result, request.operatorId);
       if (rows !== undefined) info.rows = rows;
+      const version = userActionVersion(result);
+      if (version !== undefined) info.version = version;
       if (result.error) info.error = result.error;
       this.stepCallback?.(step);
-      return { status: info.status, step };
+      return { status: info.status, step, respond };
     } finally {
       this.abortController = null;
       this.currentMessageId = undefined;
       this.state = AgentStateEnum.AVAILABLE;
+    }
+  }
+
+  /**
+   * Respond to a canvas action already recorded (the user ran an operator):
+   * a turn whose request is that action. The agent reads it as the newest
+   * event and replies, or works further, as it would for a message.
+   */
+  async respondToUserAction(step: ReActStep): Promise<AgentMessageResult> {
+    if (this.state !== AgentStateEnum.AVAILABLE)
+      throw new UserActionError(409, "The agent is working; try again when it finishes.");
+    if (this.head !== step.id || step.messageSource !== "action")
+      throw new UserActionError(409, "The action is no longer the newest step.");
+    this.state = AgentStateEnum.GENERATING;
+    return this.sendMessage(step.content, "action", { respondTo: step });
+  }
+
+  /**
+   * Check out a dataflow version (a snapshot an edit made). A step's last
+   * version checks out the last step of that turn still showing it, so the
+   * runs and the reply after the edits come along. A version in the middle of
+   * a step's edits is restored: HEAD moves to that step, and a user step under
+   * it records the restore with that version as its dataflow, so the agent
+   * reads which of the step's edits were undone. Returns the new HEAD, or
+   * undefined when there is no such version.
+   */
+  checkoutVersion(snapshotId: string): string | undefined {
+    const version = this.snapshotStorage.getSnapshotById(snapshotId);
+    if (!version?.reactStepId || version.version === undefined || !this.stepsById.has(version.reactStepId))
+      return undefined;
+    const owner = version.reactStepId;
+    if (this.snapshotStorage.getOwnedSnapshot(owner)?.id === version.id) {
+      const target = this.lastStepShowing(owner);
+      this.checkout(target);
+      return target;
+    }
+    this.checkout(owner);
+    const undone = this.workflowState.getWorkflowContent();
+    const stepId = this.generateStepId();
+    this.addStep({
+      id: stepId,
+      parentId: owner,
+      messageId: `act-${this.agentId}-${++this.messageCounter}-${Date.now()}`,
+      stepId: 0,
+      timestamp: Date.now(),
+      role: "user",
+      content: restoreContent(version.version, version.edit?.operatorId, version.workflow, undone),
+      isBegin: true,
+      isEnd: true,
+      messageSource: "action",
+      userAction: {
+        kind: "restore",
+        ...(version.edit?.operatorId ? { operatorId: version.edit.operatorId } : {}),
+        version: version.version,
+        status: "ok",
+      },
+    });
+    this.head = stepId;
+    // The restore is not a new version: it continues from the restored one.
+    this.snapshotStorage.createSnapshot(stepId, version.workflow, { parentSnapshotId: version.id });
+    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
+    return stepId;
+  }
+
+  /** The last step of `stepId`'s turn that still shows its dataflow version:
+   * the runs and replies after it, along HEAD's branch where it passes
+   * through, else the newest branch, until a step makes a new version. */
+  private lastStepShowing(stepId: string): string {
+    const children = new Map<string, ReActStep[]>();
+    for (const step of this.stepsById.values())
+      if (step.parentId) children.set(step.parentId, [...(children.get(step.parentId) ?? []), step]);
+    const onHead = new Set(this.getAncestorPath());
+    const turn = this.stepsById.get(stepId)!.messageId;
+    let current = stepId;
+    for (;;) {
+      const next = (children.get(current) ?? []).filter(
+        child => child.messageId === turn && this.snapshotStorage.getOwnedSnapshot(child.id)?.version === undefined
+      );
+      if (!next.length) return current;
+      current = (next.find(child => onHead.has(child.id)) ?? next[next.length - 1]).id;
     }
   }
 

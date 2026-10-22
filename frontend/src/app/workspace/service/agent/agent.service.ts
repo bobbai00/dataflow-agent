@@ -84,6 +84,8 @@ export interface AgentSettingsApi {
    *  doc saying what it does and why. Wire name matches the agent-service knob
    *  (`AgentSettings.operatorDoc`). */
   operatorDoc?: boolean;
+  /** The agent responds when the user runs an operator from the canvas. */
+  respondToCanvasRuns?: boolean;
 }
 
 /** LLM driver picked at agent construction. `vercel-tool-use` is the
@@ -160,6 +162,22 @@ export interface SnapshotTreeNode {
   resultCount: number;
   /** Epoch ms of the owning ReAct step (null for the root / unknown). */
   timestamp?: number | null;
+  /** The dataflow version (v0, v1, …) when an edit made this snapshot;
+   *  absent when its step only ran or read the dataflow. */
+  version?: number;
+  edit?: SnapshotEdit;
+  /** The step's own snapshot (its final state), not one of its earlier versions. */
+  owned?: boolean;
+}
+
+/** What one edit did to the dataflow (agent-service `SnapshotEdit`). */
+export interface SnapshotEdit {
+  kind: "add" | "update" | "delete" | "define" | "start" | "edit";
+  operatorId?: string;
+  op?: string;
+  operatorIds?: string[];
+  functions?: string[];
+  author: "agent" | "user";
 }
 
 /** What the agent-service answers for a canvas edit or run of a native operator. */
@@ -171,10 +189,14 @@ export interface UserActionResponse {
   /** What the agent reads for the action. */
   content?: string;
   operatorResults?: Record<string, OperatorResultSummary>;
+  /** The agent is responding to the run in a turn of its own. */
+  responding?: boolean;
 }
 
 export interface SnapshotTreeResponse {
   rootId: string;
+  /** The snapshot HEAD shows. */
+  headSnapshotId?: string;
   nodes: SnapshotTreeNode[];
 }
 
@@ -785,6 +807,8 @@ export class AgentService {
       const body: any = {
         modelType,
         name: customName,
+        // The canvas captions each operator with its one-line doc.
+        settings: { operatorDoc: true },
       };
 
       if (workflowId !== undefined) {
@@ -1217,6 +1241,31 @@ export class AgentService {
    */
   public checkoutStep(agentId: string, stepId: string): Observable<any> {
     return this.http.post(`${this.AGENT_API_BASE}/agents/${agentId}/checkout`, { stepId });
+  }
+
+  /**
+   * Check out a dataflow version from the version tree. A version in the middle
+   * of a step's edits is restored as a user step the agent reads.
+   */
+  public checkoutVersion(agentId: string, snapshotId: string): Observable<{ headId: string }> {
+    return this.http.post<{ headId: string }>(
+      `${this.AGENT_API_BASE}/agents/${agentId}/checkout-version`,
+      { snapshotId },
+      this.agentHeaders(agentId)
+    );
+  }
+
+  /** One version's dataflow, to preview it without moving HEAD. */
+  public getVersion(agentId: string, snapshotId: string): Observable<{ version: number; workflow: WorkflowContent }> {
+    return this.http.get<{ version: number; workflow: WorkflowContent }>(
+      `${this.AGENT_API_BASE}/agents/${agentId}/versions/${encodeURIComponent(snapshotId)}`,
+      this.agentHeaders(agentId)
+    );
+  }
+
+  /** The workflow the agent shows at HEAD, as last received. */
+  public getCurrentWorkflow(agentId: string): Workflow | null {
+    return this.agentStateTracking.get(agentId)?.workflowSubject.getValue() ?? null;
   }
 
   /**

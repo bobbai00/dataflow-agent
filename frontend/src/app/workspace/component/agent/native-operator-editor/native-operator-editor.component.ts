@@ -215,6 +215,12 @@ export class NativeOperatorEditorComponent implements OnChanges {
     return !!this.form && (this.statement !== this.form.statement.trim() || this.definitionChanged);
   }
 
+  /** The definition changed, but the description is still the one written for the old one. */
+  public get staleDoc(): boolean {
+    const original = this.form?.doc?.trim();
+    return !!original && this.doc.trim() === original && this.changed;
+  }
+
   /** The code view's edits are only in the code; the form cannot show them. */
   public get codeEdited(): boolean {
     return this.codeMode && this.statementText.trim() !== this.codeStart;

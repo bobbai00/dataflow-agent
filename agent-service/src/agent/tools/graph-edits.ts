@@ -33,7 +33,7 @@ import {
 } from "../native/catalog";
 import { normalizeStatement } from "../native/program";
 import { compileNativeOp, nativeRevision, runNativePython, validateNativeOperators } from "../native/codegen";
-import { computeStaleResultOps } from "../workflow-snapshot-storage";
+import { computeStaleResultOps, type SnapshotEdit } from "../workflow-snapshot-storage";
 import { nativeLineage } from "./native-upsert";
 import { stageRegisteredEdit } from "../native/registered";
 
@@ -62,8 +62,19 @@ export type GraphChangeReceipt =
       action: "created" | "updated" | "unchanged" | "deleted";
     }
   | { change: "edge"; edge: string; action: "created" | "removed" };
+/** One set or delete of an edit that changed the dataflow. */
+export interface PlannedEdit {
+  kind: "add" | "update" | "delete";
+  operatorId: string;
+  /** What the operator calls: a built-in (`filter`) or a registered function. */
+  op: string;
+}
+
 export interface GraphEditPlan {
   workflow: WorkflowContent;
+  /** The edits that changed the dataflow, in the order written; then any
+   * operator changed only because a Python definition it uses changed. */
+  edits: PlannedEdit[];
   operators: NativeBatchOutcome[];
   changes: GraphChangeReceipt[];
   unconnected_inputs: string[];
@@ -249,6 +260,25 @@ export async function planRegisteredGraphEdit(
         edge: edgeLabel(edge, ports(nodes.get(edge.target)!).length),
         action: "created",
       });
+  const changed = (id: string) =>
+    !originalViews[id] || !nodes.has(id) || JSON.stringify(originalViews[id]) !== JSON.stringify(nodes.get(id));
+  const edits: PlannedEdit[] = [];
+  const stated = new Set<string>();
+  for (const statement of staged.order) {
+    stated.add(statement.id);
+    if (statement.kind === "delete") {
+      if (originalViews[statement.id] && !nodes.has(statement.id))
+        edits.push({ kind: "delete", operatorId: statement.id, op: names(originalViews[statement.id]) });
+    } else if (nodes.has(statement.id) && changed(statement.id))
+      edits.push({
+        kind: originalViews[statement.id] ? "update" : "add",
+        operatorId: statement.id,
+        op: names(nodes.get(statement.id)!),
+      });
+  }
+  for (const id of staged.changedIds)
+    if (!stated.has(id) && nodes.has(id) && changed(id))
+      edits.push({ kind: originalViews[id] ? "update" : "add", operatorId: id, op: names(nodes.get(id)!) });
   // `set` replaces the whole operator, doc included: an edit that sets one
   // without a doc is reminded, never refused.
   const missingDocs = context.settings?.operatorDoc
@@ -260,6 +290,7 @@ export async function planRegisteredGraphEdit(
     : [];
   return {
     workflow,
+    edits,
     operators: outcomes,
     changes: receipts,
     registrations: staged.registrations,
@@ -268,6 +299,79 @@ export async function planRegisteredGraphEdit(
     ...(missingDocs.length ? { missing_docs: missingDocs } : {}),
   };
 }
+/**
+ * The dataflow after each edit of a planned call, one version per edit: each
+ * set or delete applied on top of the one before, in the order written except
+ * that an operator follows the inputs this call also changes. An operator
+ * takes the plan's definition and incoming edges, and every operator the
+ * final layout's position. Python definitions the call registered ride on its
+ * first version; a call that only defines functions is one "define" version.
+ * The last version is the plan's workflow itself.
+ */
+export function editVersions(
+  original: WorkflowContent,
+  plan: Pick<GraphEditPlan, "workflow" | "edits" | "registrations">,
+  author: SnapshotEdit["author"] = "agent"
+): Array<{ edit: SnapshotEdit; workflow: WorkflowContent }> {
+  const final = plan.workflow;
+  const functions = (plan.registrations ?? []).map(registration => registration.name);
+  const withFunctions = (edit: PlannedEdit, first: boolean): SnapshotEdit => ({
+    ...edit,
+    ...(first && functions.length ? { functions } : {}),
+    author,
+  });
+  if (!plan.edits.length)
+    return functions.length ? [{ edit: { kind: "define", functions, author }, workflow: final }] : [];
+  const finalOps = new Map(final.operators.map(op => [op.operatorID, op]));
+  const pending = new Map(plan.edits.filter(edit => edit.kind !== "delete").map(edit => [edit.operatorId, edit]));
+  const ordered: PlannedEdit[] = [];
+  const visit = (edit: PlannedEdit) => {
+    if (!pending.delete(edit.operatorId)) return;
+    for (const input of finalOps.get(edit.operatorId)?.nativeOp?.inputs ?? []) {
+      const changedInput = pending.get(input);
+      if (changedInput) visit(changedInput);
+    }
+    ordered.push(edit);
+  };
+  for (const edit of plan.edits)
+    if (edit.kind === "delete") ordered.push(edit);
+    else visit(edit);
+
+  let current: WorkflowContent = {
+    ...original,
+    nativeNamespace: final.nativeNamespace,
+    operatorPositions: { ...original.operatorPositions, ...final.operatorPositions },
+  };
+  return ordered.map((edit, index) => {
+    if (index === ordered.length - 1) return { edit: withFunctions(edit, index === 0), workflow: final };
+    const id = edit.operatorId;
+    if (edit.kind === "delete") {
+      const { [id]: _position, ...positions } = current.operatorPositions;
+      current = {
+        ...current,
+        operators: current.operators.filter(op => op.operatorID !== id),
+        links: current.links.filter(link => link.source.operatorID !== id && link.target.operatorID !== id),
+        operatorPositions: positions,
+      };
+    } else {
+      const op = finalOps.get(id)!;
+      const present = new Set([...current.operators.map(other => other.operatorID), id]);
+      current = {
+        ...current,
+        operators:
+          present.size > current.operators.length
+            ? [...current.operators, op]
+            : current.operators.map(other => (other.operatorID === id ? op : other)),
+        links: [
+          ...current.links.filter(link => link.target.operatorID !== id),
+          ...final.links.filter(link => link.target.operatorID === id && present.has(link.source.operatorID)),
+        ],
+      };
+    }
+    return { edit: withFunctions(edit, index === 0), workflow: current };
+  });
+}
+
 export function missingGraphInputs(workflow: WorkflowContent): string[] {
   return inspectGraph(workflow).unconnected_inputs;
 }
@@ -512,6 +616,17 @@ export async function planGraphEdit(
     const workflow = draft.getWorkflowContent();
     return {
       workflow,
+      edits: operatorChanges.flatMap((change): PlannedEdit[] =>
+        change.change === "operator" && change.action !== "unchanged"
+          ? [
+              {
+                kind: change.action === "created" ? "add" : change.action === "deleted" ? "delete" : "update",
+                operatorId: change.operator_id,
+                op: change.operator,
+              },
+            ]
+          : []
+      ),
       operators: outcomes,
       changes: [...operatorChanges, ...edgeChanges],
       unconnected_inputs: missingGraphInputs(workflow),

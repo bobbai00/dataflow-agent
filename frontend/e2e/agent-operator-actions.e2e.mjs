@@ -12,6 +12,12 @@
  *   5. an invalid edit is refused with the reason and records nothing
  *   6. Feedback on the filter: the agent answers in light of the user's edit,
  *      and its model input carried the edit and the run
+ *   7. versions: each edit of the agent's calls and each canvas edit is a
+ *      version (v1, v2, …) the chat lists and the version tree shows; a run
+ *      is answered by the agent; clicking a version in the middle of a call
+ *      restores it, as a step the agent reads
+ *   8. docs: the agent writes a one-line doc for every operator and the
+ *      canvas boxes show it
  *
  * The agent-service REST API serves as an oracle (operator definitions, steps,
  * the model's input messages); the UI is driven only through the browser. The
@@ -199,6 +205,39 @@ async function selectOperator(page, operatorId) {
   });
   await panel(page).locator(".op-id", { hasText: operatorId }).waitFor({ timeout: 10000 });
 }
+/** Each chip of the chat's step rows: [label, version]. */
+async function stepChips(page) {
+  return chat(page)
+    .locator(".react-card-action")
+    .evaluateAll(chips =>
+      chips.map(chip => [
+        chip.querySelector(".chip-label")?.textContent?.trim() ?? "",
+        chip.querySelector(".chip-version")?.textContent?.trim() ?? "",
+      ])
+    );
+}
+/** The version tree's pills, top to bottom. */
+async function treeLabels(page) {
+  return (await chat(page).locator(".snapshot-node-label").allTextContents()).map(t => t.trim());
+}
+/** The caption each canvas box shows, by operator id (a wrapped caption is one tspan per line). */
+async function canvasCaptions(page) {
+  return page.evaluate(() =>
+    Object.fromEntries(
+      Array.from(document.querySelectorAll("texera-workflow-editor g.joint-element[model-id]")).map(el => {
+        const node = el.querySelector(".texera-operator-name");
+        const lines = node ? Array.from(node.querySelectorAll("tspan")).map(line => line.textContent) : [];
+        const text = lines.length ? lines.join(" ") : node?.textContent ?? "";
+        return [el.getAttribute("model-id"), text.replace(/\s+/g, " ").trim()];
+      })
+    )
+  );
+}
+/** Wait for the agent to take up a turn of its own (it may already have), then to finish it. */
+async function agentTurnDone(agentId) {
+  await until(async () => !(await agentIdle(agentId)), 15000, 300);
+  return until(() => agentIdle(agentId), TURN_TIMEOUT, 1000);
+}
 async function userActionRows(page) {
   return (await chat(page).locator(".user-action-text").allTextContents()).map(t => t.replace(/\s+/g, " ").trim());
 }
@@ -255,6 +294,35 @@ async function main() {
       ops.map(o => `${o.operatorID}:${o.nativeOp?.type}`).join(", ")
     );
     if (!filter || !source) throw new Error("the agent built no filter; nothing to act on");
+    // Docs: agents made in the UI write a one-line doc for each operator, which its box shows.
+    const documented = ops.filter(o => o.nativeOp?.doc?.trim());
+    check(
+      "turn 1: every operator carries a one-line doc",
+      documented.length === ops.length,
+      ops.map(o => `${o.operatorID}: ${o.nativeOp?.doc ?? "(none)"}`).join(" | ")
+    );
+    const captions = await canvasCaptions(page);
+    check(
+      "the canvas boxes show the docs, not the raw expressions",
+      documented.length > 0 &&
+        documented.every(o =>
+          captions[o.operatorID]?.startsWith(o.nativeOp.doc.replace(/\s+/g, " ").trim().slice(0, 20))
+        ),
+      JSON.stringify(captions)
+    );
+    // Versions: each edit of the agent's calls made one, listed in its step's row.
+    const added = (await stepChips(page)).filter(([label, version]) => /^add /.test(label) && /^v\d+$/.test(version));
+    check(
+      "the chat lists each edit with the version it made",
+      ops.every(o => added.some(([label]) => label === `add ${o.operatorID}`)),
+      (await stepChips(page)).map(chip => chip.join(" ")).join(" | ")
+    );
+    const tree = await treeLabels(page);
+    check(
+      "the version tree starts at v0 and has a version per edit",
+      tree[0] === "v0 · start" && ops.every(o => tree.some(label => label.endsWith(` · ${o.operatorID}`))),
+      tree.join(" | ")
+    );
     await shot("01-built");
 
     // ===== 2. selecting an operator opens its panel, not the property editor =====
@@ -293,7 +361,7 @@ async function main() {
     check("Save & run shows the new result in the panel: 1 row", !!shape, shape ?? "(no result shape)");
     ops = await operatorsOf(agent.id);
     const now = ops.find(o => o.operatorID === filter.operatorID)?.nativeOp?.source ?? "";
-    check("the filter's definition changed", now.includes("25") && !now.includes("15"), now);
+    check("the filter's condition changed", now.includes("> 25") && !now.includes("> 15"), now);
     let rows = await userActionRows(page);
     check(
       "the chat records the edit and run",
@@ -301,15 +369,39 @@ async function main() {
       rows.join(" | ")
     );
     let steps = await stepsOf(agent.id);
-    const editStep = steps.at(-1);
+    const editStep = steps[stepsBefore];
     check(
       "the edit is one user step the agent reads",
-      steps.length === stepsBefore + 1 &&
-        editStep?.role === "user" &&
+      editStep?.role === "user" &&
         editStep?.messageSource === "action" &&
         editStep?.userAction?.kind === "edit" &&
         editStep?.content?.startsWith(`I edited and ran \`${filter.operatorID}\` on the canvas.`),
       JSON.stringify(editStep?.userAction)
+    );
+    const userVersion = editStep?.userAction?.version;
+    check(
+      "the edit is a version of its own, by the user, in the tree",
+      typeof userVersion === "number" &&
+        (await chat(page)
+          .locator(".snapshot-node.by-user", { hasText: `v${userVersion} · ${filter.operatorID}` })
+          .count()) === 1,
+      `v${userVersion}: ${(await treeLabels(page)).join(" | ")}`
+    );
+    // The agent answers the run in a turn of its own.
+    await agentTurnDone(agent.id);
+    steps = await stepsOf(agent.id);
+    const response = steps.find(s => s.messageId === editStep?.messageId && s.role === "agent" && s.isEnd);
+    check(
+      "the agent answers the edit-and-run in its own turn",
+      !!response && /\b1\b|\bone\b|\b25\b|\b30\b/i.test(response.content ?? ""),
+      response?.content?.slice(0, 200) ?? "(no reply)"
+    );
+    // The edit kept the doc written for "> 15"; the agent gives it one that fits.
+    const refreshed = (await operatorsOf(agent.id)).find(o => o.operatorID === filter.operatorID)?.nativeOp;
+    check(
+      "the agent rewrites the doc to fit the user's change",
+      !!refreshed?.doc && !/\b15\b/.test(refreshed.doc) && refreshed.source.includes("> 25"),
+      `${refreshed?.doc} | ${refreshed?.source}`
     );
     check(
       "the panel stays open on the operator after the canvas reloads",
@@ -337,6 +429,14 @@ async function main() {
         .catch(() => "")
     ).trim();
     check("Run shows the source's result: 3 rows", /^3 rows\b/.test(sourceShape), sourceShape || "(no result shape)");
+    await agentTurnDone(agent.id);
+    steps = await stepsOf(agent.id);
+    const runStep = [...steps].reverse().find(s => s.userAction?.kind === "run");
+    check(
+      "the agent answers the run",
+      steps.some(s => s.messageId === runStep?.messageId && s.role === "agent" && s.isEnd),
+      runStep?.messageId
+    );
     await shot("05-run");
 
     // ===== 5. an invalid edit is refused, with the reason, and records nothing =====
@@ -392,6 +492,42 @@ async function main() {
     const kept = ops.find(o => o.operatorID === filter.operatorID)?.nativeOp?.source ?? "";
     check("the agent kept the user's change", kept.includes("25"), kept);
     await shot("08-final");
+
+    // ===== 8. restore a version from the middle of the agent's first call =====
+    const versions = (await api(AGENT, "GET", `/api/agents/${agent.id}/snapshot-tree`)).json.nodes.filter(
+      node => node.version !== undefined && node.edit?.kind === "add" && node.edit?.operatorId === source.operatorID
+    );
+    const sourceVersion = versions[0];
+    await domClick(
+      chat(page).locator(".snapshot-node", { hasText: `v${sourceVersion.version} · ${source.operatorID}` })
+    );
+    await until(async () => (await operatorsOf(agent.id)).length === 1, 20000);
+    ops = await operatorsOf(agent.id);
+    check(
+      "a version from the tree brings back that dataflow: only the source",
+      ops.map(o => o.operatorID).join(",") === source.operatorID,
+      ops.map(o => o.operatorID).join(",")
+    );
+    if (sourceVersion.owned === false) {
+      const restored = await until(
+        async () => (await userActionRows(page)).includes(`You restored v${sourceVersion.version}`),
+        20000
+      );
+      check(
+        "restoring a version inside a call is a step the chat shows",
+        !!restored,
+        (await userActionRows(page)).join(" | ")
+      );
+      const restoreStep = (await stepsOf(agent.id)).find(s => s.userAction?.kind === "restore");
+      check(
+        "…which tells the agent what was undone",
+        restoreStep?.content?.includes(`No longer defined: \`${filter.operatorID}\``),
+        restoreStep?.content?.slice(0, 200)
+      );
+    }
+    await until(async () => Object.keys(await canvasCaptions(page)).length === 1, 15000);
+    check("the canvas shows the restored version", Object.keys(await canvasCaptions(page)).length === 1);
+    await shot("09-restored");
   } catch (e) {
     check("script completed without exception", false, String(e).slice(0, 1200));
     await shot("99-error");

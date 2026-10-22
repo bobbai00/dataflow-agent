@@ -196,6 +196,19 @@ describe("NativeOperatorEditorComponent", () => {
     });
   });
 
+  it("points out a description left over from the earlier definition", () => {
+    const element = create();
+    expect(element.querySelector(".field-warning")).toBeNull();
+    component.positional[0].source = "lambda row: row['value'] > 25";
+    fixture.detectChanges();
+    expect(element.querySelector(".field-warning")?.textContent?.trim()).toBe(
+      "This still describes the earlier definition. Update it, or the agent will."
+    );
+    component.doc = "Keep the records over 25.";
+    fixture.detectChanges();
+    expect(element.querySelector(".field-warning")).toBeNull();
+  });
+
   it("shows why the agent rejected an edit, and why the form could not load", () => {
     agentService.editNativeOperator.mockReturnValue(
       throwError(

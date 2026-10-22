@@ -44,7 +44,7 @@ import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
 import { NzButtonComponent } from "ng-zorro-antd/button";
-import { NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
+import { NgClass, NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
 import { MarkdownComponent } from "ngx-markdown";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
 import { NzInputDirective, NzAutosizeDirective } from "ng-zorro-antd/input";
@@ -56,6 +56,7 @@ import { NzTabsComponent, NzTabComponent } from "ng-zorro-antd/tabs";
 import { NzSelectComponent, NzOptionComponent } from "ng-zorro-antd/select";
 import { NzInputNumberComponent } from "ng-zorro-antd/input-number";
 import { NzSwitchComponent } from "ng-zorro-antd/switch";
+import { ActionChip, dataflowChips, shownVersion, versionLabel, versionNodes } from "./dataflow-versions";
 
 /**
  * One snapshot rendered as a clickable box in the snapshot tree (left rail).
@@ -63,8 +64,15 @@ import { NzSwitchComponent } from "ng-zorro-antd/switch";
  * the empty root has no owning step.
  */
 export interface SnapshotNode {
-  /** Snapshot id (shown as the node label). */
+  /** Snapshot id. */
   id: string;
+  /** The dataflow version this node is (absent from a service without versions). */
+  version?: number;
+  /** Pill text ("v3 · kept") and tooltip ("v3: add kept (filter)"). */
+  label: string;
+  title: string;
+  /** A version the user made on the canvas. */
+  byUser: boolean;
   /** ReAct step whose actions produced this snapshot (undefined for root). */
   reactStepId?: string;
   /** Owning step's time as HH:MM:SS, shown next to the node ("" if unknown). */
@@ -105,8 +113,8 @@ export interface ChatCardRow {
   index: number;
   /** Agent thinking text (truncated with ellipsis in the template). */
   thinking: string;
-  /** Action labels for the step's tool calls (e.g. "Add operator-3"). */
-  actions: string[];
+  /** The step's actions: each edit with the version it made, then what it ran and read. */
+  actions: ActionChip[];
 }
 
 /**
@@ -126,6 +134,7 @@ export type ChatItem =
   templateUrl: "agent-chat.component.html",
   styleUrls: ["agent-chat.component.scss"],
   imports: [
+    NgClass,
     ɵNzTransitionPatchDirective,
     NzIconDirective,
     NzTooltipDirective,
@@ -273,9 +282,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * `null` when not playing, meaning the full tree is shown.
    */
   private playbackRevealedIds: Set<string> | null = null;
+  /** The version playback is showing on the canvas; `null` when not playing. */
+  private playbackActiveId: string | null = null;
   public treeCanvasWidth: number = 200;
   public treeHeight: number = 100;
-  public treePanelWidth: number = 260;
+  public treePanelWidth: number = 200;
   public treePanelCollapsed: boolean = false;
 
   // System info modal state
@@ -290,6 +301,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
   public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
   public settingsOperatorDoc: "enabled" | "disabled" = "disabled"; // A one-line doc on every operator
+  public settingsRespondToRuns: "respond" | "wait" = "respond"; // The agent answers canvas runs
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
   private disabledAutoPersist = false;
@@ -489,6 +501,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     // that's being torn down.
     this.isPlayingSnapshots = false;
     this.playbackRevealedIds = null;
+    this.playbackActiveId = null;
     if (this.snapshotPlaybackTimer !== null) {
       clearTimeout(this.snapshotPlaybackTimer);
       this.snapshotPlaybackTimer = null;
@@ -685,6 +698,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsDataEvidence = settings.dataEvidence === false ? "disabled" : "enabled";
         this.settingsFlowEvidence = settings.flowEvidence === true ? "enabled" : "disabled";
         this.settingsOperatorDoc = settings.operatorDoc === true ? "enabled" : "disabled";
+        this.settingsRespondToRuns = settings.respondToCanvasRuns === false ? "wait" : "respond";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
@@ -1048,7 +1062,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           // `content` is the model's visible preamble; reasoning models often
           // emit tool calls with none, and only expose a reasoning summary.
           thinking: (step.content || step.reasoningText || "").trim(),
-          actions: this.getActionLabels(step),
+          actions: this.getActionChips(step),
         };
         if (currentCard) {
           currentCard.push(row);
@@ -1112,6 +1126,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public userActionText(step: ReActStep): string {
     const action = step.userAction;
     if (!action) return step.content;
+    if (action.kind === "restore") return `You restored v${action.version}`;
     const id = `\`${action.operatorId}\``;
     if (action.status === "running") return action.kind === "edit" ? `Saving your edit of ${id}…` : `Running ${id}…`;
     const verb =
@@ -1134,6 +1149,15 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * regardless of how long individual operator ids are. Verbs keep their
    * first-seen order.
    */
+  private getActionChips(step: ReActStep): ActionChip[] {
+    return dataflowChips(step) ?? this.getActionLabels(step).map(label => ({ kind: "tool", label }));
+  }
+
+  /** The version a canvas edit made, shown beside its row; a restore names its version in the text. */
+  public userActionVersion(step: ReActStep): number | undefined {
+    return step.userAction?.kind === "restore" ? undefined : step.userAction?.version;
+  }
+
   private getActionLabels(step: ReActStep): string[] {
     if (!step.toolCalls || step.toolCalls.length === 0) return [];
     const counts = new Map<string, number>();
@@ -1185,9 +1209,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public buildSnapshotTree(): void {
     const tree = this.snapshotTree;
-    // During playback only the snapshots revealed so far are shown, so they
-    // appear progressively; otherwise the full tree is rendered.
-    const allNodes = tree ? tree.nodes : [];
+    // Versions only: a step that ran or read the dataflow made none, and its
+    // snapshot folds into the version it shows. During playback only the
+    // versions revealed so far are shown, so they appear progressively.
+    const allNodes = tree ? versionNodes(tree.nodes) : [];
     const nodes = this.playbackRevealedIds ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id)) : allNodes;
     if (!tree || nodes.length === 0) {
       this.snapshotNodes = [];
@@ -1198,7 +1223,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       return;
     }
 
-    const activeId = this.computeActiveSnapshotId(nodes);
+    const activeId =
+      this.playbackActiveId ??
+      shownVersion(tree.nodes, tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes)) ??
+      "";
 
     // Snapshots on the path from root to the active node (brighter edges/nodes).
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -1223,9 +1251,13 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const marginX = 10;
     const marginY = 10;
 
+    const labels = new Map(nodes.map(n => [n.id, versionLabel(n)]));
     const nodeWidths = new Map<string, number>();
     for (const n of nodes) {
-      const width = Math.max(minNodeWidth, Math.min(maxNodeWidth, n.id.length * charWidth + horizontalPadding));
+      const width = Math.max(
+        minNodeWidth,
+        Math.min(maxNodeWidth, labels.get(n.id)!.label.length * charWidth + horizontalPadding)
+      );
       nodeWidths.set(n.id, width);
     }
 
@@ -1234,6 +1266,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
     this.snapshotNodes = ordered.map((n, row) => ({
       id: n.id,
+      version: n.version,
+      label: labels.get(n.id)!.label,
+      title: labels.get(n.id)!.title,
+      byUser: n.edit?.author === "user",
       reactStepId: n.reactStepId,
       timeLabel: AgentChatComponent.formatClockTime(n.timestamp),
       isRoot: !n.parentId,
@@ -1340,7 +1376,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       for (const candidate of pool) {
         const a = candidate.node.timestamp ?? Number.POSITIVE_INFINITY;
         const b = best.node.timestamp ?? Number.POSITIVE_INFINITY;
-        if (a < b || (a === b && candidate.inputIndex < best.inputIndex)) {
+        // One step's versions share its time; they go in version order.
+        const va = candidate.node.version ?? Number.POSITIVE_INFINITY;
+        const vb = best.node.version ?? Number.POSITIVE_INFINITY;
+        if (a < b || (a === b && (va < vb || (va === vb && candidate.inputIndex < best.inputIndex)))) {
           best = candidate;
         }
       }
@@ -1391,7 +1430,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   private computeActiveSnapshotId(nodes: SnapshotTreeResponse["nodes"]): string {
     const snapshotByOwner = new Map<string, string>();
     for (const n of nodes) {
-      if (n.reactStepId) snapshotByOwner.set(n.reactStepId, n.id);
+      // A step's earlier versions share its id; HEAD shows the step's own snapshot.
+      if (n.reactStepId && n.owned !== false) snapshotByOwner.set(n.reactStepId, n.id);
     }
     const stepMap = new Map(this.agentResponses.map(s => [s.id, s]));
     let current: string | undefined = this.currentHeadId ?? undefined;
@@ -1434,7 +1474,22 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public onSnapshotNodeClick(node: SnapshotNode): void {
     this.stopSnapshotPlayback();
-    this.checkoutSnapshot(node.reactStepId, node.id);
+    if (node.version === undefined) {
+      this.checkoutSnapshot(node.reactStepId, node.id);
+      return;
+    }
+    // The step that made the version stays on the path; scroll to it.
+    this.pendingScrollStepId = node.reactStepId ?? null;
+    this.agentService
+      .checkoutVersion(this.agentInfo.id, node.id)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {},
+        error: () => {
+          this.pendingScrollStepId = null;
+          this.notificationService.error(`Checkout to v${node.version} failed`);
+        },
+      });
   }
 
   /**
@@ -1511,16 +1566,15 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       this.stopSnapshotPlayback();
       return;
     }
-    const nodes = this.snapshotTree?.nodes ?? [];
-    if (nodes.length === 0) {
+    const tree = this.snapshotTree;
+    const nodes = tree ? versionNodes(tree.nodes) : [];
+    if (!tree || nodes.length === 0) {
       return;
     }
-    // Build the root→active path of snapshots via parentId. The empty root is
-    // already excluded from `nodes`, so the path starts at the first real
-    // snapshot and ends at the active (HEAD) one.
+    // The root→shown path of versions, via parentId.
     const byId = new Map(nodes.map(n => [n.id, n]));
     const path: SnapshotTreeResponse["nodes"] = [];
-    let cursor: string | undefined = this.computeActiveSnapshotId(nodes);
+    let cursor = shownVersion(tree.nodes, tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes));
     while (cursor) {
       const node = byId.get(cursor);
       if (!node) break;
@@ -1532,8 +1586,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     }
 
     this.isPlayingSnapshots = true;
-    // Start with nothing revealed; each step reveals the next snapshot so the
-    // tree grows progressively rather than showing every node up front.
+    // Start with nothing revealed; each step reveals the next version so the
+    // tree grows progressively. The canvas previews each version without
+    // moving HEAD, and returns to HEAD's dataflow when playback ends.
     this.playbackRevealedIds = new Set<string>();
     let i = 0;
     const advance = () => {
@@ -1543,12 +1598,29 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       }
       const node = path[i++];
       this.playbackRevealedIds!.add(node.id);
-      this.buildSnapshotTree(); // reveal the newly-played snapshot in the tree
-      this.checkoutSnapshot(node.reactStepId, node.id); // animate canvas + move HEAD
+      this.playbackActiveId = node.id;
+      this.buildSnapshotTree();
+      this.previewVersion(node.id);
       this.cdr.detectChanges();
       this.snapshotPlaybackTimer = setTimeout(advance, this.snapshotPlaybackIntervalMs);
     };
     advance();
+  }
+
+  /** Show a version's dataflow on the canvas without moving HEAD. */
+  private previewVersion(snapshotId: string): void {
+    const base = this.agentService.getCurrentWorkflow(this.agentInfo.id);
+    if (!base) return;
+    this.agentService
+      .getVersion(this.agentInfo.id, snapshotId)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: ({ workflow }) => {
+          if (this.isPlayingSnapshots)
+            this.workflowActionService.reloadWorkflow({ ...base, content: workflow }, false, false);
+        },
+        error: () => {},
+      });
   }
 
   /**
@@ -1557,7 +1629,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * not-yet-revealed nodes.
    */
   public stopSnapshotPlayback(): void {
+    const wasPlaying = this.isPlayingSnapshots;
     this.isPlayingSnapshots = false;
+    this.playbackActiveId = null;
+    // Back to HEAD's dataflow after previewing versions.
+    const head = wasPlaying ? this.agentService.getCurrentWorkflow(this.agentInfo.id) : null;
+    if (head) this.workflowActionService.reloadWorkflow(head, false, false);
     if (this.snapshotPlaybackTimer !== null) {
       clearTimeout(this.snapshotPlaybackTimer);
       this.snapshotPlaybackTimer = null;
@@ -1812,6 +1889,18 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
           this.notificationService.success(`Operator doc ${enabled ? "enabled" : "disabled"}`);
           this.refreshSystemInfo();
         },
+        error: () => {}, // Error already handled by service
+      });
+  }
+
+  /** Save whether the agent responds when the user runs an operator from the canvas. */
+  public saveRespondToRuns(): void {
+    const respond = this.settingsRespondToRuns === "respond";
+    this.agentService
+      .updateAgentSettings(this.agentInfo.id, { respondToCanvasRuns: respond })
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => this.notificationService.success(respond ? "The agent responds to runs" : "The agent waits"),
         error: () => {}, // Error already handled by service
       });
   }

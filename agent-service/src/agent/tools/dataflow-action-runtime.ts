@@ -22,14 +22,14 @@ import { registeredReferenceText } from "../prompts";
 import type { ExecutionRunMetrics, OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import { WorkflowState } from "../workflow-state";
-import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
+import { editVersionInfo, type SnapshotEdit, type WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } from "../native/evidence";
 import { resultScope } from "../native/result-scope";
 import { nativeAssignmentText } from "../native/catalog";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
 import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
 import { constantColumnLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
-import { edgeEnds, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
+import { edgeEnds, editVersions, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
 import { EMPTY_DATAFLOW_ERROR, runDataflowActions, type DataflowActionsResult } from "./dataflow-actions";
 import { formatOperatorResult } from "./result-formatting";
@@ -44,6 +44,8 @@ export interface DataflowActionRuntime {
   execute: (operatorIds?: readonly string[], onExecution?: (run: ExecutionRunMetrics) => void) => Promise<void>;
   isCurrent: () => boolean;
   signal?: AbortSignal;
+  /** Who made the call's edits: the agent, or the user from the canvas. */
+  author?: SnapshotEdit["author"];
 }
 
 /** Every operator upstream of `id` in this workflow. */
@@ -178,12 +180,15 @@ export async function executeDataflowActionBatch(
       };
     }
     if (action.type === "edit") {
-      const plan = await planRegisteredGraphEdit(state.getWorkflowContent(), action.python, action.changes, context);
+      const before = state.getWorkflowContent();
+      const plan = await planRegisteredGraphEdit(before, action.python, action.changes, context);
       assertCurrent();
       state.setWorkflowContent(plan.workflow);
-      storage.updatePendingWorkflow(stepId, plan.workflow);
+      // One version per edit; the step's snapshot is the last of them.
+      const versions = storage.recordEdits(stepId, editVersions(before, plan, runtime.author)).map(editVersionInfo);
       result.operators.push(...plan.operators);
-      const { workflow: _workflow, ...output } = plan;
+      const { workflow: _workflow, edits: _edits, ...planned } = plan;
+      const output = { ...planned, versions };
       if (multiRequest && output.registrations)
         output.registrations = output.registrations.map(registration => ({
           ...registration,

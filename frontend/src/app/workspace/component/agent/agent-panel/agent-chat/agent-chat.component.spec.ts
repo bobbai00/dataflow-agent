@@ -52,6 +52,11 @@ class MockAgentService {
 
   public ensureWorkflowPolling = vi.fn();
   public checkoutStep = vi.fn((): Observable<unknown> => of({ status: "checked out" }));
+  public checkoutVersion = vi.fn((): Observable<{ headId: string }> => of({ headId: "h" }));
+  public getVersion = vi.fn((_agentId: string, snapshotId: string) =>
+    of({ version: 1, workflow: { operators: [], links: [], commentBoxes: [], operatorPositions: {}, snapshotId } })
+  );
+  public getCurrentWorkflow = vi.fn(() => this.workflowSubject.getValue());
   public nextContextSubject = new BehaviorSubject<string>("");
   public getNextContextObservable = vi.fn((): Observable<string> => this.nextContextSubject.asObservable());
   public getSnapshotTree = vi.fn((): Observable<{ rootId: string; nodes: unknown[] }> => of({ rootId: "", nodes: [] }));
@@ -1229,6 +1234,194 @@ describe("AgentChatComponent", () => {
       component.buildSnapshotTree();
       expect(component.snapshotTimeRows[0].label).not.toBe("");
       expect(component.snapshotTimeRows[1].label).toBe("");
+    });
+  });
+
+  describe("dataflow versions", () => {
+    const versionsOutput = {
+      kind: "dataflow-actions",
+      actions: [
+        {
+          action: { type: "edit" },
+          status: "ok",
+          output: {
+            versions: [
+              { version: 1, snapshotId: "S3", kind: "add", operatorId: "records", author: "agent" },
+              { version: 2, snapshotId: "S2", kind: "add", operatorId: "kept", author: "agent" },
+            ],
+          },
+        },
+        { action: { type: "execute", operator_ids: ["kept"] }, status: "ok" },
+        { action: { type: "retrieve", operator_ids: ["kept"] }, status: "ok" },
+      ],
+    };
+    // v0 (start) → v1 → v2; S4 only ran the dataflow; v3 is the user's edit.
+    const tree = {
+      rootId: "S0",
+      headSnapshotId: "S4",
+      nodes: [
+        {
+          id: "S1",
+          parentId: "S0",
+          reactStepId: "i",
+          operatorCount: 0,
+          resultCount: 0,
+          timestamp: 1,
+          version: 0,
+          owned: true,
+          edit: { kind: "start", author: "agent" },
+        },
+        {
+          id: "S2",
+          parentId: "S3",
+          reactStepId: "a1",
+          operatorCount: 2,
+          resultCount: 2,
+          timestamp: 2,
+          version: 2,
+          owned: true,
+          edit: { kind: "add", operatorId: "kept", author: "agent" },
+        },
+        {
+          id: "S3",
+          parentId: "S1",
+          reactStepId: "a1",
+          operatorCount: 1,
+          resultCount: 0,
+          timestamp: 2,
+          version: 1,
+          owned: false,
+          edit: { kind: "add", operatorId: "records", author: "agent" },
+        },
+        { id: "S4", parentId: "S2", reactStepId: "a2", operatorCount: 2, resultCount: 2, timestamp: 3, owned: true },
+        {
+          id: "S5",
+          parentId: "S4",
+          reactStepId: "u1",
+          operatorCount: 2,
+          resultCount: 1,
+          timestamp: 4,
+          version: 3,
+          owned: true,
+          edit: { kind: "update", operatorId: "kept", author: "user" },
+        },
+      ],
+    } as any;
+
+    it("shows a step's edits with the versions they made, then what it ran and read", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "a1",
+          stepId: 1,
+          toolCalls: [{ toolName: "dataflow", toolCallId: "c1" }],
+          toolResults: [{ toolCallId: "c1", output: versionsOutput }],
+        }),
+      ]);
+      fixture.detectChanges();
+      const chips = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".react-card-action")).map(
+        chip => [
+          chip.querySelector(".chip-label")?.textContent?.trim(),
+          chip.querySelector(".chip-version")?.textContent?.trim(),
+        ]
+      );
+      expect(chips).toEqual([
+        ["add records", "v1"],
+        ["add kept", "v2"],
+        ["run kept", undefined],
+        ["show kept", undefined],
+      ]);
+    });
+
+    it("draws versions only, labeled by what changed, with HEAD on the version it shows", () => {
+      createComponent();
+      component.snapshotTree = tree;
+      component.buildSnapshotTree();
+      expect(component.snapshotNodes.map(n => [n.label, n.byUser])).toEqual([
+        ["v0 · start", false],
+        ["v1 · records", false],
+        ["v2 · kept", false],
+        ["v3 · kept", true],
+      ]);
+      // HEAD's snapshot only ran v2, so v2 is highlighted.
+      expect(component.snapshotNodes.find(n => n.isActive)?.label).toBe("v2 · kept");
+      expect(component.snapshotEdges.map(e => [e.sourceId, e.targetId])).toEqual([
+        ["S1", "S3"],
+        ["S3", "S2"],
+        ["S2", "S5"],
+      ]);
+    });
+
+    it("checks out a version by its snapshot", () => {
+      createComponent();
+      component.snapshotTree = tree;
+      component.buildSnapshotTree();
+      component.onSnapshotNodeClick(component.snapshotNodes[1]);
+      expect(agentService.checkoutVersion).toHaveBeenCalledWith(AGENT_ID, "S3");
+      expect(agentService.checkoutStep).not.toHaveBeenCalled();
+    });
+
+    it("plays the versions on the canvas without moving HEAD, then shows HEAD again", () => {
+      vi.useFakeTimers();
+      try {
+        createComponent();
+        const head = { wid: 1, name: "w", content: { operators: [] } } as any;
+        agentService.workflowSubject.next(head);
+        reloadWorkflow.mockClear();
+        component.snapshotTree = tree;
+        component.playSnapshots();
+        expect(agentService.getVersion).toHaveBeenLastCalledWith(AGENT_ID, "S1");
+        expect(reloadWorkflow).toHaveBeenLastCalledWith(
+          expect.objectContaining({ wid: 1, content: expect.objectContaining({ snapshotId: "S1" }) }),
+          false,
+          false
+        );
+        expect(component.snapshotNodes.find(n => n.isActive)?.id).toBe("S1");
+        vi.advanceTimersByTime(900 * 3);
+        expect(agentService.getVersion.mock.calls.map(call => call[1])).toEqual(["S1", "S3", "S2"]);
+        expect(agentService.checkoutVersion).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(900);
+        expect(component.isPlayingSnapshots).toBe(false);
+        expect(reloadWorkflow).toHaveBeenLastCalledWith(head, false, false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("tells a restore by the version it brought back, and tags a canvas edit with its version", () => {
+      createComponent();
+      agentService.stepsSubject.next([
+        makeStep({
+          id: "e",
+          messageId: "e",
+          role: "user",
+          messageSource: "action",
+          userAction: { kind: "edit", operatorId: "kept", status: "ok", version: 3 },
+        }),
+        makeStep({
+          id: "r",
+          messageId: "r",
+          role: "user",
+          messageSource: "action",
+          userAction: { kind: "restore", operatorId: "records", status: "ok", version: 1 },
+        }),
+      ]);
+      fixture.detectChanges();
+      const rows = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll(".user-action")).map(row => [
+        row.querySelector(".user-action-text")?.textContent?.trim(),
+        row.querySelector(".chip-version")?.textContent?.trim(),
+      ]);
+      expect(rows).toEqual([
+        ["You edited `kept`", "v3"],
+        ["You restored v1", undefined],
+      ]);
+    });
+
+    it("saves whether the agent responds to canvas runs", () => {
+      createComponent();
+      component.settingsRespondToRuns = "wait";
+      component.saveRespondToRuns();
+      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { respondToCanvasRuns: false });
     });
   });
 });

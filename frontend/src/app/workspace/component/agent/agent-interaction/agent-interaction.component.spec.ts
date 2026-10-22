@@ -496,6 +496,21 @@ describe("AgentInteractionComponent", () => {
       expect(element.querySelector(".op-status")?.textContent?.trim()).toBe("Sent to Bob; the reply is in the chat.");
     });
 
+    it("names the version a save made, and says when the agent answers a run", () => {
+      agentService.runNativeOperator.mockReturnValue(
+        of({ status: "ok", responding: true, userAction: { kind: "run", operatorId: "kept", status: "ok", rows: 2 } })
+      );
+      const element = createNative();
+      component.onSaved({ status: "ok", userAction: { kind: "edit", operatorId: "kept", status: "ok", version: 6 } });
+      fixture.detectChanges();
+      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe(
+        "Saved as v6. Bob reads your change at its next turn."
+      );
+      button(element, "Run").click();
+      fixture.detectChanges();
+      expect(element.querySelector(".op-status")?.textContent?.trim()).toBe("Bob is answering in the chat.");
+    });
+
     it("closes from its close button", () => {
       const element = createNative();
       const closed = vi.fn();

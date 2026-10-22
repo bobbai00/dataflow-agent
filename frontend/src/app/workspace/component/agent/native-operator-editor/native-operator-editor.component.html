@@ -167,6 +167,11 @@
           class="field-control field-doc"
           placeholder="What this operator does, in one line"
           [(ngModel)]="doc" />
+        <div
+          *ngIf="staleDoc"
+          class="field-hint field-warning">
+          This still describes the earlier definition. Update it, or the agent will.
+        </div>
       </div>
 
       <div

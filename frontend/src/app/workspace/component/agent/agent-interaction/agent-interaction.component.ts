@@ -297,6 +297,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
           this.running = false;
           this.sharedWith = this.agentName;
           if (response.status === "error") this.actionError = response.userAction?.error ?? "The run failed.";
+          if (response.responding) this.notice = `${this.agentName} is answering in the chat.`;
           this.changeDetectorRef.detectChanges();
         },
         error: (error: unknown) => {
@@ -318,15 +319,22 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
       this.sharedWith = this.agentName;
       if (response.status === "error")
         this.actionError = response.userAction?.error ?? "The change was saved, but the run failed.";
+      if (response.responding) this.notice = `${this.saved(response)} ${this.agentName} is answering in the chat.`;
     } else {
       this.mode = null;
-      this.notice = `Saved. ${this.agentName} reads your change at its next turn.`;
+      this.notice = `${this.saved(response)} ${this.agentName} reads your change at its next turn.`;
     }
     this.changeDetectorRef.detectChanges();
   }
 
   public onAgentSelected(): void {
     this.watchAgentState();
+  }
+
+  /** "Saved as v6." — the version a saved edit made. */
+  private saved(response: UserActionResponse): string {
+    const version = response.userAction?.version;
+    return version === undefined ? "Saved." : `Saved as v${version}.`;
   }
 
   public isSelectedAgentConnected(): boolean {

@@ -18,6 +18,8 @@
  */
 
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { MockLanguageModelV3 } from "ai/test";
+import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { buildApp, _resetAgentStoreForTests } from "./server";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
@@ -36,6 +38,9 @@ const token = () =>
   ].join(".");
 let agent: TexeraAgent;
 let initSpy: ReturnType<typeof spyOn>;
+/** What the model replies to each request: a fixed text. */
+let reply = "Done.";
+const prompts: unknown[][] = [];
 
 beforeEach(() => {
   _resetAgentStoreForTests();
@@ -44,6 +49,23 @@ beforeEach(() => {
   initSpy = spyOn(TexeraAgent.prototype, "initialize").mockImplementation(async function (this: TexeraAgent, config) {
     await initialize.call(this, config);
     agent = this;
+    (this as any).driver = new VercelToolUseDriver({
+      maxRetries: 0,
+      model: new MockLanguageModelV3({
+        doGenerate: async options => {
+          prompts.push(structuredClone(options.prompt) as unknown[]);
+          return {
+            content: [{ type: "text" as const, text: reply }],
+            finishReason: { unified: "stop" as const, raw: "stop" },
+            usage: {
+              inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+              outputTokens: { total: 5, text: 5, reasoning: 0 },
+            },
+            warnings: [],
+          };
+        },
+      }),
+    });
     // The engine: every operator completes with three rows.
     (this as any).executePostStepChanges = async () => {
       for (const op of this.getWorkflowState().getAllOperators())
@@ -90,8 +112,13 @@ const call = (method: string, path: string, body?: unknown) =>
   );
 
 /** A native agent whose dataflow has a registered loader and a filter. */
-async function created(): Promise<string> {
-  const response = await call("POST", "", { modelType: "test", workflowId: 17, settings: { agentMode: "native" } });
+async function created(respondToCanvasRuns = false): Promise<string> {
+  prompts.length = 0;
+  const response = await call("POST", "", {
+    modelType: "test",
+    workflowId: 17,
+    settings: { agentMode: "native", respondToCanvasRuns },
+  });
   expect(response.status).toBe(200);
   const id = ((await response.json()) as { id: string }).id;
   const args = {
@@ -134,6 +161,7 @@ test("edit and run record user steps; a rejected edit is a 400 and records nothi
 
   const run = (await (await call("POST", `/${id}/operators/kept/run`)).json()) as Record<string, any>;
   expect(run.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 3 });
+  expect(run.responding).toBe(false);
   expect(run.operatorResults.kept.outputTuples).toBe(3);
 
   const steps = ((await (await call("GET", `/${id}/react-steps`)).json()) as { steps: any[] }).steps;
@@ -188,4 +216,64 @@ test("the socket refuses a message while a canvas action or a turn runs", async 
   } finally {
     server.stop(true);
   }
+});
+
+/** Wait until the agent's turn, started in the background, has finished. */
+async function settled(): Promise<void> {
+  for (let i = 0; i < 200 && agent.getState() !== AgentState.AVAILABLE; i++) await Bun.sleep(10);
+  await Bun.sleep(10);
+}
+
+test("a canvas run is answered by the agent in a turn of its own", async () => {
+  const id = await created(true);
+  reply = "All three records pass the filter.";
+  const run = (await (await call("POST", `/${id}/operators/kept/run`)).json()) as Record<string, any>;
+  expect(run.responding).toBe(true);
+  await settled();
+  const steps = ((await (await call("GET", `/${id}/react-steps`)).json()) as { steps: any[] }).steps;
+  const turn = steps.filter(
+    step => step.messageId === steps.find(s => s.stepId === 0 && s.messageSource === "action")?.messageId
+  );
+  expect(turn.map(step => [step.role, step.content.split("\n")[0]])).toEqual([
+    ["user", "I ran `kept` on the canvas."],
+    ["agent", "All three records pass the filter."],
+  ]);
+  expect(JSON.stringify(prompts.at(-1))).toContain("What does this result mean for my request?");
+});
+
+test("the version tree lists each edit; a version can be previewed and checked out", async () => {
+  const id = await created();
+  const tree = (await (await call("GET", `/${id}/snapshot-tree`)).json()) as Record<string, any>;
+  const versions = tree.nodes
+    .filter((node: any) => node.version !== undefined)
+    .sort((a: any, b: any) => a.version - b.version);
+  // v0 is where the agent started; the call's two edits are v1 and v2, the
+  // step's own snapshot being the last, with v1 between it and v0.
+  expect(versions.map((node: any) => [node.version, node.edit.kind, node.edit.operatorId, node.owned])).toEqual([
+    [0, "start", undefined, true],
+    [1, "add", "records", false],
+    [2, "add", "kept", true],
+  ]);
+  expect(versions[2].parentId).toBe(versions[1].id);
+  expect(versions[1].parentId).toBe(versions[0].id);
+  expect(tree.headSnapshotId).toBe(versions[2].id);
+
+  const preview = (await (await call("GET", `/${id}/versions/${versions[1].id}`)).json()) as Record<string, any>;
+  expect(preview.version).toBe(1);
+  expect(preview.workflow.operators.map((op: any) => op.operatorID)).toEqual(["records"]);
+  expect((await call("GET", `/${id}/versions/S999`)).status).toBe(404);
+
+  const restored = await call("POST", `/${id}/checkout-version`, { snapshotId: versions[1].id });
+  expect(restored.status).toBe(200);
+  const head = ((await restored.json()) as { headId: string }).headId;
+  expect(agent.getStepsById().get(head)?.userAction).toMatchObject({ kind: "restore", version: 1 });
+  expect(
+    agent
+      .getWorkflowState()
+      .getAllOperators()
+      .map(op => op.operatorID)
+  ).toEqual(["records"]);
+  expect((await call("POST", `/${id}/checkout-version`, { snapshotId: "S999" })).status).toBe(404);
+  (agent as any).state = AgentState.GENERATING;
+  expect((await call("POST", `/${id}/checkout-version`, { snapshotId: versions[2].id })).status).toBe(409);
 });

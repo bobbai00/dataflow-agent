@@ -82,10 +82,12 @@ export interface ReActStep {
   userAction?: UserActionInfo;
 }
 
-/** What the user did to one operator on the canvas (agent-service `UserActionInfo`). */
+/** What the user did on the canvas (agent-service `UserActionInfo`): edited or
+ * ran one operator, or restored an earlier version of the dataflow. */
 export interface UserActionInfo {
-  kind: "edit" | "run";
-  operatorId: string;
+  kind: "edit" | "run" | "restore";
+  /** The operator edited or run; for a restore, the one the restored version's edit changed. */
+  operatorId?: string;
   /** The statement the user saved (edit). */
   statement?: string;
   /** The operator's statement before the edit. */
@@ -95,6 +97,8 @@ export interface UserActionInfo {
   status: "running" | "ok" | "error";
   /** Rows of the operator's result, when it ran. */
   rows?: number;
+  /** The dataflow version the edit made, or the version a restore brought back. */
+  version?: number;
   error?: string;
 }
 
