@@ -29,10 +29,11 @@ export const STUDY = {
   password: process.env.STUDY_PASSWORD ?? "texera",
   /** The owner segment of a dataset path (`/owner/dataset/v1/file`): the account's email. */
   ownerEmail: process.env.STUDY_OWNER_EMAIL ?? "texera",
-  datasets: { 1: "restaurant-survey", 2: "sf-inspections" } as Record<1 | 2, string>,
+  /** Scenario 2's name is what `scenario-2/dataflow/make_bobflow_steps.py` writes into the replayed scans. */
+  datasets: { 1: "olympics", 2: "sf-airbnb" } as Record<1 | 2, string>,
   files: {
-    1: ["rating_final.csv", "userprofile.csv", "geoplaces2.csv", "chefmozcuisine.csv"],
-    2: ["businesses.csv", "inspections.csv", "violations.csv"],
+    1: ["athlete_events_2006_2016.csv", "noc_regions.csv", "country_geo.csv"],
+    2: ["listings.csv", "reviews_last_12_months.csv", "neighbourhoods.csv"],
   } as Record<1 | 2, string[]>,
   agentBase: process.env.AGENT_BASE ?? "http://localhost:3001",
 };

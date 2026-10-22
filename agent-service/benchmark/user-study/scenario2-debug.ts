@@ -21,36 +21,67 @@
  * Scenario 2 debugging on BobFlow, through the chat as a participant would do it:
  * first a question about the analysis, which the agent must answer without
  * changing anything; then feedback naming the fix, after which the agent must
- * make attach_violations join on business_id and date, rerun what depends on it,
- * and report the corrected answers (1,057 floors; 630 businesses without violations).
+ * make `parse_price` strip the comma as well as the dollar sign, rerun what
+ * depends on it, and report the corrected answer (`priced` keeps 5,691 listings;
+ * Pacific Heights leads at $858).
  *
  *   AGENT_BASE=http://localhost:3002 AGENT_ID=agent-xxxx \
  *     bun run benchmark/user-study/scenario2-debug.ts
  *
  * AGENT_ID is the agent scenario2-bobflow.ts replayed the analysis into.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { login } from "../../src/api";
-import { studyLogin } from "./study";
+import { STUDY, studyLogin } from "./study";
 import { agentApi } from "./bobflow";
 
 const agentId = process.env.AGENT_ID;
 if (!agentId) throw new Error("AGENT_ID names the replayed agent (scenario2-bobflow.ts prints it)");
 
-const QUESTION =
-  "Business 2862 shows 5 violations in violations_per_business. Which inspection dates do those violations come from, " +
-  "and what was its latest 2016 inspection date?";
+// The two messages the doc's rehearsal section names.
+const QUESTION = "Why does the analysis contain no listing above $999?";
 const FEEDBACK =
-  "attach_violations joins on business_id only, so it attaches violations from every inspection a business ever had, " +
-  "not just its latest 2016 one. Join on business_id and date instead, rerun what depends on it, and give me the new answers.";
+  "The price parse strips the $ but not the comma, so prices of $1,000 or more fail to convert and get dropped. " +
+  "Strip both, rerun what depends on it, and give me the new answer.";
+
+interface Bug {
+  operator: string;
+  planted_numbers: { [key: string]: number | [string, number] };
+  fixed_numbers: { [key: string]: number | [string, number] };
+}
+const spec = JSON.parse(readFileSync(join(STUDY.dir, "scenario-2", "dataflow", "bobflow_steps.json"), "utf8")) as {
+  steps: Array<{ statements: string }>;
+  bug: Bug;
+};
+const answerOperator = [...spec.steps.at(-1)!.statements.matchAll(/^set (\w+):/gm)].at(-1)?.[1] ?? "";
+const numbersOf = (numbers: Bug["planted_numbers"]) => ({
+  rows: Object.entries(numbers).filter(([, v]) => typeof v === "number") as Array<[string, number]>,
+  top: Object.values(numbers).find(Array.isArray) as [string, number] | undefined,
+});
+const planted = numbersOf(spec.bug.planted_numbers);
+const fixed = numbersOf(spec.bug.fixed_numbers);
 
 const token = await studyLogin(login);
 const api = agentApi(token);
 
 interface State {
-  join: string;
-  joinRows: number | undefined;
-  answer: string;
   operators: string[];
+  rows: (operator: string) => number | undefined;
+  top: { text?: string; number?: number };
+  /** The registered Python of the faulty operator, when the dataflow still carries one by that name. */
+  faultyCode: string;
+}
+
+/** The registered Python of `name`, wherever the namespace keeps it: the first text holding its def. */
+function sourceOf(value: unknown, name: string): string {
+  if (typeof value === "string") return value.includes(`def ${name}(`) ? value : "";
+  if (value && typeof value === "object")
+    for (const inner of Object.values(value as Record<string, unknown>)) {
+      const found = sourceOf(inner, name);
+      if (found) return found;
+    }
+  return "";
 }
 
 async function state(): Promise<State> {
@@ -58,16 +89,20 @@ async function state(): Promise<State> {
   const results = (await api.get(`/${agentId}/operator-results`)).results ?? {};
   const operators: any[] = workflow.workflow?.operators ?? [];
   const rows = (id: string) => results[id]?.totalRowCount ?? results[id]?.outputTuples;
-  const join = operators.find(op => op.operatorID === "attach_violations");
+  const top = results[answerOperator]?.sampleRecords?.[0] ?? {};
+  const faulty = sourceOf(workflow.workflow?.nativeNamespace, spec.bug.operator);
   return {
-    join: join?.nativeOp?.source ?? JSON.stringify(join?.nativeOp?.properties ?? null),
-    joinRows: rows("attach_violations"),
-    answer: JSON.stringify(results["answer"]?.sampleRecords ?? []),
     operators: operators.map(op => {
       const r = results[op.operatorID];
       const status = r ? (r.error ? "FAILED" : `${rows(op.operatorID)} rows`) : "no result";
       return `${op.operatorID} [${op.nativeOp?.type}] ${status}`;
     }),
+    rows,
+    top: {
+      text: Object.values(top).find(value => typeof value === "string") as string | undefined,
+      number: Object.values(top).find(value => typeof value === "number") as number | undefined,
+    },
+    faultyCode: faulty,
   };
 }
 
@@ -76,9 +111,15 @@ const check = (name: string, ok: boolean, detail: string) => {
   checks.push([name, ok, detail]);
   console.log(`${ok ? "PASS" : "FAIL"} ${name} — ${detail}`);
 };
+const matches = (s: State, numbers: ReturnType<typeof numbersOf>) =>
+  numbers.rows.every(([key, expected]) => s.rows(key.replace(/_rows$/, "")) === expected) &&
+  (!numbers.top || (s.top.text === numbers.top[0] && s.top.number === numbers.top[1]));
+const describe = (s: State) =>
+  `${planted.rows.map(([key]) => `${key.replace(/_rows$/, "")}=${s.rows(key.replace(/_rows$/, ""))}`).join(", ")}; ${answerOperator} starts ${s.top.text} ${s.top.number}`;
 
 const before = await state();
-console.log(`before: ${before.join} (${before.joinRows} rows)`);
+console.log(`before: ${describe(before)}`);
+check("the planted analysis is in place", matches(before, planted), describe(before));
 
 for (const [turn, content] of [QUESTION, FEEDBACK].entries()) {
   const started = Date.now();
@@ -91,31 +132,20 @@ for (const [turn, content] of [QUESTION, FEEDBACK].entries()) {
   const after = await state();
   for (const line of after.operators) console.log(`  ${line}`);
   if (turn === 0) {
-    check("the question left the join alone", after.join === before.join, after.join);
+    check("the question left the analysis alone", matches(after, planted), describe(after));
     check(
-      "the question left the answers alone",
-      after.answer === before.answer,
-      `answer rows: ${after.answer.slice(0, 120)}`
-    );
-    check(
-      "the agent answered with dates",
-      /2016|201\d-\d\d-\d\d|\d\d\/\d\d\/20\d\d/.test(answer),
-      "dates in the reply"
+      "the agent answered",
+      answer.trim().length > 0 && !/\b858\b/.test(answer),
+      "a reply, not the corrected answer"
     );
   } else {
-    check("the join now uses the date too", /date/.test(after.join) && after.join !== before.join, after.join);
+    check("the fix gives the corrected numbers", matches(after, fixed), describe(after));
     check(
-      "attach_violations shrank to one inspection per business",
-      (after.joinRows ?? 0) < 21434 && (after.joinRows ?? 0) > 4191,
-      `${after.joinRows} rows`
+      "the reply reports the corrected answer",
+      !!fixed.top && answer.includes(fixed.top[0]) && new RegExp(`\\b${fixed.top[1]}\\b`).test(answer),
+      fixed.top ? `${fixed.top[0]} ${fixed.top[1]}` : "no top row named"
     );
-    check(
-      "the corrected floors count 1,057 is in the results",
-      /\b1057\b/.test(after.answer),
-      after.answer.slice(0, 200)
-    );
-    check("630 businesses without violations is in the results", /\b630\b/.test(after.answer), "");
-    check("the reply reports 1,057 and 630", /1,?057/.test(answer) && /\b630\b/.test(answer), "");
+    if (after.faultyCode) console.log(`\n${spec.bug.operator} now reads:\n${after.faultyCode.trim()}`);
   }
 }
 

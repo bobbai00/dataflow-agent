@@ -19,7 +19,7 @@
 
 /**
  * Scenario 2 of the user study on BobFlow: a workflow whose agent has already
- * answered the inspection question with the planted bug. The agent's analysis
+ * answered the scenario's question with the planted bug. The agent's analysis
  * (scenario-2/dataflow/bobflow_steps.json, made by make_bobflow_steps.py) is
  * replayed through the agent's debug channel, so every operator is built and
  * executed for real and the chat shows the question, the agent's steps and
@@ -29,7 +29,8 @@
  *     bun run benchmark/user-study/scenario2-bobflow.ts "P03"
  *
  * Prints the workflow to open for the participant, and checks the planted
- * answers (attach_violations 21,434 rows; 1,920 floors; 410 without violations).
+ * numbers the JSON's `bug` block names (the rows of one operator, and the first
+ * row of the answer).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,6 +53,12 @@ interface Spec {
   question: string;
   steps: Array<{ thought: string; python: string; statements: string }>;
   reply: string;
+  /** The planted bug: which operator, and the numbers that show it (see make_bobflow_steps.py). */
+  bug: {
+    operator: string;
+    planted_numbers: { [operator: string]: number | [string, number] };
+    fixed_numbers: { [operator: string]: number | [string, number] };
+  };
 }
 
 /** Python's repr of a string: single quotes, backslash escapes. */
@@ -111,26 +118,40 @@ await debug(`Reply(text=${pyRepr(spec.reply)})`);
 ws.close();
 console.log(`replayed in ${((Date.now() - started) / 1000).toFixed(0)} s`);
 
-// The planted analysis, as the participant finds it.
+// The planted analysis, as the participant finds it: every operator ran, and the
+// numbers the bug block names hold (`<operator>_rows`: that operator's row count;
+// `top1`: the first row of the answer, its first text and first number).
 const results = (await api.get(`/${agent.id}/operator-results`)).results ?? {};
 const rows = (id: string) => results[id]?.totalRowCount ?? results[id]?.outputTuples;
-const answer = results["answer"]?.sampleRecords ?? [];
-const floors = answer.find((row: any) => String(row.answer).startsWith("Unclean or degraded floors"))?.count;
-const none = answer.find((row: any) => String(row.question).startsWith("businesses with no"))?.count;
+const operatorCount = spec.steps.flatMap(step => step.statements.split("\n")).filter(line => /^set /.test(line)).length;
+const answerOperator = [...spec.steps.at(-1)!.statements.matchAll(/^set (\w+):/gm)].at(-1)?.[1] ?? "";
+const top = results[answerOperator]?.sampleRecords?.[0] ?? {};
+const topText = Object.values(top).find(value => typeof value === "string");
+const topNumber = Object.values(top).find(value => typeof value === "number");
 const checks: Array<[string, boolean, string]> = [
   [
     "every operator has a result",
-    Object.keys(results).length === 28 && !Object.values(results).some((r: any) => r.error),
-    `${Object.keys(results).length} results, ${Object.values(results).filter((r: any) => r.error).length} failed`,
+    Object.keys(results).length === operatorCount && !Object.values(results).some((r: any) => r.error),
+    `${Object.keys(results).length} of ${operatorCount} results, ${Object.values(results).filter((r: any) => r.error).length} failed`,
   ],
-  [
-    "attach_violations has 21,434 rows (the bug)",
-    rows("attach_violations") === 21434,
-    String(rows("attach_violations")),
-  ],
-  ["the top violation counts 1,920", floors === 1920, String(floors)],
-  ["410 businesses with no violations", none === 410, String(none)],
 ];
+for (const [key, expected] of Object.entries(spec.bug.planted_numbers)) {
+  if (Array.isArray(expected)) {
+    const [text, number] = expected;
+    checks.push([
+      `${answerOperator} starts with ${text} ${number} (the bug)`,
+      topText === text && topNumber === number,
+      `${String(topText)} ${String(topNumber)}`,
+    ]);
+  } else {
+    const operator = key.replace(/_rows$/, "");
+    checks.push([
+      `${operator} has ${expected.toLocaleString()} rows (the bug)`,
+      rows(operator) === expected,
+      String(rows(operator)),
+    ]);
+  }
+}
 for (const [name, ok, detail] of checks) console.log(`${ok ? "PASS" : "FAIL"} ${name} — ${detail}`);
 console.log(`\nOpen for the participant: ${studyWorkflowUrl(wid)}`);
 process.exit(checks.every(([, ok]) => ok) ? 0 : 1);
