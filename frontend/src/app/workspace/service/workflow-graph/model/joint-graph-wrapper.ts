@@ -614,7 +614,7 @@ export class JointGraphWrapper {
         graphlib: graphlib,
         nodeSep: 56,
         edgeSep: 20,
-        rankSep: 80,
+        rankSep: 150,
         ranker: "network-simplex",
         rankDir: "LR",
         resizeClusters: true,

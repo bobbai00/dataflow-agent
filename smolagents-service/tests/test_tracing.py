@@ -149,6 +149,21 @@ class TracingTest(unittest.TestCase):
         context = self.store.step_context(self.user["id"], runs[1]["id"], 1)
         self.assertIn("Remember seven.", str(context))
 
+    def test_a_chat_comes_back_with_its_variables(self):
+        """A session on an earlier chat runs the chat's code again: code that failed too, since what it assigned
+        before failing stayed, but nothing from before a lost worker, since the worker lost it the first time."""
+        session = self.session([answer("unused")])
+        for code in ("a = 1", "b = 2\n1 / 0", "import os\nos._exit(3)", "c = 3", "d = c + 1\nundefined_name"):
+            session.run_python(code, "cell")
+        here = "[name for name in 'abcd' if name in globals()]"
+        self.assertEqual(session.run_python(here, "check")[0]["value"], "['c', 'd']")
+        restored = ChatSession(self.store, session.config, self.user, session.chat_id)
+        self.sessions.append(restored)
+        self.assertTrue(restored.ready.wait(60))
+        self.assertEqual((restored.restored["runs"], restored.restored["replayed"]), (6, 3))
+        self.assertEqual(restored.run_python(here, "check")[0]["value"], "['c', 'd']")
+        self.assertEqual([r["turn"] for r in self.store.runs_of_chat(self.user["id"], session.chat_id)][-2:], [6, 7])
+
     def test_failures_are_recorded(self):
         session = self.session([
             lambda task: "<code>\n1 / 0\n</code>",

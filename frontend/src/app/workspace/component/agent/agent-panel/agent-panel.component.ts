@@ -17,26 +17,34 @@
  * under the License.
  */
 
-import { Component, HostListener, Input, OnDestroy, OnInit, OnChanges, SimpleChanges } from "@angular/core";
+import { Component, HostListener, OnDestroy, OnInit } from "@angular/core";
+import { ActivatedRoute } from "@angular/router";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { NzResizeEvent, NzResizableDirective, NzResizeHandlesComponent } from "ng-zorro-antd/resizable";
 import { AgentService, AgentInfo } from "../../../service/agent/agent.service";
+import { agentOf } from "../../../service/agent/workflow-agent";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
-import { NotificationService } from "../../../../common/service/notification/notification.service";
 import { calculateTotalTranslate3d } from "../../../../common/util/panel-dock";
 import { NgIf, NgClass, NgFor } from "@angular/common";
-import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
 import { NzButtonComponent } from "ng-zorro-antd/button";
 import { NzWaveDirective } from "ng-zorro-antd/core/wave";
 import { ɵNzTransitionPatchDirective } from "ng-zorro-antd/core/transition-patch";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzIconDirective } from "ng-zorro-antd/icon";
+import { NzSpinComponent } from "ng-zorro-antd/spin";
 import { CdkDrag, CdkDragHandle } from "@angular/cdk/drag-drop";
 import { NzMenuDirective, NzMenuItemComponent } from "ng-zorro-antd/menu";
-import { NzTabsComponent, NzTabBarExtraContentDirective, NzTabComponent, NzTabDirective } from "ng-zorro-antd/tabs";
 import { AgentRegistrationComponent } from "./agent-registration/agent-registration.component";
 import { AgentChatComponent } from "./agent-chat/agent-chat.component";
 
+/**
+ * The agent panel: one chat, with the open workflow's agent.
+ *
+ * A workflow has at most one agent here, its newest. Opening a workflow that
+ * has an agent shows its chat; opening one that has none shows the
+ * registration, where the user picks a model and creates the agent. Agents of
+ * other workflows are never shown: moving to another workflow moves the chat.
+ */
 @UntilDestroy()
 @Component({
   selector: "texera-agent-panel",
@@ -44,41 +52,30 @@ import { AgentChatComponent } from "./agent-chat/agent-chat.component";
   styleUrls: ["agent-panel.component.scss"],
   imports: [
     NgIf,
-    NzSpaceCompactItemDirective,
+    NgFor,
+    NgClass,
     NzButtonComponent,
     NzWaveDirective,
     ɵNzTransitionPatchDirective,
     NzTooltipDirective,
     NzIconDirective,
+    NzSpinComponent,
     CdkDrag,
-    NzResizableDirective,
-    NzMenuDirective,
-    NgClass,
-    NzMenuItemComponent,
     CdkDragHandle,
-    NzTabsComponent,
-    NzTabBarExtraContentDirective,
-    NzTabComponent,
-    NzTabDirective,
-    AgentRegistrationComponent,
-    NgFor,
-    AgentChatComponent,
+    NzResizableDirective,
     NzResizeHandlesComponent,
+    NzMenuDirective,
+    NzMenuItemComponent,
+    AgentRegistrationComponent,
+    AgentChatComponent,
   ],
 })
-export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
+export class AgentPanelComponent implements OnInit, OnDestroy {
   protected readonly window = window;
   private static readonly MIN_PANEL_WIDTH = 400;
   /** Width a closed panel opens at: room for the version rail and a readable chat. */
   private static readonly DEFAULT_PANEL_WIDTH = 560;
   private static readonly MIN_PANEL_HEIGHT = 450;
-
-  /**
-   * Optional agent ID to activate when the panel loads.
-   * When provided (from agent dashboard), the panel will open
-   * and switch to this agent's tab automatically.
-   */
-  @Input() agentIdToActivate?: string;
 
   // Panel dimensions and position
   width: number = 0; // Start with 0 to show docked button
@@ -88,61 +85,45 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
   returnPosition = { x: 0, y: 0 };
   isDocked = true;
 
-  // Tab management
-  selectedTabIndex: number = 0; // 0 = registration tab, 1+ = agent tabs
+  /** The caller's agents, as the service last listed them. */
   agents: AgentInfo[] = [];
-
-  // Active agent tracking - only one agent can be connected at a time
-  activeAgentId: string | null = null;
+  /** The open workflow's id; undefined until the workflow is saved. */
+  workflowId?: number;
+  /** The workflow's agent, whose chat the panel shows; null while it has none. */
+  agent: AgentInfo | null = null;
+  /** `[agent]` or empty: rendered with an *ngFor tracked by id, so the chat is rebuilt only when the agent changes. */
+  chatAgents: AgentInfo[] = [];
+  /** The workflow's agent list has not arrived yet. */
+  loading = true;
 
   constructor(
     private agentService: AgentService,
     private workflowActionService: WorkflowActionService,
-    private notificationService: NotificationService
+    private route: ActivatedRoute
   ) {}
 
   ngOnInit(): void {
     this.loadPanelSettings();
 
-    // Subscribe to agent changes
-    this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
-      this.agentService
-        .getAllAgents(this.currentWorkflowId())
-        .pipe(untilDestroyed(this))
-        .subscribe(agents => {
-          this.agents = agents;
-          // Try to activate the agent if agentIdToActivate is set
-          this.tryActivateAgentFromInput();
-        });
-    });
+    // The workflow's metadata arrives after the panel exists; the route already names the
+    // workflow, so its agent is asked for at once (an unsaved new workflow has no id yet).
+    this.workflowId = this.currentWorkflowId() ?? this.routeWorkflowId();
+    this.listAgents();
 
-    // Load initial agents (the service restores this workflow's traced agents first)
-    this.agentService
-      .getAllAgents(this.currentWorkflowId())
-      .pipe(untilDestroyed(this))
-      .subscribe(agents => {
-        this.agents = agents;
-        // Try to activate the agent if agentIdToActivate is set
-        this.tryActivateAgentFromInput();
-      });
+    this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => this.listAgents());
 
-    // The panel exists before the workflow is known; once it is, ask again with its id so the
-    // service brings back this workflow's traced agents (a seeded one, an earlier session's).
-    let listedFor: number | undefined;
+    // Another workflow (or this one, once saved): drop the chat and list again with its id, so
+    // the service brings its traced agents back (a seeded one, an earlier session's).
     this.workflowActionService
       .workflowMetaDataChanged()
       .pipe(untilDestroyed(this))
       .subscribe(metadata => {
         const wid = metadata.wid ?? undefined;
-        if (wid === undefined || wid === listedFor) return;
-        listedFor = wid;
-        this.agentService
-          .getAllAgents(wid)
-          .pipe(untilDestroyed(this))
-          .subscribe(agents => {
-            this.agents = agents;
-            this.tryActivateAgentFromInput();
-          });
+        if (wid === this.workflowId) return;
+        this.workflowId = wid;
+        this.show(null);
+        this.loading = true;
+        this.listAgents();
       });
   }
 
@@ -151,52 +132,52 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
     return this.workflowActionService.getWorkflowMetadata().wid ?? undefined;
   }
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes["agentIdToActivate"] && this.agentIdToActivate) {
-      this.tryActivateAgentFromInput();
+  /** The workflow id in the route (`/user/workflow/:id`), if any. */
+  private routeWorkflowId(): number | undefined {
+    const id = Number(this.route.snapshot.params["id"]);
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  }
+
+  /** List the caller's agents for the open workflow and show the one that is its. */
+  private listAgents(): void {
+    const wid = this.workflowId;
+    this.agentService
+      .getAllAgents(wid)
+      .pipe(untilDestroyed(this))
+      .subscribe(agents => {
+        // The workflow changed while this listing was out; its own listing follows.
+        if (wid !== this.workflowId) return;
+        this.agents = agents;
+        this.loading = false;
+        this.show(agentOf(agents, wid));
+      });
+  }
+
+  /** Put the agent in the chat and connect it; disconnect the one shown before. */
+  private show(agent: AgentInfo | null): void {
+    if (this.agent && this.agent.id !== agent?.id) {
+      this.agentService.deactivateAgent(this.agent.id);
+    }
+    this.agent = agent;
+    if (!agent) {
+      this.chatAgents = [];
+      return;
+    }
+    this.agentService.activateAgent(agent.id);
+    if (this.chatAgents[0]?.id !== agent.id) {
+      this.chatAgents = [agent];
     }
   }
 
-  /**
-   * Try to activate the agent specified by agentIdToActivate input.
-   * Opens the panel and switches to the agent's tab.
-   */
-  private tryActivateAgentFromInput(): void {
-    if (!this.agentIdToActivate || this.agents.length === 0) {
-      return;
-    }
-
-    const agentIndex = this.agents.findIndex(agent => agent.id === this.agentIdToActivate);
-    if (agentIndex === -1) {
-      return;
-    }
-
-    // Open the panel if it's closed
-    if (this.width === 0) {
-      this.width = AgentPanelComponent.DEFAULT_PANEL_WIDTH;
-    }
-
-    // Switch to the agent's tab and activate it
-    const agent = this.agents[agentIndex];
-
-    // Deactivate previous agent if any
-    if (this.activeAgentId) {
-      this.agentService.deactivateAgent(this.activeAgentId);
-    }
-
-    // Activate the specified agent
-    this.activeAgentId = agent.id;
-    this.agentService.activateAgent(agent.id);
-    this.selectedTabIndex = agentIndex + 1; // +1 because tab 0 is registration
-
-    // Clear the input so we don't re-activate on every change
-    this.agentIdToActivate = undefined;
+  public trackAgent(_: number, agent: AgentInfo): string {
+    return agent.id;
   }
 
   @HostListener("window:beforeunload")
   ngOnDestroy(): void {
-    // Deactivate any active agent before destroying
-    this.deactivateCurrentAgent();
+    if (this.agent) {
+      this.agentService.deactivateAgent(this.agent.id);
+    }
     this.savePanelSettings();
   }
 
@@ -215,143 +196,34 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Handle agent creation - activates and switches to the new agent
+   * The registration made an agent for this workflow. Connect it right away and
+   * list again: it is the newest, so the listing puts it in the chat.
    */
   public onAgentCreated(agentId: string): void {
-    // Deactivate previous agent if any
-    if (this.activeAgentId) {
-      this.agentService.deactivateAgent(this.activeAgentId);
-    }
-
-    // Set the new agent as active immediately
-    this.activeAgentId = agentId;
     this.agentService.activateAgent(agentId);
+    this.listAgents();
+  }
 
-    // Fetch the latest agent list and switch to the new agent's tab
+  /**
+   * Delete the workflow's agent, after confirmation. The chat closes; the
+   * listing that follows shows the registration (or an older agent of the
+   * workflow, if one exists).
+   */
+  public removeAgent(): void {
+    const agent = this.agent;
+    if (!agent) return;
+    if (!confirm(`Remove ${agent.name} and its chat from this workflow? You can create a new agent afterwards.`)) {
+      return;
+    }
+    this.show(null);
     this.agentService
-      .getAllAgents(this.currentWorkflowId())
+      .deleteAgent(agent.id)
       .pipe(untilDestroyed(this))
-      .subscribe(agents => {
-        this.agents = agents;
-        const agentIndex = agents.findIndex(agent => agent.id === agentId);
-        if (agentIndex !== -1) {
-          this.selectedTabIndex = agentIndex + 1; // +1 because tab 0 is registration
-        }
+      .subscribe({
+        error: (error: unknown) => {
+          console.error("Failed to delete agent:", error);
+        },
       });
-  }
-
-  /**
-   * Handle tab selection change - validates workflow compatibility before switching
-   */
-  public onTabSelectChange(index: number): void {
-    // Tab 0 is registration - always allow
-    if (index === 0) {
-      this.deactivateCurrentAgent();
-      this.selectedTabIndex = 0;
-      return;
-    }
-
-    // Get the agent for this tab (index - 1 because tab 0 is registration)
-    const agentIndex = index - 1;
-    if (agentIndex < 0 || agentIndex >= this.agents.length) {
-      return;
-    }
-
-    const agent = this.agents[agentIndex];
-    const agentWorkflowId = agent.delegate?.workflowId;
-    const currentWorkflowId = this.workflowActionService.getWorkflowMetadata().wid;
-
-    // If agent has a workflow ID, check if it matches the current workflow
-    if (agentWorkflowId !== undefined && agentWorkflowId !== 0) {
-      if (currentWorkflowId !== agentWorkflowId) {
-        // Block switching - workflow mismatch
-        this.notificationService.warning(
-          `Cannot switch to agent "${agent.name}": It's working on a different workflow. ` +
-            `Open workflow #${agentWorkflowId} to interact with this agent.`
-        );
-        return;
-      }
-    }
-
-    // Workflow matches or agent has no workflow - allow switch
-    this.switchToAgent(agent.id, index);
-  }
-
-  /**
-   * Switch to a specific agent tab
-   */
-  private switchToAgent(agentId: string, tabIndex: number): void {
-    // Skip if already on this agent and tab
-    if (this.activeAgentId === agentId && this.selectedTabIndex === tabIndex) {
-      return;
-    }
-
-    // Deactivate previous agent only if switching to a different agent
-    if (this.activeAgentId !== agentId) {
-      this.deactivateCurrentAgent();
-    }
-
-    // Activate new agent
-    this.activeAgentId = agentId;
-    this.agentService.activateAgent(agentId);
-    this.selectedTabIndex = tabIndex;
-  }
-
-  /**
-   * Deactivate the currently active agent
-   */
-  private deactivateCurrentAgent(): void {
-    if (this.activeAgentId) {
-      this.agentService.deactivateAgent(this.activeAgentId);
-      this.activeAgentId = null;
-    }
-  }
-
-  /**
-   * Check if an agent's workflow matches the current workspace workflow
-   */
-  public canSwitchToAgent(agent: AgentInfo): boolean {
-    const agentWorkflowId = agent.delegate?.workflowId;
-    if (agentWorkflowId === undefined || agentWorkflowId === 0) {
-      return true; // Agent has no workflow - always allow
-    }
-    const currentWorkflowId = this.workflowActionService.getWorkflowMetadata().wid;
-    return currentWorkflowId === agentWorkflowId;
-  }
-
-  /**
-   * Delete an agent
-   */
-  public deleteAgent(agentId: string, event: Event): void {
-    event.stopPropagation(); // Prevent tab switch
-
-    if (confirm("Are you sure you want to delete this agent?")) {
-      const agentIndex = this.agents.findIndex(agent => agent.id === agentId);
-
-      // Deactivate if this is the active agent
-      if (this.activeAgentId === agentId) {
-        this.deactivateCurrentAgent();
-      }
-
-      // Must subscribe to the observable for it to execute
-      this.agentService
-        .deleteAgent(agentId)
-        .pipe(untilDestroyed(this))
-        .subscribe({
-          next: () => {
-            // If we're on the deleted agent's tab, switch to registration
-            if (agentIndex !== -1 && this.selectedTabIndex === agentIndex + 1) {
-              this.selectedTabIndex = 0;
-            } else if (this.selectedTabIndex > agentIndex + 1) {
-              // Adjust selected index if we deleted a tab before the current one
-              this.selectedTabIndex--;
-            }
-          },
-          error: (error: unknown) => {
-            console.error("Failed to delete agent:", error);
-          },
-        });
-    }
   }
 
   /**

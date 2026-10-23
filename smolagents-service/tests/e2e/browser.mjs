@@ -13,8 +13,9 @@
 
 // What a person does in the app, for the end-to-end scripts. Playwright comes from
 // the repository's frontend/node_modules.
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -40,6 +41,29 @@ export async function register(page, base, username) {
 export async function upload(page, path, confirmation) {
   await page.setInputFiles("input[type=file]", path);
   await page.getByText(confirmation).waitFor({ timeout: 30_000 });
+}
+
+// Drag files from the desktop onto the upload box, all in one drop.
+export async function drop(page, paths, confirmation) {
+  const files = paths.map((path) => ({ name: basename(path), text: readFileSync(path, "utf8") }));
+  const dataTransfer = await page.evaluateHandle((files) => {
+    const transfer = new DataTransfer();
+    for (const { name, text } of files) transfer.items.add(new File([text], name));
+    return transfer;
+  }, files);
+  const target = page.locator("#upload-box input[type=file]").locator("..");
+  for (const type of ["dragenter", "dragover", "drop"]) await target.dispatchEvent(type, { dataTransfer });
+  await page.getByText(confirmation).waitFor({ timeout: 120_000 });
+}
+
+// Run code from the "Run your own Python" panel; the texts of the run's messages.
+export async function runCode(page, code) {
+  const box = page.locator("#code-box .cm-content");
+  if (!(await box.isVisible())) await page.getByText("Run your own Python").click();
+  await box.fill(code);
+  await runUntilDone(page, "Run");
+  await page.getByText("the agent sees this run").last().waitFor({ timeout: 60_000 });
+  return (await lastMessages(page)).join("\n");
 }
 
 // Press a button that runs something, and wait until the app hands it back. The app

@@ -56,7 +56,7 @@ try {
   await unit.waitFor({ timeout: 15_000 });
   await unit.click();
   // Create the agent as a participant's facilitator would, in the panel: the model card, a name, Create.
-  await page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }).evaluate(el => el.click());
+  // (A workflow without an agent opens the panel on the registration.)
   const registration = page.locator("texera-agent-registration");
   const model = process.env.STUDY_MODEL ?? "Claude Sonnet 5.5";
   const card = registration
@@ -68,10 +68,8 @@ try {
   const create = registration.locator("button", { hasText: /Create Agent/ });
   await page.waitForFunction(el => !el.disabled, await create.elementHandle(), { timeout: 60_000 });
   await create.evaluate(el => el.click());
-  const tab = page.locator(".agent-tab-name", { hasText: "Bob" }).first();
-  await tab.waitFor({ timeout: 60_000 });
-  // Every tab's chat is rendered; the Import button of the active tab is the one a person would press.
-  const fileInput = page.locator('.ant-tabs-tabpane-active texera-agent-chat input[type=file][accept*="json"]').first();
+  await page.locator("#agent-container #title", { hasText: "Bob" }).waitFor({ timeout: 60_000 });
+  const fileInput = page.locator('texera-agent-chat input[type=file][accept*="json"]').first();
   await fileInput.waitFor({ state: "attached", timeout: 30_000 });
   page.on("console", message => {
     if (["error", "warning"].includes(message.type()))

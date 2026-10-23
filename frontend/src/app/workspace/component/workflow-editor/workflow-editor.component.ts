@@ -298,8 +298,6 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.handleReuseCacheOperator();
     this.registerOperatorDisplayNameChangeHandler();
     this.handleViewDeleteLink();
-    this.handleViewAddPort();
-    this.handleViewRemovePort();
     this.handlePortClick();
     this.handlePaperPan();
     this.handleOperatorSelectionEvents();
@@ -890,16 +888,20 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   /** The CSS class marking a view as upstream of the selection (styled in this component's styles). */
   private static readonly UPSTREAM_CLASS = "upstream-of-selected";
-  /** The operators and links currently marked as upstream of the selection. */
-  private upstreamMarks = { operators: new Set<string>(), links: new Set<string>() };
+  /** The CSS class on the selected operators and their upstream: their ports show their row counts. */
+  private static readonly PORT_COUNTS_CLASS = "show-port-counts";
+  /** The operators and links currently marked as upstream of the selection; the operators showing their counts. */
+  private upstreamMarks = { operators: new Set<string>(), links: new Set<string>(), counted: new Set<string>() };
   private upstreamRepaint: number | null = null;
 
   /**
    * While operators are selected, mark everything upstream of them: the
    * operators whose tables flow into them, transitively, and the links the
-   * tables flow through. The marks are CSS classes on the JointJS views, so
-   * they never fight the attributes that carry an operator's status colour or
-   * an agent's action label, and they vanish with the selection.
+   * tables flow through. The selected operators and that upstream also show
+   * the row counts on their ports, which the canvas otherwise keeps hidden.
+   * The marks are CSS classes on the JointJS views, so they never fight the
+   * attributes that carry an operator's status colour, its counts or an
+   * agent's action label, and they vanish with the selection.
    */
   private handleUpstreamHighlight(): void {
     const graph = this.workflowActionService.getTexeraGraph();
@@ -941,21 +943,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         }
       }
     }
-    const repaint = (previous: Set<string>, next: Set<string>) => {
+    const counted = new Set([...selected, ...operators]);
+    const repaint = (previous: Set<string>, next: Set<string>, className: string) => {
       previous.forEach(id => {
-        if (!next.has(id)) this.markUpstream(id, false);
+        if (!next.has(id)) this.markView(id, className, false);
       });
-      next.forEach(id => this.markUpstream(id, true));
+      next.forEach(id => this.markView(id, className, true));
     };
-    repaint(this.upstreamMarks.operators, operators);
-    repaint(this.upstreamMarks.links, paths);
-    this.upstreamMarks = { operators, links: paths };
+    repaint(this.upstreamMarks.operators, operators, WorkflowEditorComponent.UPSTREAM_CLASS);
+    repaint(this.upstreamMarks.links, paths, WorkflowEditorComponent.UPSTREAM_CLASS);
+    repaint(this.upstreamMarks.counted, counted, WorkflowEditorComponent.PORT_COUNTS_CLASS);
+    this.upstreamMarks = { operators, links: paths, counted };
   }
 
-  private markUpstream(cellId: string, on: boolean): void {
+  private markView(cellId: string, className: string, on: boolean): void {
     const cell = this.workflowActionService.getJointGraph().getCell(cellId);
     const view = cell ? this.paper.findViewByModel(cell) : undefined;
-    view?.el.classList.toggle(WorkflowEditorComponent.UPSTREAM_CLASS, on);
+    view?.el.classList.toggle(className, on);
   }
 
   private handleElementHightlightEvent(): void {
@@ -1101,56 +1105,6 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         }
         if (this.workflowActionService.getTexeraGraph().hasCommentBox(elementView.model.id.toString())) {
           this.workflowActionService.deleteCommentBox(elementView.model.id.toString());
-        }
-      });
-  }
-
-  private handleViewAddPort(): void {
-    fromJointPaperEvent(this.paper, "element:add-input-port")
-      .pipe(
-        filter(() => this.interactive),
-        map(value => value[0])
-      )
-      .pipe(untilDestroyed(this))
-      .subscribe(elementView => {
-        if (this.workflowActionService.getTexeraGraph().hasOperator(elementView.model.id.toString())) {
-          this.workflowActionService.addPort(elementView.model.id.toString(), true, false);
-        }
-      });
-    fromJointPaperEvent(this.paper, "element:add-output-port")
-      .pipe(
-        filter(() => this.interactive),
-        map(value => value[0])
-      )
-      .pipe(untilDestroyed(this))
-      .subscribe(elementView => {
-        if (this.workflowActionService.getTexeraGraph().hasOperator(elementView.model.id.toString())) {
-          this.workflowActionService.addPort(elementView.model.id.toString(), false);
-        }
-      });
-  }
-
-  private handleViewRemovePort(): void {
-    fromJointPaperEvent(this.paper, "element:remove-input-port")
-      .pipe(
-        filter(() => this.interactive),
-        map(value => value[0])
-      )
-      .pipe(untilDestroyed(this))
-      .subscribe(elementView => {
-        if (this.workflowActionService.getTexeraGraph().hasOperator(elementView.model.id.toString())) {
-          this.workflowActionService.removePort(elementView.model.id.toString(), true);
-        }
-      });
-    fromJointPaperEvent(this.paper, "element:remove-output-port")
-      .pipe(
-        filter(() => this.interactive),
-        map(value => value[0])
-      )
-      .pipe(untilDestroyed(this))
-      .subscribe(elementView => {
-        if (this.workflowActionService.getTexeraGraph().hasOperator(elementView.model.id.toString())) {
-          this.workflowActionService.removePort(elementView.model.id.toString(), false);
         }
       });
   }

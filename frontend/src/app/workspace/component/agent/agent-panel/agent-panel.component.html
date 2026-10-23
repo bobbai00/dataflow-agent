@@ -28,7 +28,7 @@
   *ngIf="!width"
   nz-tooltip
   nzTooltipPlacement="left"
-  nzTooltipTitle="AI Agents">
+  nzTooltipTitle="AI Agent">
   <span
     nz-icon
     nzType="robot"></span>
@@ -49,12 +49,24 @@
   (nzResize)="onResize($event)"
   (cdkDragStarted)="handleDragStart()"
   [cdkDragFreeDragPosition]="dragPosition">
-  <!-- Minimize Button -->
+  <!-- Panel buttons: remove the agent, minimize -->
   <ul
     id="return-button"
     nz-menu
     [ngClass]="{'shadow': !width}"
     *ngIf="width">
+    <li
+      *ngIf="agent"
+      nz-menu-item
+      class="remove-agent"
+      (click)="removeAgent()"
+      nz-tooltip
+      nzTooltipPlacement="bottom"
+      [nzTooltipTitle]="'Remove ' + agent.name + ' from this workflow'">
+      <span
+        nz-icon
+        nzType="delete"></span>
+    </li>
     <li
       nz-menu-item
       (click)="openPanel()">
@@ -68,76 +80,37 @@
     #content
     id="content"
     [hidden]="!width">
+    <!-- The title names the workflow's agent; the bar drags the panel. -->
     <h4
       id="title"
       cdkDragHandle>
-      AI Agents
+      <span
+        nz-icon
+        nzType="robot"
+        nzTheme="outline"
+        class="title-icon"></span>
+      <span class="title-text">{{ agent ? agent.name : "AI Agent" }}</span>
     </h4>
 
-    <!-- Tabs -->
-    <nz-tabs
-      [nzSelectedIndex]="selectedTabIndex"
-      (nzSelectedIndexChange)="onTabSelectChange($event)"
-      class="agent-tabs"
-      nzType="card">
-      <ng-template nzTabBarExtraContent="end">
-        <div class="tab-bar-extra">
-          <span class="agent-count">{{ agents.length }} agent(s)</span>
-        </div>
-      </ng-template>
+    <div class="panel-body">
+      <!-- The workflow's agent list is on its way. -->
+      <div
+        *ngIf="loading"
+        class="panel-loading">
+        <nz-spin nzSimple></nz-spin>
+      </div>
 
-      <!-- Registration Tab -->
-      <nz-tab
-        nzTitle="+ Agent"
-        [nzForceRender]="true">
-        <ng-template nz-tab>
-          <texera-agent-registration (agentCreated)="onAgentCreated($event)"></texera-agent-registration>
-        </ng-template>
-      </nz-tab>
+      <!-- The workflow's agent: one chat. Tracked by id so a new listing keeps the chat. -->
+      <texera-agent-chat
+        *ngFor="let shown of chatAgents; trackBy: trackAgent"
+        [agentInfo]="shown"
+        [isActive]="true"></texera-agent-chat>
 
-      <!-- Agent Tabs -->
-      <nz-tab
-        *ngFor="let agent of agents; let i = index"
-        [nzTitle]="agentTabTitle"
-        [nzForceRender]="true"
-        [nzDisabled]="!canSwitchToAgent(agent)">
-        <ng-template
-          #agentTabTitle
-          let-active="active">
-          <div
-            class="agent-tab-title"
-            [class.workflow-mismatch]="!canSwitchToAgent(agent)">
-            <span class="agent-tab-name">{{ agent.name }}</span>
-            <i
-              *ngIf="!canSwitchToAgent(agent)"
-              nz-icon
-              nzType="lock"
-              nzTheme="outline"
-              class="workflow-lock-icon"
-              nz-tooltip
-              nzTooltipTitle="This agent is working on a different workflow"></i>
-            <button
-              nz-button
-              nzType="text"
-              nzSize="small"
-              class="agent-tab-close"
-              (click)="deleteAgent(agent.id, $event)"
-              nz-tooltip
-              nzTooltipTitle="Close agent">
-              <i
-                nz-icon
-                nzType="close"
-                nzTheme="outline"></i>
-            </button>
-          </div>
-        </ng-template>
-        <ng-template nz-tab>
-          <texera-agent-chat
-            [agentInfo]="agent"
-            [isActive]="activeAgentId === agent.id"></texera-agent-chat>
-        </ng-template>
-      </nz-tab>
-    </nz-tabs>
+      <!-- No agent yet: pick a model and create one for this workflow. -->
+      <texera-agent-registration
+        *ngIf="!loading && !agent"
+        (agentCreated)="onAgentCreated($event)"></texera-agent-registration>
+    </div>
 
     <nz-resize-handles [nzDirections]="['left', 'bottom', 'bottomLeft']"></nz-resize-handles>
   </div>

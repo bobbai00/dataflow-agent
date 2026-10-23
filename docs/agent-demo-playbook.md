@@ -51,7 +51,7 @@ agent loads them with `CSVFileScan`.
 
 ### Agent panel
 1. Open a workflow (a new empty one is best for a live demo).
-2. Robot button (bottom-right) → **+ Agent** → **Claude Haiku 4.5** → name
+2. Robot button (bottom-right) → **Claude Haiku 4.5** → name
    (default **Bob**) → **Create Agent**.
 3. Defaults are already **Agent Mode = General** and **parallel tool calls on**
    (ⓘ System Information → **Parameters** to change; the same tab has

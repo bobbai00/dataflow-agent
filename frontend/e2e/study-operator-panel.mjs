@@ -58,11 +58,9 @@ try {
   await unit.waitFor({ timeout: 15_000 });
   await unit.click();
   await page.waitForTimeout(3000);
-  const usable = page.locator(".agent-tab-title:not(:has(.workflow-lock-icon)) .agent-tab-name").first();
-  if (await usable.count()) {
-    await usable.click();
-    await page.waitForTimeout(3000);
-  }
+  // The panel opens on the workflow's agent by itself.
+  await page.locator("texera-agent-chat").waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(2000);
   const element = page.locator(`g.joint-element[model-id="${operatorId}"]`).first();
   await element.waitFor({ timeout: 30_000 });
   // Pan the canvas until the operator sits in the part of the editor the agent

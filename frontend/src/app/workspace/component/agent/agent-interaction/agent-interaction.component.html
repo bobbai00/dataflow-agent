@@ -325,9 +325,9 @@
   </ng-template>
 
   <ng-template #feedbackView>
-    <!-- Agent Selection: a native operator belongs to its agent; choose only among several. -->
+    <!-- Agent Selection: the workflow's agent is the one; choose only when it has several. -->
     <div
-      *ngIf="!nativeOperator || availableAgents.length > 1"
+      *ngIf="availableAgents.length > 1"
       class="header-row">
       <nz-select
         [(ngModel)]="selectedAgentId"
@@ -399,7 +399,10 @@
         nz-icon
         nzType="disconnect"
         nzTheme="outline"></i>
-      <span>Select a connected agent to chat</span>
+      <span
+        >{{ availableAgents.length ? agentName + " is not connected; open the agent panel." : "This workflow has no
+        agent yet; create one in the agent panel." }}</span
+      >
     </div>
   </ng-template>
 </div>

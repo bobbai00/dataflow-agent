@@ -34,6 +34,19 @@ tab shows your runs, their steps, a timeline of model calls and code executions,
 and the exact context each model call was sent. `LITELLM_MASTER_KEY` comes from
 the shell or the repo-root `.env`, as for `bin/local-dev.sh`.
 
+**Chats.** The sidebar lists your chats, the most recently used first, and the
+page opens on the latest. **＋ New chat** starts an empty one, with a new agent
+and a new Python session; it joins the list with its first message, script or
+notebook, named after it. Pick a chat in the list to go back to it: the chat
+shows its history from the trace, and its agent and Python session continue it
+(see Chats, and sessions that continue from the trace). Each chat has its own
+memory and variables. While a run is in progress, the tab stays on its chat.
+
+**Uploads.** Drop several files on the upload box at once, or pick several. Data
+files are mentioned to the agent with your next message, the last script is
+loaded into the code panel, and each notebook is imported into the chat once
+every file of the drop is in place, so a notebook dropped with its data reads it.
+
 **The chat shows each thing once.** While a step is being written it streams
 into a "✍️ Step N" box. When it finishes, the box is replaced by the step's
 reasoning in a sentence and one folded **🐍 Ran Python** block: the code, what
@@ -56,8 +69,8 @@ step (the markdown above it as the step's reasoning), and the markdown after the
 last cell is shown as the answer. The agent's memory gets the same: a task, one
 step per cell with what it printed and returned, the answer as the final step,
 and a note that the work is its own (`--notebook-instructions` appends to that
-note, for a study's rules, say). Upload the notebook's data files first; cells
-read them by relative path from the `files` folder. A notebook that reads a file
+note, for a study's rules, say). Upload the notebook's data files first, or in
+the same drop; cells read them by relative path from the `files` folder. A notebook that reads a file
 by name (`pd.read_csv("listings.csv")`) that is not there yet is not imported;
 the upload status names the files to add.
 
@@ -90,7 +103,7 @@ and why, and the agent's memory notes where the import stopped.
 browser ──► FastAPI ── /register /login /logout     accounts, httpOnly login cookie
                │       /api/...                     the caller's own traces as JSON
                └─────► /app  (Gradio, behind the login)
-                         └─ one chat session per tab:
+                         └─ one chat session per tab, on one of the user's chats:
                               CodeAgent ── TracedModel ──► LiteLLM gateway
                                   │
                                   └─ WorkerExecutor ──► worker process (sandboxed),
@@ -98,18 +111,20 @@ browser ──► FastAPI ── /register /login /logout     accounts, httpOnly
 ```
 
 - `store.py` — SQLite (WAL): accounts (scrypt), logins, traces; every read filters on the caller's user id.
-- `sessions.py` — per tab: a `CodeAgent`, its worker, its trace. Ends when the tab is gone past the grace period, or idle. The user's own runs join the agent's memory as a `UserCodeStep`.
+- `sessions.py` — per tab: a `CodeAgent`, its worker, its trace, on one chat. Ends when the tab moves to another chat, is gone past the grace period, or sits idle. The user's own runs join the agent's memory as a `UserCodeStep`.
 - `executor.py` / `worker.py` — one Python process per chat for both the agent's code and the user's; figures come back as PNGs.
 - `tracing.py` — records model calls (wrapping the model) and code executions; writes steps from a smolagents step callback.
-- `render.py` / `ui.py` — the chat (each step shown once), the code panel, and the trace pages.
-
-One chat (browser tab) has one Python worker process, and every step of every
-message in that chat runs in it, the user's own code included. Variables carry
-over from step to step and from message to message. Another tab, or a page
-reload, is a new chat with a new process. The agent loop and the model calls run
-in the server process; only code runs in the worker. A step that times out or
-crashes the worker restarts it, without the earlier variables.
+- `render.py` / `ui.py` — the chat list, the chat (each step shown once), the code panel, and the trace pages.
 - `app.py` — routes, the login wall, and the heartbeat watch that notices closed tabs.
+
+A browser tab is on one chat at a time, and its session has one Python worker
+process: every step of every message runs in it, the user's own code included.
+Variables carry over from step to step and from message to message. Moving the
+tab to another chat ends the session; the other chat gets a session of its own,
+restored from the trace. Another tab, or a page reload, opens the latest chat in
+a new session, restored the same way. The agent loop and the model calls run in
+the server process; only code runs in the worker. A step that times out or
+crashes the worker restarts it, without the earlier variables.
 
 ## Traces
 
@@ -119,7 +134,8 @@ when the reply held code, one **Python execution**.
 
 | Table | One row per | Times and measures |
 |---|---|---|
-| `runs` | user message, or user code run | `kind` (agent or script), `started_at`, `ended_at`, `status` (ok, error, max_steps, cancelled), `final_answer` |
+| `chats` | conversation | `title` (from its first run), `created_at` |
+| `runs` | user message, user code run, or notebook import | `chat_id`, `turn` within the chat, `kind` (agent, script or notebook), `started_at`, `ended_at`, `status` (ok, error, max_steps, cancelled), `final_answer` |
 | `steps` | agent step | `started_at`, `ended_at` (smolagents' own step timing), token usage, model output, code, observations, error |
 | `llm_calls` | model call | `started_at`, `first_token_at`, `ended_at`, tokens, `input_messages` (the full context sent), output |
 | `python_execs` | code execution | `started_at`, `ended_at` (round trip), `worker_seconds` (inside the interpreter), `worker_pid`, logs, output, error |
@@ -139,27 +155,31 @@ FROM step_timing s JOIN runs r ON r.id = s.run_id JOIN users u ON u.id = s.user_
 ORDER BY s.started_at DESC LIMIT 20;
 ```
 
-The same records, for the signed-in user only: `GET /api/runs`,
+The same records, for the signed-in user only: `GET /api/chats`, `GET /api/runs`,
 `GET /api/runs/{id}?context=true`, `DELETE /api/runs/{id}`, `GET /api/events`,
 `GET /api/me`.
 
-## Seeding, and sessions that continue from the trace
+## Chats, and sessions that continue from the trace
 
-A session used to start empty: the agent remembered nothing from an earlier tab,
-and a prepared analysis had to be uploaded by hand. Now a new session starts from
-the user's trace (`sessions.py`, `restored_runs`): every finished run becomes
-the agent's memory again (the task, each step with its code and observation, the
-answer; a notebook import with the note that followed it; the user's own code as
-its step), the chat opens on the same history, and the runs' code runs once more
-in the new interpreter, in the background, so the variables are back too. Nothing
-of that is traced as a run; an `events` row of kind `restore` says how much came
-back. A reload, a new tab or a new login therefore continues the conversation.
+A session on an earlier chat starts from the trace (`sessions.py`,
+`restored_runs`): each of the chat's finished runs becomes the agent's memory
+again (the task, each step with its code and observation, the answer; a notebook
+import with the note that followed it; the user's own code as its step), the chat
+shows the same history, and the runs' code runs once more in the new interpreter,
+in the background, so the variables are back too. Code that failed runs again as
+well, since what it assigned before the error stayed; code that lost the worker
+(a timeout or a crash) does not, and nothing before it is replayed, since the
+worker lost those variables the first time too. Nothing of that is traced as a
+run; an `events` row of kind `restore` says how much came back. A reload, a new
+tab, a new login or a switch back to the chat therefore continues it. Runs from
+before chats existed became one chat per user, as every session then continued
+from all of a user's runs.
 
 With `--seed PATH`, every account is given a seed once (`seeding.py`): the
 definition's `smolagents` section names a notebook and its data files, which are
-copied into the new account's files and imported in a session of its own right
-after registration, traced as a `notebook` run under that user. Accounts made
-before the flag get it on their first session. The `seeds` table holds one row
+copied into the new account's files and imported into a new chat right after
+registration, traced as a `notebook` run under that user; the page opens on it.
+Accounts made before the flag get it when they next open the page. The `seeds` table holds one row
 per user (`status`, the import's `run_id`, timing, error); `GET /api/seed` reports
 it and `POST /api/seed` asks for it again after a failure. The same definition
 file seeds BobFlow's agent service (its `bobflow` section, `AGENT_SEED_FILE`), so
@@ -189,15 +209,15 @@ again after a reload.
 
 ```bash
 cd smolagents-service
-../.venv/bin/python -m unittest discover -s tests -t .      # 28 tests, ~1 min, no LLM needed
+../.venv/bin/python -m unittest discover -s tests -t .      # 33 tests, ~1.5 min, no LLM needed
 ```
 
 They cover:
-- accounts, logins and owner-scoped reads
+- accounts, logins and owner-scoped reads; runs from before chats becoming one chat per user
 - the worker: state, figures, errors, timeouts, the user's own code (plain or restricted) sharing one namespace with the agent's like notebook cells, and the sandbox actually blocking reads (it fails when run without one)
-- step-by-step trace timing against a scripted model, each part of a run shown once, and a user's code joining the agent's context in the same process
+- step-by-step trace timing against a scripted model, each part of a run shown once, a user's code joining the agent's context in the same process, and a chat restored with its variables (a failed run's too, none from before a lost worker)
 - reading a notebook: IPython lines, and the files it reads
-- over HTTP: the login wall, running code, importing a notebook (its cells run, join the agent's memory as its steps and are traced as one `notebook` run, and the agent carries on from them; one missing its data is refused, and a failing cell stops the import), a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
+- over HTTP: the login wall, running code, importing a notebook dropped with its data (its cells run, join the agent's memory as its steps and are traced as one `notebook` run, and the agent carries on from them; one missing its data is refused, and a failing cell stops the import), new chats and switching between them (each with its own memory and variables; another user's chat refused), a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
 - moving files from the old `uploads/` and `workspace/` folders into `files/`
 
 The user study's two scenarios run end to end against a live server from
@@ -213,6 +233,7 @@ End to end against a running server and the real model:
 node tests/e2e/concurrent_users.mjs http://127.0.0.1:7860 data.csv OUT_DIR 10     # Playwright from frontend/
 node tests/e2e/script_flow.mjs http://127.0.0.1:7860 boston_demo.csv OUT_DIR
 node tests/e2e/notebook_flow.mjs http://127.0.0.1:7860 OUT_DIR
+node tests/e2e/chats_flow.mjs http://127.0.0.1:7860 OUT_DIR
 ../.venv/bin/python tests/e2e/check_traces.py ../logs/smolagents-service e2e_<stamp>_ 2
 ```
 
@@ -227,7 +248,13 @@ with it, and asks the agent to reuse the notebook's `top()` function, which read
 globals a later cell set, for another ranking. It checks the answer, that no
 agent code hit a `NameError`, and that every run had one worker pid.
 
-Each simulated person:
+`chats_flow.mjs` registers (opening on the seeded chat when the server seeds),
+starts a new chat, drops a notebook and its two data files in one drag, asks the
+agent about the notebook's tables, starts a scratch chat, then goes back to each
+chat. Each must show its own history and hold its own variables and no others,
+and a reload must open the chat used last.
+
+Each simulated person in `concurrent_users.mjs`:
 1. registers and uploads the CSV
 2. asks two questions, the second relying on the first
 3. checks **My traces**: runs, steps, timeline and context

@@ -81,8 +81,9 @@ class SeedingTest(unittest.TestCase):
         self.assertIsNone(load_seed(None))
 
     def test_a_new_account_gets_the_notebook_and_every_session_continues_from_it(self):
-        """Registering imports the seed into the account's trace; a session then starts from that trace, with the
-        notebook's variables back in its interpreter; so does the next session, with the user's own run too."""
+        """Registering imports the seed into a chat of the account's trace; the page opens on it, and the session
+        restores it, with the notebook's variables back in its interpreter; so does the next tab, with the user's
+        own run too."""
         cookie = register(self.base, f"seeded{int(time.time())}").cookies[COOKIE]
         status = wait_for_seed(self.base, cookie)
         self.assertEqual(status["status"], "done", status)
@@ -95,6 +96,10 @@ class SeedingTest(unittest.TestCase):
         self.assertEqual(httpx.post(f"{self.base}/api/seed", cookies={COOKIE: cookie}).json()["status"], "done")
 
         first = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
+        *_, chat, picker = first.predict(api_name="/on_load")  # what a browser does: open the latest chat
+        [seeded] = httpx.get(f"{self.base}/api/chats", cookies={COOKIE: cookie}).json()
+        self.assertEqual((seeded["title"], picker["value"]), ("📓 totals.ipynb", seeded["id"]))
+        self.assertIn("from your trace", str(chat))
         # The notebook's variables are in the new session's interpreter, replayed from the trace.
         self.assertIn("12", str(first.predict("print(total * 2)", [], api_name="/run_code")))
         session = self.app.state.sessions._sessions[first.session_hash]
@@ -107,6 +112,7 @@ class SeedingTest(unittest.TestCase):
 
         # A second tab (another session) continues from everything so far, the user's own run included.
         second = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
+        second.predict(api_name="/on_load")
         self.assertIn("6", str(second.predict("print(total)", [], api_name="/run_code")))
         session = self.app.state.sessions._sessions[second.session_hash]
         kinds = [type(step).__name__ for step in session.agent.memory.steps]

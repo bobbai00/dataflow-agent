@@ -148,8 +148,7 @@ async function main() {
       }
     }
 
-    // create the agent
-    await page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }).click();
+    // create the agent (a workflow without one opens the panel on the registration)
     const reg = page.locator("texera-agent-registration");
     await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
     await sleep(1200);

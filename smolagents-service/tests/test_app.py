@@ -19,6 +19,7 @@ scripted model standing in for the LLM so the test needs no gateway.
 
 import json
 import os
+import re
 import tempfile
 import time
 import unittest
@@ -39,6 +40,12 @@ LATENCY = 1.0  # seconds per scripted model call; a run makes two
 
 def register(base: str, username: str, password: str = "long enough") -> httpx.Response:
     return httpx.post(f"{base}/register", data={"username": username, "password": password}, follow_redirects=False)
+
+
+def texts(chat: list) -> str:
+    """The text of every message in a chat, one per line."""
+    return "\n".join(part["text"] for message in chat for part in message["content"]
+                     if isinstance(part, dict) and part.get("type") == "text")
 
 
 class AppTest(unittest.TestCase):
@@ -103,7 +110,8 @@ class AppTest(unittest.TestCase):
         client.close()
 
     def test_importing_a_notebook(self):
-        """A notebook's cells run in the session and become the agent's own steps."""
+        """A notebook's cells run in the session and become the agent's own steps. Dropped together with its
+        data, in any order, it reads the data: every file is in place before the import."""
         cookie = register(self.base, f"importer{int(time.time())}").cookies[COOKIE]
         client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
         folder = Path(self.folder.name)
@@ -118,8 +126,12 @@ class AppTest(unittest.TestCase):
             {"cell_type": "code", "source": ["total = int(df['x'].sum())\n", "total"]},
             {"cell_type": "markdown", "source": ["## Answer\n", "\n", "There are 3 rows; x sums to 6."]},
         ]}))
-        client.predict(handle_file(str(csv)), [], api_name="/upload")
-        *_, chat = client.predict(handle_file(str(notebook)), [], api_name="/upload")
+        notes = folder / "notes.md"
+        notes.write_text("not a data file")
+        status, *_, chat = client.predict([handle_file(str(p)) for p in (notebook, notes, csv)], [], api_name="/upload")
+        self.assertEqual(status, "`notes.md` was not added: allowed types are .csv, .tsv, .json, .jsonl, .parquet, "
+                                 ".xlsx, .xls, .txt, .py, .ipynb. Added `rows.csv`; the agent hears about it with your "
+                                 "next message. Imported `totals.ipynb`.")
         shown = str(chat)
         for text in ("📓 `totals.ipynb`", "How many rows are there?", "rows 3", "→ 6", "step 2",
                      "There are 3 rows; x sums to 6.", "imported 2 cells"):
@@ -151,7 +163,7 @@ class AppTest(unittest.TestCase):
             {"cell_type": "code", "source": ["import pandas as pd\n", "listings = pd.read_csv('listings.csv')"]},
             {"cell_type": "code", "source": ["len(listings)"]},
         ]}))
-        status, *_, chat = client.predict(handle_file(str(unread)), [], api_name="/upload")
+        status, *_, chat = client.predict([handle_file(str(unread))], [], api_name="/upload")
         self.assertIn("did not import it: it reads `listings.csv`, which is not in your files", status)
         self.assertEqual(chat, [])
         self.assertNotIn(client.session_hash, self.app.state.sessions._sessions)  # nothing ran
@@ -164,7 +176,7 @@ class AppTest(unittest.TestCase):
             {"cell_type": "code", "source": ["print(total)"]},
             {"cell_type": "markdown", "source": ["The total is 3."]},
         ]}))
-        status, *_, chat = client.predict(handle_file(str(broken)), [], api_name="/upload")
+        status, *_, chat = client.predict([handle_file(str(broken))], [], api_name="/upload")
         self.assertIn("Cell 2 of `broken.ipynb` failed, so the import stopped there", status)
         shown = str(chat)
         for text in ("the 1 cell after it did not run", "ZeroDivisionError: division by zero", "ran 2 of 3 cells"):
@@ -178,6 +190,60 @@ class AppTest(unittest.TestCase):
         self.assertIn("→ `[1, 2]`", str(client.predict("rows", [], api_name="/run_code")))  # cell 1 ran
         runs = httpx.get(f"{self.base}/api/runs", cookies={COOKIE: cookie}).json()
         self.assertEqual([(r["status"], r["steps"]) for r in runs if r["kind"] == "notebook"], [("error", 2)])
+        client.close()
+
+    def test_chats(self):
+        """A tab opens on the latest chat, starts new ones and moves between them. Each chat has its own memory
+        and Python variables, and a chat the tab comes back to is restored from the trace."""
+        cookie = register(self.base, f"chatter{int(time.time())}").cookies[COOKIE]
+        mine = {COOKIE: cookie}
+        client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
+        *_, chat, picker = client.predict(api_name="/on_load")
+        self.assertEqual((chat, picker["choices"], picker["value"]), ([], [], None))  # no chats yet: a new one
+        client.predict("first = 1", [], api_name="/run_code")
+        [first] = httpx.get(f"{self.base}/api/chats", cookies=mine).json()
+        self.assertEqual((first["title"], first["runs"]), ("▶ your code", 1))
+
+        chat, picker = client.predict(api_name="/new_chat")
+        self.assertEqual((chat, len(picker["choices"]), picker["value"]), ([], 1, None))
+        shown = texts(client.predict("second = 2\nprint(first)", [], api_name="/run_code"))
+        self.assertIn("NameError: name 'first' is not defined", shown)  # a Python session of its own
+        self.assertNotIn("first = 1", shown)
+        chats = httpx.get(f"{self.base}/api/chats", cookies=mine).json()
+        self.assertEqual(len(chats), 2)
+        self.assertEqual(chats[1]["id"], first["id"])  # the latest first
+        second = chats[0]
+        # The browser's chain ends each run by listing the chats again: the run created the tab's new chat.
+        picker = client.predict(api_name="/chats_after_run")
+        self.assertEqual(([value for _, value in picker["choices"]], picker["value"]),
+                         ([second["id"], first["id"]], second["id"]))
+        labels = [label for label, _ in picker["choices"]]
+        self.assertTrue(all(re.fullmatch(r"▶ your code · \d\d:\d\d", label) for label in labels), labels)  # one name: timed
+
+        chat, _ = client.predict(first["id"], api_name="/switch_chat")
+        self.assertIn("first = 1", str(chat))  # the chat as it was, from the trace
+        self.assertNotIn("second = 2", str(chat))
+        self.assertIn("→ `(1, False)`", str(client.predict("first, 'second' in dir()", [], api_name="/run_code")))
+        session = self.app.state.sessions._sessions[client.session_hash]
+        self.assertEqual((session.chat_id, session.restored["runs"]), (first["id"], 1))
+        self.assertEqual([step.code for step in session.agent.memory.steps],
+                         ["first = 1", "first, 'second' in dir()"])
+        client.predict(second["id"], api_name="/switch_chat")
+        self.assertIn("→ `2`", str(client.predict("second", [], api_name="/run_code")))
+
+        # Another user's chat is not one to switch to.
+        other = register(self.base, f"other{int(time.time())}").cookies[COOKIE]
+        stranger = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={other}"}, verbose=False)
+        stranger.predict("theirs = 3", [], api_name="/run_code")
+        [theirs] = httpx.get(f"{self.base}/api/chats", cookies={COOKIE: other}).json()
+        with self.assertRaises(Exception):
+            client.predict(theirs["id"], api_name="/switch_chat")
+        self.assertEqual(self.app.state.sessions._sessions[client.session_hash].chat_id, second["id"])
+        runs = httpx.get(f"{self.base}/api/runs", cookies=mine).json()
+        self.assertEqual(sorted((r["chat_id"] == first["id"], r["turn"]) for r in runs),
+                         [(False, 1), (False, 2), (True, 1), (True, 2)])  # turns count on within a chat
+        self.assertEqual(httpx.get(f"{self.base}/api/chats", cookies=mine).json()[0]["id"], second["id"])
+        stranger.close()
         client.close()
 
     def test_a_closed_tab_ends_its_session(self):
@@ -216,7 +282,7 @@ class AppTest(unittest.TestCase):
             client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookies[i]}"}, verbose=False)
             csv = folder / f"numbers{i}.csv"
             csv.write_text("x\n" + "\n".join(str(i * 100 + k) for k in range(5)) + "\n")
-            client.predict(handle_file(str(csv)), [], api_name="/upload")
+            client.predict([handle_file(str(csv))], [], api_name="/upload")
             started = time.monotonic()
             # The browser's chain: the prompt goes into session state, then the chat runs on it.
             client.predict("Sum x in my file.", api_name="/lock_inputs")

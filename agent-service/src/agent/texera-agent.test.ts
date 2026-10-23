@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { TexeraAgent } from "./texera-agent";
 import { TraceStore } from "../trace/trace-store";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
+import { withCurrentLayout } from "./util/auto-layout";
 import { type ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { OperatorInfo } from "../types/execution";
@@ -307,6 +308,26 @@ describe("TexeraAgent — importReActSteps", () => {
     // Direct storage lookup confirms ancestor walk
     const wf = agent.getSnapshotStorage().getWorkflow("s2");
     expect(wf?.operators.length).toBe(2);
+  });
+
+  test("lays out a provided snapshot as the agent lays out a dataflow now", async () => {
+    const agent = makeAgent();
+    const steps: ReActStep[] = [
+      makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
+      makeStep({ id: "s2", parentId: "s1", messageId: "m1", stepId: 1, role: "agent", content: "a", timestamp: 2 }),
+    ];
+    // Stored under an older layout: both operators on one point.
+    const stored = {
+      ...workflowWith(["op1", "op2"]),
+      operatorPositions: { op1: { x: 0, y: 0 }, op2: { x: 0, y: 0 } },
+    };
+
+    await agent.importReActSteps(steps, { s2: stored });
+
+    const positions = agent.getSnapshotStorage().getWorkflow("s2")!.operatorPositions;
+    expect(positions).toEqual(withCurrentLayout(stored).operatorPositions);
+    expect(positions.op1).not.toEqual(positions.op2);
+    expect(agent.getWorkflowState().getWorkflowContent().operatorPositions).toEqual(positions);
   });
 
   test("promotes a step with an unknown parentId to a root", async () => {

@@ -171,8 +171,8 @@ async function selectComputingUnit(page, name) {
   await option.click();
   await sleep(1500);
 }
+// A workflow without an agent opens the panel on the registration.
 async function createAgentViaUI(page, modelId, name) {
-  await domClick(page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }));
   const reg = page.locator("texera-agent-registration");
   await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
   const label = modelId
@@ -188,7 +188,7 @@ async function createAgentViaUI(page, modelId, name) {
   await btn.waitFor({ state: "visible" });
   await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
   await domClick(btn);
-  await page.locator(".agent-tab-name", { hasText: name }).waitFor({ timeout: 30000 });
+  await page.locator("#agent-container #title", { hasText: name }).waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
 }
 /** Type a message into the chat and send it. */
@@ -212,8 +212,10 @@ async function canvasState(page) {
       const pill = box.querySelector(".texera-operator-status");
       const shown = pill && getComputedStyle(pill).display !== "none";
       status[id] = shown ? (box.querySelector(".texera-operator-status-text")?.textContent ?? "").trim() : "";
+      // The counts a port carries (its label's own visibility attribute): the
+      // canvas shows them only on the selected operators and their upstream.
       ports[id] = Array.from(box.querySelectorAll(".port-label"))
-        .filter(label => getComputedStyle(label).visibility !== "hidden")
+        .filter(label => label.getAttribute("visibility") !== "hidden")
         .map(label => label.textContent.trim());
     }
     return { operators: boxes.map(box => box.getAttribute("model-id")), status, ports };

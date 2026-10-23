@@ -25,6 +25,7 @@ import { AppComponent } from "./app.component";
 import { GuiConfigService } from "./common/service/gui-config.service";
 import { DeploymentVersionService } from "./common/service/deployment-version/deployment-version.service";
 import { NotificationService } from "./common/service/notification/notification.service";
+import { StudySeedService } from "./common/service/study-seed/study-seed.service";
 import { Version } from "../environments/version";
 
 // GuiConfigService stub whose env getter either returns a value or throws,
@@ -58,6 +59,8 @@ describe("AppComponent", () => {
         DeploymentVersionService,
         // NotificationService is a transitive dependency of DeploymentVersionService.
         { provide: NotificationService, useValue: { blank: vi.fn() } },
+        // Seeding asks the agent service once per login; the component only creates it.
+        { provide: StudySeedService, useValue: {} },
       ],
     });
     const deploymentVersionService = TestBed.inject(DeploymentVersionService);
