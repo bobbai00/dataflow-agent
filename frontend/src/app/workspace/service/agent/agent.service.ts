@@ -18,7 +18,7 @@
  */
 
 import { Injectable, NgZone } from "@angular/core";
-import { HttpClient, HttpHeaders } from "@angular/common/http";
+import { HttpClient, HttpHeaders, HttpParams } from "@angular/common/http";
 import {
   Observable,
   Subject,
@@ -966,8 +966,12 @@ export class AgentService {
    * Get all agents.
    * Also syncs local cache with backend - removes any stale agents that no longer exist on the backend.
    */
-  public getAllAgents(): Observable<AgentInfo[]> {
-    return this.http.get<ApiAgentListResponse>(`${this.AGENT_API_BASE}/agents`).pipe(
+  public getAllAgents(workflowId?: number): Observable<AgentInfo[]> {
+    // With the workflow, the service first brings back this user's traced agents on it that a
+    // restart dropped (a seeded agent, an earlier session's), so they are in the list.
+    let params = new HttpParams();
+    if (workflowId !== undefined) params = params.set("workflowId", String(workflowId));
+    return this.http.get<ApiAgentListResponse>(`${this.AGENT_API_BASE}/agents`, { params }).pipe(
       map(response => {
         const agents = response.agents.map(a => ({
           id: a.id,

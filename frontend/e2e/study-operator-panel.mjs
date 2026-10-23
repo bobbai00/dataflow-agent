@@ -33,7 +33,10 @@ const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
 const login = await fetch(`${WEB}/api/auth/login`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ username: "texera", password: "texera" }),
+  body: JSON.stringify({
+    username: process.env.STUDY_USER ?? "texera",
+    password: process.env.STUDY_PASSWORD ?? "texera",
+  }),
 });
 const { accessToken } = await login.json();
 const browser = await chromium.launch();
