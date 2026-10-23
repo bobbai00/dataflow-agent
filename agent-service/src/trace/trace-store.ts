@@ -37,8 +37,9 @@
  * content hash (a native operator carries its runtime, about 190 KB), so a
  * dataflow of many versions costs little more than one.
  *
- * `stepsOf` and `snapshotWorkflows` give an agent back after a restart in the
- * shape `TexeraAgent.importReActSteps` takes.
+ * `stepsOf`, `snapshotsOf`, `snapshotResultsOf` and `lastCheckout` give an
+ * agent back after a restart, its version tree as it was, in the shape
+ * `TexeraAgent.importReActSteps` takes.
  */
 
 import { Database } from "bun:sqlite";
@@ -48,7 +49,7 @@ import { createLogger } from "../logger";
 import type { ReActStep, TokenUsage } from "../types/agent";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
-import type { SnapshotData } from "../agent/workflow-snapshot-storage";
+import type { RestoredResult, RestoredSnapshot, SnapshotData } from "../agent/workflow-snapshot-storage";
 
 const log = createLogger("TraceStore");
 
@@ -66,6 +67,54 @@ export function openTraceStore(setting: string | undefined): TraceStore | undefi
   if (setting === "off") return undefined;
   const path = setting ?? (process.env.NODE_ENV === "test" ? ":memory:" : defaultTracePath());
   return new TraceStore(path === ":memory:" ? path : resolve(path));
+}
+
+/**
+ * Whether a trace kept an agent's whole version tree: a snapshot for every
+ * step that made one, every version its calls recorded, and every snapshot's
+ * parent, unless it is the first snapshot on its path of steps (it hangs
+ * under a root: the agent's first, or the one an import started anew). Rows
+ * an earlier schema let another agent overwrite leave it incomplete.
+ */
+export function storedTreeComplete(steps: ReActStep[], snapshots: RestoredSnapshot[]): boolean {
+  if (!snapshots.length) return false;
+  const ids = new Set(snapshots.map(snapshot => snapshot.id));
+  const owners = new Set(snapshots.map(snapshot => snapshot.stepId));
+  const parentOf = new Map(steps.map(step => [step.id, step.parentId]));
+  const madeOne = (step: ReActStep) =>
+    step.userAction?.kind === "restore" ||
+    (!!step.toolCalls?.length && !step.toolCalls.every(call => call.toolName === "inspectError"));
+  if (!steps.every(step => !madeOne(step) || owners.has(step.id))) return false;
+  // Every version a step's calls recorded is there.
+  const stored = new Set(snapshots.flatMap(snapshot => (snapshot.version === undefined ? [] : [snapshot.version])));
+  if (!steps.every(step => recordedVersions(step).every(version => stored.has(version)))) return false;
+  return snapshots.every(snapshot => {
+    if (snapshot.parentId !== undefined && ids.has(snapshot.parentId)) return true;
+    const earlier = (other: RestoredSnapshot) =>
+      other.createdAt < snapshot.createdAt || (other.version ?? -1) < (snapshot.version ?? -1);
+    if (snapshots.some(other => other !== snapshot && other.stepId === snapshot.stepId && earlier(other))) return false;
+    for (let step = parentOf.get(snapshot.stepId); step !== undefined; step = parentOf.get(step))
+      if (owners.has(step)) return false;
+    return true;
+  });
+}
+
+/** The version numbers a step's `dataflow` calls recorded: each edit's, run's and show's. */
+function recordedVersions(step: ReActStep): number[] {
+  return (step.toolResults ?? []).flatMap(result => {
+    const output = result.output as
+      | {
+          kind?: string;
+          actions?: Array<{ output?: { versions?: Array<{ version?: unknown }>; version?: { version?: unknown } } }>;
+        }
+      | undefined;
+    if (output?.kind !== "dataflow-actions") return [];
+    return (output.actions ?? []).flatMap(item =>
+      [...(item.output?.versions ?? []), ...(item.output?.version ? [item.output.version] : [])].flatMap(version =>
+        typeof version?.version === "number" ? [version.version] : []
+      )
+    );
+  });
 }
 
 export interface TraceAgent {
@@ -161,7 +210,7 @@ CREATE TABLE IF NOT EXISTS agents (
   end_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS turns (
-  message_id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   channel TEXT NOT NULL,
   source TEXT,
@@ -170,10 +219,11 @@ CREATE TABLE IF NOT EXISTS turns (
   ended_at INTEGER,
   status TEXT,
   reply TEXT,
-  error TEXT
+  error TEXT,
+  PRIMARY KEY (agent_id, message_id)
 );
 CREATE TABLE IF NOT EXISTS steps (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
   parent_id TEXT,
@@ -199,7 +249,9 @@ CREATE TABLE IF NOT EXISTS steps (
   context_ms INTEGER,
   model_ms INTEGER,
   post_step_ms INTEGER,
-  step TEXT NOT NULL
+  step TEXT NOT NULL,
+  cleared INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (agent_id, id)
 );
 CREATE TABLE IF NOT EXISTS llm_calls (
   id INTEGER PRIMARY KEY,
@@ -221,7 +273,7 @@ CREATE TABLE IF NOT EXISTS llm_calls (
   error TEXT
 );
 CREATE TABLE IF NOT EXISTS snapshots (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   parent_id TEXT,
   step_id TEXT,
@@ -235,14 +287,17 @@ CREATE TABLE IF NOT EXISTS snapshots (
   links TEXT NOT NULL,
   positions TEXT NOT NULL,
   settings TEXT,
-  namespace TEXT
+  namespace TEXT,
+  cleared INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (agent_id, id)
 );
 CREATE TABLE IF NOT EXISTS snapshot_operators (
+  agent_id TEXT NOT NULL,
   snapshot_id TEXT NOT NULL,
   position INTEGER NOT NULL,
   operator_id TEXT NOT NULL,
   blob TEXT NOT NULL,
-  PRIMARY KEY (snapshot_id, position)
+  PRIMARY KEY (agent_id, snapshot_id, position)
 );
 CREATE TABLE IF NOT EXISTS blobs (
   hash TEXT PRIMARY KEY,
@@ -345,7 +400,16 @@ function seedRow(row: Record<string, unknown>): SeedRow {
 }
 
 /** Columns added after the first release, for databases created before them. */
-const MIGRATIONS: Array<[table: string, column: string, type: string]> = [["operator_results", "info", "TEXT"]];
+const MIGRATIONS: Array<[table: string, column: string, type: string]> = [
+  ["operator_results", "info", "TEXT"],
+  ["steps", "cleared", "INTEGER NOT NULL DEFAULT 0"],
+  ["snapshots", "cleared", "INTEGER NOT NULL DEFAULT 0"],
+];
+
+/** Tables first keyed by an id alone, which another agent's rows overwrote: each agent numbers its
+ * snapshots from S0, and seeded agents share the archive's step and message ids. A database made
+ * before they were keyed by agent is rebuilt once, keeping what it still holds. */
+const AGENT_KEYED = ["turns", "steps", "snapshots", "snapshot_operators"];
 
 const json = (value: unknown): string | null => (value === undefined ? null : JSON.stringify(value));
 const flag = (value: unknown): number => (value ? 1 : 0);
@@ -370,6 +434,7 @@ export class TraceStore {
     this.db = new Database(path, { create: true });
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA synchronous = NORMAL");
+    this.keyByAgent();
     this.db.exec(SCHEMA);
     for (const [table, column, type] of MIGRATIONS) {
       const columns = (this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(c => c.name);
@@ -379,6 +444,36 @@ export class TraceStore {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Rebuild the tables an earlier schema keyed by id alone (AGENT_KEYED), keeping their rows. */
+  private keyByAgent(): void {
+    const keyOf = (table: string) =>
+      (this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number }>).filter(c => c.pk);
+    const stale = AGENT_KEYED.filter(table => {
+      const key = keyOf(table);
+      return key.length > 0 && !key.some(column => column.name === "agent_id");
+    });
+    if (!stale.length) return;
+    this.db.transaction(() => {
+      for (const table of stale) this.db.run(`ALTER TABLE ${table} RENAME TO ${table}_unkeyed`);
+      this.db.exec(SCHEMA);
+      for (const table of stale) {
+        const columns = (this.db.query(`PRAGMA table_info(${table}_unkeyed)`).all() as Array<{ name: string }>)
+          .map(column => column.name)
+          .join(", ");
+        // An operator row belongs to the agent whose snapshot held it last.
+        if (table === "snapshot_operators")
+          this.db.run(
+            `INSERT OR IGNORE INTO snapshot_operators (agent_id, ${columns})
+             SELECT s.agent_id, ${columns.replace(/(\w+)/g, "o.$1")} FROM snapshot_operators_unkeyed o
+             JOIN ${stale.includes("snapshots") ? "snapshots_unkeyed" : "snapshots"} s ON s.id = o.snapshot_id`
+          );
+        else this.db.run(`INSERT OR IGNORE INTO ${table} (${columns}) SELECT ${columns} FROM ${table}_unkeyed`);
+      }
+      for (const table of stale) this.db.run(`DROP TABLE ${table}_unkeyed`);
+    })();
+    log.info({ tables: stale }, "trace tables keyed by agent");
   }
 
   /** Run one write; a failure is logged, never thrown — a trace must not fail a turn. */
@@ -442,8 +537,18 @@ export class TraceStore {
   turnEnded(turn: TraceTurnEnd): void {
     this.write("turn end", () =>
       this.db
-        .query("UPDATE turns SET ended_at = ?, status = ?, reply = ?, error = ? WHERE message_id = ?")
-        .run(turn.endedAt, turn.status, turn.reply ?? null, turn.error ?? null, turn.messageId)
+        .query("UPDATE turns SET ended_at = ?, status = ?, reply = ?, error = ? WHERE agent_id = ? AND message_id = ?")
+        .run(turn.endedAt, turn.status, turn.reply ?? null, turn.error ?? null, turn.agentId, turn.messageId)
+    );
+  }
+
+  /** The agent's history was cleared (or an import replaced it): its rows so far stay, marked, and a restore leaves them out. */
+  historyCleared(agentId: string): void {
+    this.write("history cleared", () =>
+      this.db.transaction(() => {
+        this.db.query("UPDATE steps SET cleared = 1 WHERE agent_id = ?").run(agentId);
+        this.db.query("UPDATE snapshots SET cleared = 1 WHERE agent_id = ?").run(agentId);
+      })()
     );
   }
 
@@ -555,15 +660,17 @@ export class TraceStore {
             json(workflow.settings),
             json(workflow.nativeNamespace)
           );
-        this.db.query("DELETE FROM snapshot_operators WHERE snapshot_id = ?").run(snapshot.id);
+        this.db
+          .query("DELETE FROM snapshot_operators WHERE agent_id = ? AND snapshot_id = ?")
+          .run(agentId, snapshot.id);
         const blob = this.db.query("INSERT OR IGNORE INTO blobs (hash, json) VALUES (?, ?)");
         const member = this.db.query(
-          "INSERT INTO snapshot_operators (snapshot_id, position, operator_id, blob) VALUES (?, ?, ?, ?)"
+          "INSERT INTO snapshot_operators (agent_id, snapshot_id, position, operator_id, blob) VALUES (?, ?, ?, ?, ?)"
         );
         workflow.operators.forEach((operator, position) => {
           const [hash, text] = this.hashOf(operator);
           blob.run(hash, text);
-          member.run(snapshot.id, position, operator.operatorID, hash);
+          member.run(agentId, snapshot.id, position, operator.operatorID, hash);
         });
       })();
     });
@@ -753,39 +860,29 @@ export class TraceStore {
     };
   }
 
-  /** An agent's steps as recorded, oldest first — the archive `importReActSteps` replays. */
+  /** An agent's steps as recorded, oldest first, less those a clear left behind — the archive `importReActSteps` replays. */
   stepsOf(agentId: string): ReActStep[] {
     return (
-      this.db.query("SELECT step FROM steps WHERE agent_id = ? ORDER BY rowid").all(agentId) as Array<{
+      this.db.query("SELECT step FROM steps WHERE agent_id = ? AND cleared = 0 ORDER BY rowid").all(agentId) as Array<{
         step: string;
       }>
     ).map(row => JSON.parse(row.step) as ReActStep);
   }
 
-  /** Each operator's newest result per step, oldest first — put back on the snapshots after a restore. */
-  operatorResultsOf(agentId: string): Array<{ stepId: string; operatorId: string; info: OperatorInfo }> {
-    return (
-      this.db
-        .query(
-          `SELECT step_id, operator_id, info FROM operator_results
-           WHERE agent_id = ? AND step_id IS NOT NULL AND info IS NOT NULL
-             AND id IN (SELECT MAX(id) FROM operator_results WHERE agent_id = ? GROUP BY step_id, operator_id)
-           ORDER BY id`
-        )
-        .all(agentId, agentId) as Array<{ step_id: string; operator_id: string; info: string }>
-    ).map(row => ({ stepId: row.step_id, operatorId: row.operator_id, info: JSON.parse(row.info) as OperatorInfo }));
-  }
-
-  /** Each step's dataflow as its newest version left it, rebuilt from the stored operators. */
-  snapshotWorkflows(agentId: string): Record<string, WorkflowContent> {
-    const snapshots = this.db
+  /** Every snapshot of an agent's steps as last recorded, oldest first: the version tree a restore puts back. */
+  snapshotsOf(agentId: string): RestoredSnapshot[] {
+    const rows = this.db
       .query(
-        `SELECT id, step_id, links, positions, settings, namespace FROM snapshots
-         WHERE agent_id = ? AND step_id IS NOT NULL ORDER BY created_at, version, rowid`
+        `SELECT id, parent_id, step_id, version, action, created_at, links, positions, settings, namespace
+         FROM snapshots WHERE agent_id = ? AND step_id IS NOT NULL AND cleared = 0 ORDER BY created_at, version, rowid`
       )
       .all(agentId) as Array<{
       id: string;
+      parent_id: string | null;
       step_id: string;
+      version: number | null;
+      action: string | null;
+      created_at: number;
       links: string;
       positions: string;
       settings: string | null;
@@ -793,22 +890,62 @@ export class TraceStore {
     }>;
     const operatorsOf = this.db.query(
       `SELECT b.json FROM snapshot_operators o JOIN blobs b ON b.hash = o.blob
-       WHERE o.snapshot_id = ? ORDER BY o.position`
+       WHERE o.agent_id = ? AND o.snapshot_id = ? ORDER BY o.position`
     );
-    const workflows: Record<string, WorkflowContent> = {};
-    for (const row of snapshots) {
-      const operators = (operatorsOf.all(row.id) as Array<{ json: string }>).map(
-        member => JSON.parse(member.json) as OperatorPredicate
-      );
-      workflows[row.step_id] = {
-        operators,
+    return rows.map(row => ({
+      id: row.id,
+      ...(row.parent_id ? { parentId: row.parent_id } : {}),
+      stepId: row.step_id,
+      ...(row.version !== null && row.action ? { version: row.version, action: JSON.parse(row.action) } : {}),
+      createdAt: row.created_at,
+      workflow: {
+        operators: (operatorsOf.all(agentId, row.id) as Array<{ json: string }>).map(
+          member => JSON.parse(member.json) as OperatorPredicate
+        ),
         links: JSON.parse(row.links),
         operatorPositions: JSON.parse(row.positions),
         commentBoxes: [],
         settings: row.settings ? JSON.parse(row.settings) : { dataTransferBatchSize: 400 },
         ...(row.namespace ? { nativeNamespace: JSON.parse(row.namespace) } : {}),
-      };
-    }
-    return workflows;
+      },
+    }));
+  }
+
+  /** Every result written to an agent's snapshots, in the order written: a restore puts each back where it was. */
+  snapshotResultsOf(agentId: string): RestoredResult[] {
+    return (
+      this.db
+        .query(
+          `SELECT snapshot_id, step_id, operator_id, info FROM operator_results
+           WHERE agent_id = ? AND info IS NOT NULL ORDER BY id`
+        )
+        .all(agentId) as Array<{ snapshot_id: string; step_id: string | null; operator_id: string; info: string }>
+    ).map(row => ({
+      snapshotId: row.snapshot_id,
+      ...(row.step_id ? { stepId: row.step_id } : {}),
+      operatorId: row.operator_id,
+      info: JSON.parse(row.info) as OperatorInfo,
+    }));
+  }
+
+  /**
+   * The step HEAD was last put on by a checkout (or by a restore or an import
+   * choosing it), when that came after the newest step; undefined when the
+   * newest step is where HEAD went last, as each step takes HEAD when made.
+   */
+  lastCheckout(agentId: string): string | undefined {
+    const newest = this.db.query("SELECT MAX(at) AS at FROM steps WHERE agent_id = ?").get(agentId) as {
+      at: number | null;
+    } | null;
+    const moved = this.db
+      .query(
+        `SELECT at, detail FROM events WHERE agent_id = ?
+           AND kind IN ('checkout', 'checkout-version', 'restore', 'import') ORDER BY id DESC LIMIT 1`
+      )
+      .get(agentId) as { at: number; detail: string | null } | null;
+    if (!moved?.detail || (newest?.at != null && newest.at > moved.at)) return undefined;
+    const detail = JSON.parse(moved.detail) as { headId?: unknown; stepId?: unknown; success?: unknown };
+    const head = detail.headId ?? (detail.success === true ? detail.stepId : undefined);
+    return typeof head === "string" ? head : undefined;
   }
 }

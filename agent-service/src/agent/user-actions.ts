@@ -25,6 +25,7 @@
  * it, at the point in the conversation where it happened.
  */
 import type { WorkflowContent } from "../types/workflow";
+import type { VersionAction } from "./workflow-snapshot-storage";
 import { nativeAssignmentText } from "./native/catalog";
 import { renderDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 
@@ -102,10 +103,11 @@ export function userActionContent(
 }
 
 /** What the model reads when the user restores a version from the middle of
- * one of its calls: which of that call's edits are undone. */
+ * one of its calls: which of that call's edits are undone, or, for a run or a
+ * show the call went on from, that only the results computed by then remain. */
 export function restoreContent(
   version: number,
-  operatorId: string | undefined,
+  action: Pick<VersionAction, "kind" | "operatorId" | "operatorIds"> | undefined,
   restored: WorkflowContent,
   undone: WorkflowContent
 ): string {
@@ -115,8 +117,20 @@ export function restoreContent(
   const back = [...now.keys()].filter(
     id => !was.has(id) || JSON.stringify(was.get(id)!.nativeOp) !== JSON.stringify(now.get(id)!.nativeOp)
   );
+  const names = (ids: readonly string[] | undefined) => (ids ?? []).map(id => `\`${id}\``).join(", ");
+  const when =
+    action?.kind === "run"
+      ? `right after you ran ${action.operatorIds?.length ? names(action.operatorIds) : "the whole dataflow"}`
+      : action?.kind === "show"
+        ? `right after you looked at the result of ${names(action.operatorIds) || "the dataflow"}`
+        : action?.operatorId
+          ? `right after your edit of \`${action.operatorId}\``
+          : "";
   const lines = [
-    `I restored v${version} of the dataflow${operatorId ? `, as it was right after your edit of \`${operatorId}\`` : ""}; the later edits of that call are undone.`,
+    `I restored v${version} of the dataflow${when ? `, as it was ${when}` : ""}; ` +
+      (removed.length || back.length
+        ? "the later edits of that call are undone."
+        : "its operators are unchanged, and only the results computed by then are kept."),
   ];
   if (removed.length) lines.push(`No longer defined: ${removed.map(id => `\`${id}\``).join(", ")}.`);
   const statements = back.flatMap(id => {

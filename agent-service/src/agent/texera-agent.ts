@@ -28,7 +28,12 @@ import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
 import type { WorkflowContent } from "../types/workflow";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
-import { changesDataflow, WorkflowSnapshotStorage, type VersionAction } from "./workflow-snapshot-storage";
+import {
+  WorkflowSnapshotStorage,
+  type RestoredResult,
+  type RestoredSnapshot,
+  type VersionAction,
+} from "./workflow-snapshot-storage";
 import type {
   AgentDelegateConfig,
   AgentSettings,
@@ -2109,6 +2114,8 @@ export class TexeraAgent {
     this.currentMessageId = undefined;
     this.head = undefined;
     this.snapshotStorage.clear();
+    // The trace keeps what came before, marked as no longer the agent's: a restore leaves it out.
+    this.trace?.historyCleared(this.agentId);
   }
 
   /** Trace from here on: an agent restored from the store is rebuilt untraced, then attached. */
@@ -2158,8 +2165,9 @@ export class TexeraAgent {
 
   /**
    * Put stored operator results back on the snapshots their steps own (after
-   * `importReActSteps`), then let descendants inherit them, as a live run
-   * leaves them. A result whose step owns no snapshot is skipped. A result
+   * `importReActSteps`), and on each step's earlier versions whose runs
+   * computed them, then let descendants inherit them, as a live run leaves
+   * them. A result whose step owns no snapshot is skipped. A result
    * another workflow produced (an archive imported here) loses the execution
    * proof that tied it to that workflow and binds as a current value, as a
    * result parsed from an old context does.
@@ -2176,6 +2184,8 @@ export class TexeraAgent {
         this.log.warn({ err, stepId, operatorId }, "restore: failed to set operator result, skipping");
       }
     }
+    // Each step's earlier versions computed some of them on the way; going back to one shows those.
+    for (const stepId of new Set(results.map(result => result.stepId))) this.snapshotStorage.spreadStepResults(stepId);
     this.snapshotStorage.propagateInheritedResults();
   }
 
@@ -2217,7 +2227,13 @@ export class TexeraAgent {
    */
   async importReActSteps(
     steps: ReActStep[],
-    snapshots?: Record<string, WorkflowContent>
+    snapshots?: Record<string, WorkflowContent>,
+    restore: {
+      /** The version tree a trace kept, put back as it was in place of a replay. */
+      tree?: { snapshots: RestoredSnapshot[]; results: RestoredResult[] };
+      /** The step HEAD was last on, when it is not the newest leaf. */
+      head?: string;
+    } = {}
   ): Promise<{ headId: string; importedCount: number }> {
     if (!Array.isArray(steps) || steps.length === 0) {
       throw new Error("import requires a non-empty steps array");
@@ -2327,10 +2343,19 @@ export class TexeraAgent {
     this.metadataStore.seedCodeModeDefaults();
     const replayTools = this.buildReplayTools();
     const explicitSnapshots = snapshots ?? {};
+    // A trace's own tree comes back as it was, each version with its results; nothing is replayed.
+    const tree = restore.tree;
+    const restoring = !!tree?.snapshots.length;
+    if (tree && restoring)
+      this.snapshotStorage.restoreTree(
+        tree.snapshots.map(snapshot => ({ ...snapshot, workflow: withCurrentLayout(snapshot.workflow) })),
+        tree.results,
+        seenIds
+      );
     type ReplayFrame = { id: string; parentContent: WorkflowContent };
     const frames: ReplayFrame[] = [];
     const emptyRoot = createEmptyWorkflowContent();
-    for (const rootId of childrenOf.get(VIRTUAL_ROOT) ?? []) {
+    for (const rootId of restoring ? [] : (childrenOf.get(VIRTUAL_ROOT) ?? [])) {
       frames.push({ id: rootId, parentContent: emptyRoot });
     }
     while (frames.length > 0) {
@@ -2347,7 +2372,12 @@ export class TexeraAgent {
       } else if (step.toolCalls && step.toolCalls.length > 0) {
         this.workflowState.setWorkflowContent(parentContent);
         // One version per replayed action, as the live run recorded them.
-        const versions: Array<{ action: VersionAction; workflow?: WorkflowContent; createdAt: number }> = [];
+        const versions: Array<{
+          action: VersionAction;
+          workflow?: WorkflowContent;
+          createdAt: number;
+          number?: number;
+        }> = [];
         const author = step.role === "user" ? "user" : "agent";
         for (const tc of step.toolCalls) {
           if (tc.toolName === "initialize" || tc.toolName === TOOL_NAME_EXECUTE_OPERATOR) continue;
@@ -2361,7 +2391,10 @@ export class TexeraAgent {
                 if (item.status === "pending") break;
                 if (item.status === "skipped") continue;
                 const output = item.output as
-                  | { versions?: Array<{ timestamp?: number }>; version?: { timestamp?: number } }
+                  | {
+                      versions?: Array<{ timestamp?: number; version?: number }>;
+                      version?: { timestamp?: number; version?: number };
+                    }
                   | undefined;
                 if (item.action.type === "edit" && item.status === "ok") {
                   const before = this.workflowState.getWorkflowContent();
@@ -2371,16 +2404,23 @@ export class TexeraAgent {
                   });
                   this.workflowState.setWorkflowContent(plan.workflow);
                   const times = output?.versions ?? [];
+                  const edits = editVersions(before, plan, author);
                   versions.push(
-                    ...editVersions(before, plan, author).map((version, index) => ({
+                    ...edits.map((version, index) => ({
                       ...version,
                       createdAt: times[index]?.timestamp ?? step.timestamp,
+                      // The number the session gave it, so the step's chips and the tree agree.
+                      ...(times.length === edits.length ? { number: times[index]?.version } : {}),
                     }))
                   );
                 }
                 const request = importedRequest(item, author);
                 if (request)
-                  versions.push({ action: request, createdAt: output?.version?.timestamp ?? step.timestamp });
+                  versions.push({
+                    action: request,
+                    createdAt: output?.version?.timestamp ?? step.timestamp,
+                    number: output?.version?.version,
+                  });
               }
             } catch (err) {
               this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: edit replay threw, continuing");
@@ -2443,7 +2483,7 @@ export class TexeraAgent {
     // (deeper traces saw more recent context). Operators not in the
     // target snapshot's workflow are skipped — the trace may mention an
     // id from a previous branch that the current path doesn't contain.
-    for (const step of order) {
+    for (const step of restoring ? [] : order) {
       if (!step.inputMessages || step.inputMessages.length === 0) continue;
       if (!step.parentId) continue;
       const target = this.snapshotStorage.getAssociatedSnapshot(step.parentId);
@@ -2478,9 +2518,9 @@ export class TexeraAgent {
     // down the tree so descendant snapshots — including HEAD, whose owning
     // step is described by no later context — inherit ancestor results and
     // every checkout shows the operator state the model actually saw.
-    this.snapshotStorage.propagateInheritedResults();
+    if (!restoring) this.snapshotStorage.propagateInheritedResults();
 
-    // Pick HEAD: leaf with the latest timestamp on its branch.
+    // Pick HEAD: where the trace says it was last put, else the leaf with the latest timestamp on its branch.
     const leaves = order.filter(s => (childrenOf.get(s.id) ?? []).length === 0);
     if (leaves.length === 0) {
       throw new Error("import has no leaf steps (impossible after structure check)");
@@ -2491,7 +2531,7 @@ export class TexeraAgent {
     const conversational = leaves.filter(s => !TexeraAgent.isInitializationStep(s));
     const candidates = conversational.length > 0 ? conversational : leaves;
     candidates.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-    const headStep = candidates[0];
+    const headStep = (restore.head !== undefined ? stepById.get(restore.head) : undefined) ?? candidates[0];
     this.head = headStep.id;
 
     // Restore workflow visible at HEAD. The storage's read is total — if
@@ -3203,25 +3243,38 @@ export class TexeraAgent {
   }
 
   /**
-   * Check out a dataflow version (a snapshot an action made). A version no
-   * later edit of its step changed shows the step's dataflow, so it checks out
-   * the last step of that turn still showing it: the runs, reads and the reply
-   * after the edits come along. A version in the middle of a step's edits is
-   * restored: HEAD moves to that step, and a user step under it records the
-   * restore with that version as its dataflow, so the agent reads which of the
-   * step's edits were undone. Returns the new HEAD, or undefined when there is
-   * no such version.
+   * Check out a dataflow version (a snapshot an action made), so the canvas
+   * shows exactly that version: its dataflow and the results it had. A step's
+   * newest version checks out the step, and the replies after it in its turn
+   * that make no version of their own come along. An earlier version of a
+   * step — an edit a later edit of the call changed, or a run or a show the
+   * call went on from — is restored: HEAD moves to that step, and a user step
+   * under it records the restore with that version as its dataflow, so the
+   * agent reads what was undone. Going back to a version restored before
+   * reuses that restore. Returns the new HEAD, or undefined when there is no
+   * such version.
    */
   checkoutVersion(snapshotId: string): string | undefined {
     const version = this.snapshotStorage.getSnapshotById(snapshotId);
     if (!version?.reactStepId || version.version === undefined || !this.stepsById.has(version.reactStepId))
       return undefined;
     const owner = version.reactStepId;
-    const later = this.snapshotStorage.getStepVersions(owner).filter(other => other.version! > version.version!);
-    if (!later.some(other => changesDataflow(other.action))) {
+    if (this.snapshotStorage.getOwnedSnapshot(owner)?.id === version.id) {
       const target = this.lastStepShowing(owner);
       this.checkout(target);
       return target;
+    }
+    const restored = [...this.stepsById.values()]
+      .filter(
+        step =>
+          step.parentId === owner &&
+          step.userAction?.kind === "restore" &&
+          this.snapshotStorage.getOwnedSnapshot(step.id)?.parentId === version.id
+      )
+      .at(-1);
+    if (restored) {
+      this.checkout(restored.id);
+      return restored.id;
     }
     this.checkout(owner);
     const undone = this.workflowState.getWorkflowContent();
@@ -3233,7 +3286,7 @@ export class TexeraAgent {
       stepId: 0,
       timestamp: Date.now(),
       role: "user",
-      content: restoreContent(version.version, version.action?.operatorId, version.workflow, undone),
+      content: restoreContent(version.version, version.action, version.workflow, undone),
       isBegin: true,
       isEnd: true,
       messageSource: "action",
@@ -3251,9 +3304,9 @@ export class TexeraAgent {
     return stepId;
   }
 
-  /** The last step of `stepId`'s turn that still shows its dataflow version:
-   * the runs, reads and replies after it, along HEAD's branch where it passes
-   * through, else the newest branch, until a step changes the dataflow. */
+  /** The last step of `stepId`'s turn that still shows its newest version:
+   * the replies after it that make no version, along HEAD's branch where it
+   * passes through, else the newest branch. */
   private lastStepShowing(stepId: string): string {
     const children = new Map<string, ReActStep[]>();
     for (const step of this.stepsById.values())
@@ -3263,9 +3316,7 @@ export class TexeraAgent {
     let current = stepId;
     for (;;) {
       const next = (children.get(current) ?? []).filter(
-        child =>
-          child.messageId === turn &&
-          !this.snapshotStorage.getStepVersions(child.id).some(version => changesDataflow(version.action))
+        child => child.messageId === turn && !this.snapshotStorage.getStepVersions(child.id).length
       );
       if (!next.length) return current;
       current = (next.find(child => onHead.has(child.id)) ?? next[next.length - 1]).id;

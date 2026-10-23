@@ -356,16 +356,76 @@ test("importing a session rebuilds its versions, runs and shows included, at the
   expect(imported.map(([kind]) => kind)).toEqual(["add", "add", "run", "show"]);
 });
 
-test("checking out a version a run or a show made, or an edit only runs and shows follow, checks out its step", async () => {
+test("an imported session keeps the version numbers its steps recorded", async () => {
+  const { agent } = await built();
+  const steps = structuredClone(agent.getAllSteps());
+  // As an archive without the start version would have them: every recorded number five higher.
+  for (const step of steps)
+    for (const result of step.toolResults ?? [])
+      for (const item of (result.output as any)?.actions ?? []) {
+        for (const version of item.output?.versions ?? []) version.version += 5;
+        if (item.output?.version) item.output.version.version += 5;
+      }
+  const { agent: copy } = session([]);
+  await copy.importReActSteps(steps);
+  const numbers = copy
+    .getSnapshotStorage()
+    .getSnapshotTreeNodes()
+    .filter(node => node.version !== undefined)
+    .map(node => [node.version, node.action?.kind]);
+  expect(numbers).toEqual([
+    [5, "add"],
+    [6, "add"],
+    [7, "run"],
+    [8, "show"],
+  ]);
+});
+
+test("an imported session's earlier versions show the results its runs had computed by then", async () => {
+  const { agent } = await built();
+  const { agent: copy } = session([]);
+  await copy.importReActSteps(structuredClone(agent.getAllSteps()));
+  // An archive keeps each step's results as the step ended.
+  const results = Object.entries(agent.exportOperatorResults()).flatMap(([stepId, byOperator]) =>
+    Object.entries(byOperator).map(([operatorId, info]) => ({ stepId, operatorId, info }))
+  );
+  copy.restoreOperatorResults(results);
+  const build = copy.getAllSteps().find(step => step.toolCalls?.some(call => call.toolName === "dataflow"))!;
+  const versions = copy.getSnapshotStorage().getStepVersions(build.id);
+  expect(versions.map(version => [version.action?.kind, [...version.results.keys()].sort()])).toEqual([
+    ["add", []],
+    ["add", []],
+    // The run computed kept and what it reads; the show after it keeps them.
+    ["run", ["kept", "records"]],
+    ["show", ["kept", "records"]],
+  ]);
+});
+
+test("checking out a version shows exactly it: a step's newest version checks out its step, an earlier one is restored", async () => {
   const { agent } = session([{ call: BUILD }, { text: "2 rows remain." }]);
   await agent.sendMessage("Keep the records whose value is over 15. How many remain?");
+  const storage = agent.getSnapshotStorage();
   const answer = latest(agent);
   const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
-  const [records, kept, run, show] = agent.getSnapshotStorage().getStepVersions(build.id);
+  const [records, kept, run, show] = storage.getStepVersions(build.id);
   expect([records, kept, run, show].map(version => version.action?.kind)).toEqual(["add", "add", "run", "show"]);
-  for (const version of [kept, run, show]) expect(agent.checkoutVersion(version.id)).toBe(answer.id);
-  // An edit that a later edit of its call changed is restored instead.
-  expect(agent.getStepsById().get(agent.checkoutVersion(records.id)!)?.userAction?.kind).toBe("restore");
+  // The newest version is what the turn ended with: the answer comes along.
+  expect(agent.checkoutVersion(show.id)).toBe(answer.id);
+  expect(storage.getAssociatedSnapshot(agent.getHead()).id).toBe(show.id);
+  for (const version of [records, kept, run]) {
+    const head = agent.checkoutVersion(version.id)!;
+    expect(agent.getStepsById().get(head)?.userAction).toMatchObject({ kind: "restore", version: version.version });
+    // HEAD shows the version itself: its dataflow, and only the results it had.
+    expect(storage.getOwnedSnapshot(head)?.parentId).toBe(version.id);
+    expect([...storage.getAllVisibleResults(head).keys()]).toEqual([...version.results.keys()]);
+    // Going back to it again reuses the restore.
+    expect(agent.checkoutVersion(version.id)).toBe(head);
+  }
+  expect(run.results.size).toBeGreaterThan(0);
+  // A run the call went on from undoes no edit; only later results are gone.
+  const restored = agent.getStepsById().get(agent.checkoutVersion(run.id)!)!;
+  expect(restored.content).toEndWith("its operators are unchanged, and only the results computed by then are kept.");
+  expect(restored.content).toContain("as it was right after you ran");
 });
 
 test("checking out a step's last version moves HEAD there; an earlier version is restored as a user step", async () => {
@@ -379,12 +439,12 @@ test("checking out a step's last version moves HEAD there; an earlier version is
   const storage = agent.getSnapshotStorage();
   const answer = latest(agent);
   const build = agent.getVisibleReActSteps().find(step => step.toolCalls?.length)!;
-  const [records, kept] = (build.toolResults![0].output as any).actions[0].output.versions as Array<{
+  const [records] = (build.toolResults![0].output as any).actions[0].output.versions as Array<{
     snapshotId: string;
   }>;
 
   // The last version of the call is what its turn ended with, the answer included.
-  expect(agent.checkoutVersion(kept.snapshotId)).toBe(answer.id);
+  expect(agent.checkoutVersion(storage.getOwnedSnapshot(build.id)!.id)).toBe(answer.id);
   expect(agent.getHead()).toBe(answer.id);
 
   const head = agent.checkoutVersion(records.snapshotId)!;
