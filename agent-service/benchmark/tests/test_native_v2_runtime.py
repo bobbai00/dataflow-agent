@@ -245,6 +245,42 @@ def test_map_replaces_in_place_and_schema_slips_fail_clearly():
         run("Project", source, rename={"x": "y"})
 
 
+def registered_spec(cell, entry, **extra):
+    return spec(
+        "Process",
+        registered={"cells": [cell], "entry": entry, "settings": {}, "namespaceRevision": "ns-test", **extra},
+    )
+
+
+def load_registered_support():
+    """The compiler appends registered.py and dataset_files.py to runtime.py in one script (codegen.ts);
+    run them in the runtime module's namespace so the test sees the same names."""
+    for name in ("registered.py", "dataset_files.py"):
+        path = RUNTIME.with_name(name)
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), runtime.__dict__)
+
+
+def test_a_visualization_operator_returns_one_html_record():
+    load_registered_support()
+    source = pd.DataFrame({"x": [1, 2]})
+    drawn = runtime.execute_native(
+        registered_spec("def chart(table):\n    return '<svg>' + str(len(table)) + '</svg>'", "chart", visualization=True),
+        [source],
+    )
+    assert drawn.to_dict("records") == [{"html-content": "<svg>2</svg>", "__is_visualization__": True}]
+    # A one-cell table holding the HTML works too; without the flag the table is returned as is.
+    cell = "import pandas as pd\ndef chart(table):\n    return pd.DataFrame({'html': ['<b>x</b>']})"
+    assert runtime.execute_native(registered_spec(cell, "chart", visualization=True), [source])["html-content"].tolist() == ["<b>x</b>"]
+    assert runtime.execute_native(registered_spec(cell, "chart"), [source]).columns.tolist() == ["html"]
+    with pytest.raises(runtime.NativeError, match="VISUALIZATION_TYPE"):
+        runtime.execute_native(registered_spec("def chart(table):\n    return 42", "chart", visualization=True), [source])
+    with pytest.raises(runtime.NativeError, match="VISUALIZATION_EMPTY"):
+        runtime.execute_native(
+            registered_spec("import pandas as pd\ndef chart(table):\n    return pd.DataFrame()", "chart", visualization=True),
+            [source],
+        )
+
+
 def test_process_is_unknown_even_when_it_preserves_row_count():
     udf = spec("Process", code="def process(source):\n    return source.iloc[::-1].copy()")
     result = runtime.execute_native(udf, [pd.DataFrame({"x": [1, 2]})])

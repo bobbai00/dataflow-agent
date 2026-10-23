@@ -32,7 +32,7 @@ import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { merge, Subscription } from "rxjs";
 import { isEqual } from "lodash-es";
 import { AgentService, OperatorResultSummary, UserActionResponse } from "../../../service/agent/agent.service";
-import { AgentState } from "../../../service/agent/agent-types";
+import { AgentState, ReActStep } from "../../../service/agent/agent-types";
 import { isNativeOperator, nativeOperatorIcon, nativeOperatorTypeName } from "../../../service/agent/native-operator";
 import {
   cellText,
@@ -63,6 +63,7 @@ import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzInputDirective, NzAutosizeDirective } from "ng-zorro-antd/input";
 import { NzButtonComponent } from "ng-zorro-antd/button";
 import { NzWaveDirective } from "ng-zorro-antd/core/wave";
+import { MarkdownComponent } from "ngx-markdown";
 
 /** Records shown for each input, and for the output. */
 const INPUT_RECORDS = 3;
@@ -73,6 +74,51 @@ export interface OperatorInput {
   operatorId: string;
   outcome: OperatorOutcome;
   running: boolean;
+}
+
+/** The agent's summary of an operator: what it does and how its result comes from its inputs. */
+export interface OperatorSummary {
+  /** The message that asked for it; the reply is the agent's first answer after it. */
+  request: string;
+  agentName: string;
+  text?: string;
+  pending: boolean;
+}
+
+/** Summaries by `${agentId}:${operatorId}`, kept while the workspace is open so reopening a panel shows them. */
+const SUMMARIES = new Map<string, OperatorSummary>();
+
+/** The message that asks an agent to summarize an operator; the chat shows it as the user's. */
+export function summaryRequest(operatorId: string, inputIds: readonly string[]): string {
+  const from =
+    inputIds.length > 0
+      ? `its input${inputIds.length > 1 ? "s" : ""} ${inputIds.map(id => `\`${id}\``).join(", ")}`
+      : "what it reads";
+  return (
+    `Summarize \`${operatorId}\`: in a few sentences, say what this operator does and how its result is computed from ${from}: ` +
+    "what it reads, what it keeps, changes or combines, and what its output holds (rows and key columns). " +
+    "Use the results already in the dataflow; do not change any operator."
+  );
+}
+
+/**
+ * The agent's answer to a request: its first reply without tool calls after
+ * the request's own step. `done` without text means no answer is coming (the
+ * conversation moved on).
+ */
+export function summaryReply(steps: readonly ReActStep[], request: string): { done: boolean; text?: string } {
+  let asked = -1;
+  steps.forEach((step, index) => {
+    if (step.role === "user" && step.content.trim() === request.trim()) asked = index;
+  });
+  if (asked < 0) return { done: false };
+  for (const step of steps.slice(asked + 1)) {
+    if (step.role === "user" && step.messageSource !== "correction") return { done: true };
+    if (step.role === "agent" && !(step.toolCalls?.length ?? 0) && step.content.trim()) {
+      return { done: true, text: step.content.trim() };
+    }
+  }
+  return { done: false };
 }
 
 /**
@@ -105,6 +151,7 @@ export interface OperatorInput {
     NzButtonComponent,
     NzWaveDirective,
     NativeOperatorEditorComponent,
+    MarkdownComponent,
   ],
 })
 export class AgentInteractionComponent implements OnInit, OnChanges {
@@ -130,6 +177,9 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public availableAgents: Array<{ id: string; name: string; isConnected: boolean }> = [];
   public selectedAgentId: string | null = null;
   public feedbackMessage: string = "";
+  /** The agent's summary of this operator, asked for with the Summary action. */
+  public summary?: OperatorSummary;
+  private summarySubscription?: Subscription;
 
   /** The operator's settings, as its edit form names them when the agent can split its statement. */
   public properties: OperatorProperty[] = [];
@@ -161,6 +211,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     // The connected agent is known at once; the full list arrives over HTTP.
     this.selectedAgentId = this.agentService.getActivelyConnectedAgentIds()[0] ?? this.selectedAgentId;
     this.watchAgentState();
+    this.loadSummary();
     this.loadAvailableAgents();
     this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
       this.loadAvailableAgents();
@@ -196,6 +247,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
       this.notice = undefined;
       if (changes["operatorId"]) this.dataExpanded = true;
       this.refreshOperator();
+      this.loadSummary();
     }
   }
 
@@ -453,6 +505,64 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public onAgentSelected(): void {
     this.watchAgentState();
     this.loadProperties();
+    this.loadSummary();
+  }
+
+  /**
+   * Ask the agent what the operator does and how its result is computed from
+   * its inputs. The request and the reply are ordinary chat messages; the
+   * reply also shows here, under the actions.
+   */
+  public summarize(): void {
+    const agentId = this.actionAgentId;
+    if (!agentId || !this.canAct) return;
+    const request = summaryRequest(
+      this.operatorId,
+      this.inputs.map(input => input.operatorId)
+    );
+    this.mode = null;
+    this.notice = undefined;
+    this.actionError = undefined;
+    this.agentService.sendMessage(agentId, request, "feedback");
+    this.summary = { request, agentName: this.agentName, pending: true };
+    SUMMARIES.set(this.summaryKey(agentId), this.summary);
+    this.watchSummary(agentId);
+    this.changeDetectorRef.detectChanges();
+  }
+
+  public dismissSummary(): void {
+    if (this.selectedAgentId) SUMMARIES.delete(this.summaryKey(this.selectedAgentId));
+    this.summary = undefined;
+    this.summarySubscription?.unsubscribe();
+  }
+
+  private summaryKey(agentId: string): string {
+    return `${agentId}:${this.operatorId}`;
+  }
+
+  /** The summary this agent gave of this operator, if it was asked. */
+  private loadSummary(): void {
+    this.summarySubscription?.unsubscribe();
+    this.summary = this.selectedAgentId ? SUMMARIES.get(this.summaryKey(this.selectedAgentId)) : undefined;
+    if (this.summary?.pending && this.selectedAgentId) this.watchSummary(this.selectedAgentId);
+  }
+
+  /** Fill the pending summary from the agent's reply when it arrives. */
+  private watchSummary(agentId: string): void {
+    this.summarySubscription?.unsubscribe();
+    const summary = this.summary;
+    if (!summary?.pending) return;
+    this.summarySubscription = this.agentService
+      .getReActStepsObservable(agentId)
+      .pipe(untilDestroyed(this))
+      .subscribe(steps => {
+        const reply = summaryReply(steps, summary.request);
+        if (!reply.done) return;
+        summary.text = reply.text;
+        summary.pending = false;
+        this.summarySubscription?.unsubscribe();
+        this.changeDetectorRef.detectChanges();
+      });
   }
 
   /** "Saved as v6." — the version a saved edit made. */

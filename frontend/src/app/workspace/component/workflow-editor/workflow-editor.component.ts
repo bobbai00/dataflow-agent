@@ -719,6 +719,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.handleHighlightMouseDBClickInput();
     this.handleHighlightMouseInput();
     this.handleElementHightlightEvent();
+    this.handleUpstreamHighlight();
   }
 
   private handleDisableOperator(): void {
@@ -885,6 +886,76 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .subscribe(() => {
         this.wrapper.unhighlightElements(this.wrapper.getCurrentHighlights());
       });
+  }
+
+  /** The CSS class marking a view as upstream of the selection (styled in this component's styles). */
+  private static readonly UPSTREAM_CLASS = "upstream-of-selected";
+  /** The operators and links currently marked as upstream of the selection. */
+  private upstreamMarks = { operators: new Set<string>(), links: new Set<string>() };
+  private upstreamRepaint: number | null = null;
+
+  /**
+   * While operators are selected, mark everything upstream of them: the
+   * operators whose tables flow into them, transitively, and the links the
+   * tables flow through. The marks are CSS classes on the JointJS views, so
+   * they never fight the attributes that carry an operator's status colour or
+   * an agent's action label, and they vanish with the selection.
+   */
+  private handleUpstreamHighlight(): void {
+    const graph = this.workflowActionService.getTexeraGraph();
+    merge(
+      this.wrapper.getJointOperatorHighlightStream(),
+      this.wrapper.getJointOperatorUnhighlightStream(),
+      graph.getOperatorAddStream(),
+      graph.getOperatorDeleteStream(),
+      graph.getLinkAddStream(),
+      graph.getLinkDeleteStream()
+    )
+      .pipe(untilDestroyed(this))
+      .subscribe(() => {
+        // One repaint per frame: a canvas update fires many of these at once,
+        // and the views of operators just added exist by the next frame.
+        if (this.upstreamRepaint !== null) return;
+        this.upstreamRepaint = requestAnimationFrame(() => {
+          this.upstreamRepaint = null;
+          this.applyUpstreamHighlight();
+        });
+      });
+  }
+
+  private applyUpstreamHighlight(): void {
+    const selected = this.wrapper.getCurrentHighlightedOperatorIDs();
+    const links = this.workflowActionService.getTexeraGraph().getAllLinks();
+    const operators = new Set<string>();
+    const paths = new Set<string>();
+    const pending = [...selected];
+    while (pending.length > 0) {
+      const target = pending.pop()!;
+      for (const link of links) {
+        if (link.target.operatorID !== target) continue;
+        paths.add(link.linkID);
+        const source = link.source.operatorID;
+        if (!operators.has(source) && !selected.includes(source)) {
+          operators.add(source);
+          pending.push(source);
+        }
+      }
+    }
+    const repaint = (previous: Set<string>, next: Set<string>) => {
+      previous.forEach(id => {
+        if (!next.has(id)) this.markUpstream(id, false);
+      });
+      next.forEach(id => this.markUpstream(id, true));
+    };
+    repaint(this.upstreamMarks.operators, operators);
+    repaint(this.upstreamMarks.links, paths);
+    this.upstreamMarks = { operators, links: paths };
+  }
+
+  private markUpstream(cellId: string, on: boolean): void {
+    const cell = this.workflowActionService.getJointGraph().getCell(cellId);
+    const view = cell ? this.paper.findViewByModel(cell) : undefined;
+    view?.el.classList.toggle(WorkflowEditorComponent.UPSTREAM_CLASS, on);
   }
 
   private handleElementHightlightEvent(): void {

@@ -150,6 +150,75 @@
   color: #8c8c8c;
 }
 
+// The agent's summary of the operator, under the actions.
+.op-summary-card {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: #262626;
+  background: #f6f8fb;
+  border: 1px solid #e4e8ee;
+  border-radius: 8px;
+}
+
+.op-summary-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #595959;
+
+  i {
+    color: #1677ff;
+  }
+}
+
+.op-summary-title {
+  font-weight: 600;
+}
+
+.op-summary-by {
+  flex: 1;
+  overflow: hidden;
+  color: #8c8c8c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-summary-close {
+  margin: -4px -6px -4px 0;
+  color: #8c8c8c;
+}
+
+.op-summary-pending {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #8c8c8c;
+}
+
+.op-summary-text {
+  display: block;
+  max-height: 180px;
+  overflow: auto;
+  line-height: 1.5;
+
+  ::ng-deep p {
+    margin: 0 0 6px;
+  }
+
+  ::ng-deep p:last-child {
+    margin-bottom: 0;
+  }
+
+  ::ng-deep code {
+    padding: 0 3px;
+    font-size: 11.5px;
+    background: #eef1f5;
+    border-radius: 3px;
+  }
+}
+
 .op-error,
 .data-error {
   overflow: auto;

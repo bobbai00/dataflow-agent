@@ -35,6 +35,32 @@
   display: none;
 }
 
+// Everything upstream of the selected operators: the operators whose tables
+// flow into them and the links they flow through (the editor's
+// `applyUpstreamHighlight`). Classes, not attributes, so an operator's status
+// colour returns untouched once the selection moves on.
+::ng-deep .joint-element.upstream-of-selected {
+  rect.body {
+    stroke: #69b1ff;
+    stroke-width: 2px;
+  }
+
+  .texera-operator-icon-section {
+    fill: #e6f4ff;
+  }
+}
+
+::ng-deep .joint-link.upstream-of-selected {
+  .connection {
+    stroke: #1677ff;
+    stroke-width: 2.5px;
+  }
+
+  .marker-target {
+    fill: #1677ff;
+  }
+}
+
 ::ng-deep .hide-operator-status .texera-operator-state {
   display: none;
 }

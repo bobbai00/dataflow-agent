@@ -44,6 +44,26 @@ const info = (rows: Record<string, unknown>[], overrides: Partial<OperatorInfo> 
   ...overrides,
 });
 
+describe("visualization records", () => {
+  test("show what the chart is, never its markup", () => {
+    const html = "<html><body><svg width='640'>" + "<rect/>".repeat(40) + "</svg></body></html>";
+    const drawn = renderRecords(info([{ "html-content": html, __is_visualization__: true }]), {
+      view: "sample",
+      maxChars: 4000,
+      maxRows: 5,
+    });
+    expect(drawn.text).toContain(`<chart: ${html.length} chars of HTML, rendered in the user's panel>`);
+    expect(drawn.text).not.toContain("<svg");
+    expect(drawn.text).toContain("__is_visualization__");
+    // A table that merely has such a column keeps its values.
+    const plain = renderRecords(info([{ "html-content": "<b>x</b>", kind: "snippet" }]), {
+      view: "sample",
+      maxChars: 4000,
+    });
+    expect(plain.text).toContain("<b>x</b>");
+  });
+});
+
 describe("observation value representation", () => {
   test.each(["markdown", "tsv", "key-value"] as const)("%s preserves text types and separators", format => {
     for (const value of ["", "null", "true", "12", "001", "1e5", "NaN"])

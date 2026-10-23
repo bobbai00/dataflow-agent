@@ -377,6 +377,16 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
         doc = value ?? undefined;
         delete kwargs.doc;
       }
+      // `is_visualization=True` marks a registered function's operator as one
+      // that draws: its result is the chart's HTML, which the frontend renders
+      // as a page. Like `doc`, it is an operator setting, never a function one.
+      let visualization = false;
+      if (kwargs.is_visualization !== undefined) {
+        const value = literal(kwargs.is_visualization);
+        if (typeof value !== "boolean") throw new Error("is_visualization must be True or False.");
+        visualization = value;
+        delete kwargs.is_visualization;
+      }
       let view: NativeOpView;
       if (statement.op === "filter") {
         view = normalizeRegisteredFilter({ ...statement, kwargs }, cells, options);
@@ -410,6 +420,14 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
         };
       }
       if (doc !== undefined) view.doc = doc;
+      if (visualization) {
+        if (view.type !== "Process" || !view.registeredName)
+          throw new Error(
+            "is_visualization applies to a registered Python function that returns a chart's HTML, not to a built-in."
+          );
+        // Inside `properties`, so the revision changes with it and the runtime sees it.
+        (view.properties.registered as Record<string, unknown>).visualization = true;
+      }
       view.revision = nativeRevision(view);
       operators[statement.id] = view;
       changedIds.add(statement.id);

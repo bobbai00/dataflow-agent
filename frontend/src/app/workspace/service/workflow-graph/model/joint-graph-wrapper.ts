@@ -608,12 +608,14 @@ export class JointGraphWrapper {
     joint.layout.DirectedGraph.layout(
       [...this.jointGraph.getElements().filter(el => el.attributes.type !== "region"), ...this.jointGraph.getLinks()],
       {
+        // Mirrors the agent service's auto-layout.ts, so a layout the user
+        // asks for and one the agent produces look the same.
         dagre: dagre,
         graphlib: graphlib,
-        nodeSep: 100,
-        edgeSep: 150,
-        rankSep: 90,
-        ranker: "tight-tree",
+        nodeSep: 56,
+        edgeSep: 20,
+        rankSep: 80,
+        ranker: "network-simplex",
         rankDir: "LR",
         resizeClusters: true,
       }

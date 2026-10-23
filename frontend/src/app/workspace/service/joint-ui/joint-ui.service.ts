@@ -31,6 +31,8 @@ import {
   nativeOperatorIcon,
   nativeOperatorSummary,
   nativeOperatorTypeName,
+  nativeScanFileKind,
+  nativeScanFileLabel,
 } from "../agent/native-operator";
 
 /**
@@ -127,7 +129,7 @@ export const sourceOperatorHandle = "M 0 0 L 0 8 L 8 8 L 8 0 z";
 /**
  * Defines the handle (the arrow at the end) of the target operator for a link
  */
-export const targetOperatorHandle = "M 12 0 L 0 6 L 12 12 z";
+export const targetOperatorHandle = "M 13 0 L 0 6.5 L 13 13 z";
 
 export const operatorReuseCacheTextClass = "texera-operator-result-reuse-text";
 export const operatorReuseCacheIconClass = "texera-operator-result-reuse-icon";
@@ -146,7 +148,18 @@ export const operatorSectionDividerClass = "texera-operator-section-divider";
 export const operatorPortMetricsClass = "texera-operator-port-metrics";
 const operatorWorkerCountClass = "operator-worker-count";
 
-export const linkPathStrokeColor = "#919191";
+/** Edges are near-black so the flow reads at a glance; the arrowhead shares the colour. */
+export const linkPathStrokeColor = "#3f3f46";
+/** An operator box's border when the operator is valid, and when it is not. */
+export const operatorBorderColor = "#CBD2DA";
+export const operatorInvalidBorderColor = "#ff4d4f";
+/** The tinted left section of a box, behind its icon. */
+export const operatorIconSectionClass = "texera-operator-icon-section";
+/** A scan's icon: a document glyph tagged with the kind of file it reads. */
+export const operatorFileGlyphClass = "texera-operator-file-glyph";
+export const operatorFileKindClass = "texera-operator-file-kind";
+/** A second, smaller line under a box's text (a scan's doc under its file name). */
+export const operatorSubtitleClass = "texera-operator-subtitle";
 
 /**
  * Extends a basic Joint operator element and adds our own HTML markup.
@@ -158,10 +171,14 @@ class TexeraCustomJointElement extends joint.shapes.devs.Model {
     return `
     <g class="element-node">
       <rect class="body"></rect>
+      <path class="${operatorIconSectionClass}"></path>
       <rect class="${operatorSectionDividerClass}"></rect>
       <image class="${operatorIconClass}"></image>
+      <path class="${operatorFileGlyphClass}"></path>
+      <text class="${operatorFileKindClass}"></text>
       <text class="${operatorFriendlyNameClass}"></text>
       <text class="${operatorNameClass}"></text>
+      <text class="${operatorSubtitleClass}"></text>
       <text class="${operatorPortMetricsClass}"></text>
       <text class="${operatorWorkerCountClass}"></text>
       <text class="${operatorStateClass}"></text>
@@ -271,6 +288,20 @@ export class JointUIService {
   // makes wrapping/ellipsis disagree with what's actually drawn.
   private static readonly DESC_FONT_SIZE = 14; // custom display name / description
   private static readonly ID_FONT_SIZE = 16; // operator id label above the box
+  /** Corner radius of the box; the icon section's left corners follow it. */
+  private static readonly BOX_RADIUS = 9;
+
+  /** The icon section's outline: the box's left part, with its rounded corners,
+   * inset by half the border width so the border keeps its full weight. */
+  private static iconSectionPath(): string {
+    const inset = 0.75;
+    const r = JointUIService.BOX_RADIUS - inset;
+    const w = JointUIService.ICON_SECTION_WIDTH;
+    const h = JointUIService.DEFAULT_OPERATOR_HEIGHT - inset;
+    const x = inset;
+    const y = inset;
+    return `M ${x + r} ${y} H ${w} V ${h} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${h - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`;
+  }
   public static readonly DEFAULT_GROUP_MARGIN = 50;
   public static readonly DEFAULT_GROUP_MARGIN_BOTTOM = 40;
   public static readonly DEFAULT_COMMENT_WIDTH = 32;
@@ -731,11 +762,9 @@ export class JointUIService {
    * @param isOperatorValid
    */
   public changeOperatorColor(jointPaper: joint.dia.Paper, operatorID: string, isOperatorValid: boolean): void {
-    if (isOperatorValid) {
-      jointPaper.getModelById(operatorID).attr("rect.body/stroke", "#CFCFCF");
-    } else {
-      jointPaper.getModelById(operatorID).attr("rect.body/stroke", "red");
-    }
+    jointPaper
+      .getModelById(operatorID)
+      .attr("rect.body/stroke", isOperatorValid ? operatorBorderColor : operatorInvalidBorderColor);
   }
 
   public changeOperatorDisableStatus(jointPaper: joint.dia.Paper, operator: OperatorPredicate): void {
@@ -923,11 +952,15 @@ export class JointUIService {
    */
   public static getDefaultLinkCell(): joint.dia.Link {
     return new joint.dia.Link({
+      // A smooth curve from the output port to the input port, leaving and
+      // arriving horizontally, so a dataflow reads left to right and the
+      // edges into a join fan in instead of stacking as right-angled runs.
       router: {
-        name: "manhattan",
+        name: "normal",
       },
       connector: {
-        name: "rounded",
+        name: "curve",
+        args: { direction: "horizontal" },
       },
       toolMarkup: `<g class="link-tool">
           <g class="tool-remove" event="tool:remove">
@@ -942,15 +975,18 @@ export class JointUIService {
         ".connection": {
           stroke: linkPathStrokeColor,
           "stroke-width": "2px",
+          "stroke-linecap": "round",
         },
         ".connection-wrap": {
           "stroke-width": "0px",
           // 'display': 'inline'
         },
+        // No handle at the source: the edge simply leaves the output port.
         ".marker-source": {
           d: sourceOperatorHandle,
           stroke: "none",
-          fill: "#919191",
+          fill: linkPathStrokeColor,
+          display: "none",
         },
         ".marker-arrowhead-group-source .marker-arrowhead": {
           d: sourceOperatorHandle,
@@ -958,7 +994,7 @@ export class JointUIService {
         ".marker-target": {
           d: targetOperatorHandle,
           stroke: "none",
-          fill: "#919191",
+          fill: linkPathStrokeColor,
         },
         ".marker-arrowhead-group-target .marker-arrowhead": {
           d: targetOperatorHandle,
@@ -1021,6 +1057,12 @@ export class JointUIService {
     operatorType: string,
     operatorFriendlyName: string
   ): joint.shapes.devs.ModelSelectors {
+    // A scan's box names the file it reads, with its doc as a second line,
+    // and its icon section draws a document glyph tagged with the file's kind.
+    const scan = isNativeOperator(operator) && operator.nativeOp.type === "Scan" ? operator.nativeOp : undefined;
+    const nameText = (scan && nativeScanFileLabel(scan)) || operatorDisplayName;
+    const subtitle = scan ? scan.doc?.trim() ?? "" : "";
+    const fileKind = scan ? nativeScanFileKind(scan).slice(0, 4) : "";
     return {
       ".texera-operator-coeditor-editing": {
         text: "",
@@ -1114,10 +1156,18 @@ export class JointUIService {
       "rect.body": {
         fill: JointUIService.getOperatorFillColor(operator),
         "follow-scale": true,
-        stroke: "red",
-        "stroke-width": "2",
-        rx: "5px",
-        ry: "5px",
+        stroke: operatorBorderColor,
+        "stroke-width": "1.5",
+        rx: `${JointUIService.BOX_RADIUS}px`,
+        ry: `${JointUIService.BOX_RADIUS}px`,
+        filter: { name: "dropShadow", args: { dx: 0, dy: 1, blur: 2.5, opacity: 0.14 } },
+      },
+      // The tinted section behind the icon, inset by half the border so the
+      // border keeps its full weight on the left.
+      [`.${operatorIconSectionClass}`]: {
+        d: JointUIService.iconSectionPath(),
+        fill: "#F3F5F8",
+        stroke: "none",
       },
       "rect.boundary": {
         fill: "rgba(0, 0, 0, 0)",
@@ -1153,12 +1203,32 @@ export class JointUIService {
       // the box (to the right of the divider), left-aligned and vertically
       // centred. Wrapping + ellipsis keep it within the fixed box.
       ".texera-operator-name": {
-        text: JointUIService.wrapOperatorDisplayName(operatorDisplayName),
-        fill: "#333333",
+        text: scan
+          ? JointUIService.truncateToWidth(
+              nameText,
+              JointUIService.DESC_TEXT_WIDTH,
+              `${JointUIService.DESC_FONT_SIZE}px`
+            )
+          : JointUIService.wrapOperatorDisplayName(nameText),
+        fill: "#262626",
         "font-size": `${JointUIService.DESC_FONT_SIZE}px`,
+        "font-weight": scan ? 600 : 400,
         ref: "rect.body",
         "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
-        "ref-y": 0.5,
+        "ref-y": subtitle ? 0.37 : 0.5,
+        "text-anchor": "start",
+        "y-alignment": "middle",
+        "x-alignment": "left",
+      },
+      // A scan's doc, under its file name.
+      [`.${operatorSubtitleClass}`]: {
+        text: JointUIService.truncateToWidth(subtitle, JointUIService.DESC_TEXT_WIDTH, "11.5px"),
+        fill: "#8c8c8c",
+        "font-size": "11.5px",
+        display: subtitle ? "inline" : "none",
+        ref: "rect.body",
+        "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
+        "ref-y": 0.7,
         "text-anchor": "start",
         "y-alignment": "middle",
         "x-alignment": "left",
@@ -1185,14 +1255,14 @@ export class JointUIService {
         "y-alignment": "middle",
         "x-alignment": "left",
       },
-      // Vertical divider separating the icon section from the text section.
+      // Vertical hairline where the tinted icon section meets the text.
       [`.${operatorSectionDividerClass}`]: {
         ref: "rect.body",
         "ref-x": JointUIService.ICON_SECTION_WIDTH,
-        "ref-y": 12,
+        "ref-y": 1,
         width: 1,
-        height: JointUIService.DEFAULT_OPERATOR_HEIGHT - 24,
-        fill: "#E8E8E8",
+        height: JointUIService.DEFAULT_OPERATOR_HEIGHT - 2,
+        fill: "#E4E8EE",
         stroke: "none",
       },
       [`.${operatorWorkerCountClass}`]: {
@@ -1262,6 +1332,29 @@ export class JointUIService {
         ref: "rect.body",
         "x-alignment": "middle",
         "y-alignment": "middle",
+        // A scan shows its file glyph instead.
+        display: scan ? "none" : "inline",
+      },
+      // The file glyph: a sheet with a folded corner, 22×28, centred in the
+      // icon section, with the kind of file written on it.
+      [`.${operatorFileGlyphClass}`]: {
+        d: "M 13 26 H 28 L 35 33 V 54 H 13 Z M 28 26 V 33 H 35",
+        fill: "#ffffff",
+        stroke: "#4B5B6E",
+        "stroke-width": 1.4,
+        "stroke-linejoin": "round",
+        display: scan ? "inline" : "none",
+      },
+      [`.${operatorFileKindClass}`]: {
+        text: fileKind,
+        x: 24,
+        y: 48.5,
+        fill: "#2F5FA8",
+        "font-size": fileKind.length > 3 ? "6px" : "7px",
+        "font-weight": 700,
+        "letter-spacing": "0.3px",
+        "text-anchor": "middle",
+        display: scan ? "inline" : "none",
       },
       ".texera-operator-result-reuse-text": {
         text: JointUIService.getOperatorCacheDisplayText(operator) === "" ? "" : "cache",

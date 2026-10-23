@@ -57,7 +57,16 @@ last cell is shown as the answer. The agent's memory gets the same: a task, one
 step per cell with what it printed and returned, the answer as the final step,
 and a note that the work is its own (`--notebook-instructions` appends to that
 note, for a study's rules, say). Upload the notebook's data files first; cells
-read them by relative path from the `files` folder.
+read them by relative path from the `files` folder. A notebook that reads a file
+by name (`pd.read_csv("listings.csv")`) that is not there yet is not imported;
+the upload status names the files to add.
+
+The cells run like a Jupyter kernel's: in one namespace with the agent's code, so
+a function a cell defines sees variables set by later cells and by the agent.
+`%matplotlib inline` and `!pip ...` lines are skipped, and `display()` prints. As
+with Jupyter's Run All, a cell that fails ends the import, since the cells after it
+would only fail on what it did not define. The chat then says which cell failed
+and why, and the agent's memory notes where the import stopped.
 
 | Flag | Default | |
 |---|---|---|
@@ -146,19 +155,21 @@ The same records, for the signed-in user only: `GET /api/runs`,
 
 ```bash
 cd smolagents-service
-../.venv/bin/python -m unittest discover -s tests -t .      # 24 tests, ~1 min, no LLM needed
+../.venv/bin/python -m unittest discover -s tests -t .      # 28 tests, ~1 min, no LLM needed
 ```
 
 They cover:
 - accounts, logins and owner-scoped reads
-- the worker: state, figures, errors, timeouts, the user's own code (plain or restricted), and the sandbox actually blocking reads (it fails when run without one)
+- the worker: state, figures, errors, timeouts, the user's own code (plain or restricted) sharing one namespace with the agent's like notebook cells, and the sandbox actually blocking reads (it fails when run without one)
 - step-by-step trace timing against a scripted model, each part of a run shown once, and a user's code joining the agent's context in the same process
-- over HTTP: the login wall, running code, importing a notebook (its cells run, join the agent's memory as its steps and are traced as one `notebook` run, and the agent carries on from them), a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
+- reading a notebook: IPython lines, and the files it reads
+- over HTTP: the login wall, running code, importing a notebook (its cells run, join the agent's memory as its steps and are traced as one `notebook` run, and the agent carries on from them; one missing its data is refused, and a failing cell stops the import), a closed tab ending its session, and 12 users chatting at once (about 4 s, against about 4 s for one run)
 - moving files from the old `uploads/` and `workspace/` folders into `files/`
 
 The user study's two scenarios run end to end against a live server from
-`study/` (`scenario1_smolagents.mjs`: the four restaurant files and the task;
-`scenario2_smolagents.mjs`: the inspection files, the notebook import, a question
+`study/` (`scenario1_smolagents.mjs`: the three Olympic files, the two
+questions of the task card and the facilitator's probe;
+`scenario2_smolagents.mjs`: the Airbnb files, the notebook import, a question
 and the fixing feedback), each printing what the agent answered and whether it
 matches the study's answer key.
 
@@ -167,6 +178,7 @@ End to end against a running server and the real model:
 ```bash
 node tests/e2e/concurrent_users.mjs http://127.0.0.1:7860 data.csv OUT_DIR 10     # Playwright from frontend/
 node tests/e2e/script_flow.mjs http://127.0.0.1:7860 boston_demo.csv OUT_DIR
+node tests/e2e/notebook_flow.mjs http://127.0.0.1:7860 OUT_DIR
 ../.venv/bin/python tests/e2e/check_traces.py ../logs/smolagents-service e2e_<stamp>_ 2
 ```
 
@@ -175,6 +187,11 @@ node tests/e2e/script_flow.mjs http://127.0.0.1:7860 boston_demo.csv OUT_DIR
 2. runs the script from the panel
 3. asks the agent about the table the script built
 4. checks the answer, that the agent used the script's variable instead of re-reading the file, and that both runs had one worker pid
+
+`notebook_flow.mjs` uploads a notebook before its data (it must be refused), then
+with it, and asks the agent to reuse the notebook's `top()` function, which reads
+globals a later cell set, for another ranking. It checks the answer, that no
+agent code hit a `NameError`, and that every run had one worker pid.
 
 Each simulated person:
 1. registers and uploads the CSV

@@ -921,6 +921,25 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     return { steps: agent.getRenderableReActSteps(), state: agent.getState() };
   })
 
+  // The agent's analysis as a file the chat's Import button takes into a fresh
+  // agent: its steps, each step's operator results, and its instructions. The
+  // dataflow is rebuilt from the steps' recorded calls on import, so no
+  // snapshots travel.
+  .get("/:id/archive", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    const steps = agent.getRenderableReActSteps();
+    return {
+      agentId: id,
+      agentName: agent.agentName,
+      modelType: agent.modelType,
+      exportedAt: new Date().toISOString(),
+      instructions: settingsToApi(agent).instructions ?? "",
+      stepCount: steps.length,
+      steps,
+      results: agent.exportOperatorResults(),
+    };
+  })
+
   .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
     const agent = getAgent(id);
     const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
@@ -1239,9 +1258,17 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/import-react-steps",
     async ({ params: { id }, body }) => {
       const agent = getAgent(id);
-      const archive = body as { steps?: unknown; snapshots?: unknown };
+      const archive = body as {
+        steps?: unknown;
+        snapshots?: unknown;
+        results?: unknown;
+        instructions?: unknown;
+        execute?: unknown;
+      };
       if (!archive || !Array.isArray(archive.steps)) {
-        throw new Error("body must be { steps: ReActStep[], snapshots?: Record<stepId, WorkflowContent> }");
+        throw new Error(
+          "body must be { steps: ReActStep[], snapshots?: Record<stepId, WorkflowContent>, results?: Record<stepId, Record<operatorId, OperatorInfo>>, instructions?: string }"
+        );
       }
 
       const snapshots =
@@ -1250,7 +1277,24 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           : undefined;
 
       const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
-      traceStore?.event({ agentId: id, kind: "import", detail: { importedCount, headId } });
+      // An archive's results land on the steps that earned them; its instructions become the agent's.
+      const results =
+        archive.results && typeof archive.results === "object" && !Array.isArray(archive.results)
+          ? (archive.results as Record<string, Record<string, any>>)
+          : {};
+      const restored = Object.entries(results).flatMap(([stepId, byOperator]) =>
+        Object.entries(byOperator ?? {}).map(([operatorId, info]) => ({ stepId, operatorId, info }))
+      );
+      if (restored.length) agent.restoreOperatorResults(restored);
+      if (typeof archive.instructions === "string") agent.updateSettings({ instructions: archive.instructions });
+      // With `execute`, the dataflow runs once here, so its results are this workflow's own (an
+      // archive's results came from another workflow and would be recomputed on the first question).
+      const executed = archive.execute === true ? await agent.executeAllForHead() : undefined;
+      traceStore?.event({
+        agentId: id,
+        kind: "import",
+        detail: { importedCount, headId, results: restored.length, executed: executed?.state },
+      });
 
       const allSteps = agent.getRenderableReActSteps();
       const workflowContent = agent.getWorkflowState().getWorkflowContent();
@@ -1263,13 +1307,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       });
       broadcastNextContext(id, agent);
 
-      return { status: "imported", headId, importedCount };
+      return { status: "imported", headId, importedCount, ...(executed ? { executed } : {}) };
     },
     {
       body: t.Object(
         {
           steps: t.Array(t.Any()),
           snapshots: t.Optional(t.Record(t.String(), t.Any())),
+          results: t.Optional(t.Record(t.String(), t.Record(t.String(), t.Any()))),
+          instructions: t.Optional(t.String({ maxLength: 20000 })),
+          execute: t.Optional(t.Boolean()),
         },
         { additionalProperties: true }
       ),

@@ -21,7 +21,10 @@ import { of } from "rxjs";
 import * as joint from "jointjs";
 import {
   JointUIService,
+  linkPathStrokeColor,
   operatorAgentActionProgressClass,
+  operatorBorderColor,
+  operatorInvalidBorderColor,
   operatorFriendlyNameClass,
   operatorNameClass,
   operatorStateClass,
@@ -345,28 +348,27 @@ describe("JointUIService", () => {
   });
 
   describe("getDefaultLinkCell (static)", () => {
-    it("builds a link routed with manhattan and connected with rounded corners", () => {
+    it("builds a link drawn as a horizontal curve, with no router bending it into right angles", () => {
       const link = JointUIService.getDefaultLinkCell();
       expect(link).toBeInstanceOf(joint.dia.Link);
-      expect(link.get("router")).toEqual({ name: "manhattan" });
-      expect(link.get("connector")).toEqual({ name: "rounded" });
+      expect(link.get("router")).toEqual({ name: "normal" });
+      expect(link.get("connector")).toEqual({ name: "curve", args: { direction: "horizontal" } });
     });
 
     it("styles the connection stroke and hides the remove tool by default", () => {
       const link = JointUIService.getDefaultLinkCell();
-      expect(link.attr(".connection/stroke")).toBe("#919191");
+      expect(link.attr(".connection/stroke")).toBe(linkPathStrokeColor);
       expect(link.attr(".connection/stroke-width")).toBe("2px");
       // the delete affordance is present in the markup but hidden until hover.
       expect(link.attr(".tool-remove/display")).toBe("none");
       expect(link.attr(".tool-remove/fill")).toBe("#D8656A");
     });
 
-    it("fills the source and target markers with the handle color", () => {
+    it("draws the arrowhead in the edge colour and no handle at the source", () => {
       const link = JointUIService.getDefaultLinkCell();
-      expect(link.attr(".marker-source/fill")).toBe("#919191");
-      expect(link.attr(".marker-target/fill")).toBe("#919191");
-      expect(link.attr(".marker-source/stroke")).toBe("none");
+      expect(link.attr(".marker-target/fill")).toBe(linkPathStrokeColor);
       expect(link.attr(".marker-target/stroke")).toBe("none");
+      expect(link.attr(".marker-source/display")).toBe("none");
     });
   });
 
@@ -407,13 +409,13 @@ describe("JointUIService", () => {
       const { paper, attrSpy } = makePaperWithModel();
       const service = new JointUIService(emptyMetadataStub as never);
       service.changeOperatorColor(paper, "op-1", true);
-      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", "#CFCFCF");
+      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", operatorBorderColor);
     });
     it("paints the body stroke red for an invalid operator", () => {
       const { paper, attrSpy } = makePaperWithModel();
       const service = new JointUIService(emptyMetadataStub as never);
       service.changeOperatorColor(paper, "op-1", false);
-      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", "red");
+      expect(attrSpy).toHaveBeenCalledWith("rect.body/stroke", operatorInvalidBorderColor);
     });
   });
 

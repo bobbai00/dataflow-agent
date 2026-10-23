@@ -645,3 +645,79 @@ describe(`POST ${API}/agents/:id/restore`, () => {
     expect((await restore("nobody")).status).toBe(404);
   });
 });
+
+describe(`GET ${API}/agents/:id/archive`, () => {
+  test("an archive carries the steps, each step's results and the instructions, and an import takes them back", async () => {
+    const created = (await (await createAgent({ modelType: "test-model", name: "Archived" })).json()) as { id: string };
+    const workflow = {
+      operators: [
+        {
+          operatorID: "x",
+          operatorType: "TestOp",
+          operatorVersion: "1",
+          operatorProperties: {},
+          inputPorts: [],
+          outputPorts: [],
+          showAdvanced: false,
+        },
+      ],
+      operatorPositions: { x: { x: 0, y: 0 } },
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    };
+    // A result another workflow produced: the import must keep it all the same.
+    const info = {
+      operatorID: "x",
+      state: "Completed",
+      inputTuples: 0,
+      outputTuples: 3,
+      totalRowCount: 3,
+      result: [{ a: 1 }],
+      executionContext: { workflowId: 999999, executionId: "1" },
+    };
+    const imported = await postJson(`${API}/agents/${created.id}/import-react-steps`, {
+      steps: [
+        {
+          id: "u1",
+          messageId: "m1",
+          stepId: 0,
+          timestamp: 1000,
+          role: "user",
+          content: "hello",
+          isBegin: true,
+          isEnd: true,
+        },
+        {
+          id: "a1",
+          parentId: "u1",
+          messageId: "m1",
+          stepId: 1,
+          timestamp: 1001,
+          role: "agent",
+          content: "built x",
+          isBegin: true,
+          isEnd: true,
+          toolCalls: [{ toolName: "unknownTool", toolCallId: "c1", input: {} }],
+          toolResults: [{ toolCallId: "c1", output: "ok" }],
+        },
+      ],
+      snapshots: { a1: workflow },
+      results: { a1: { x: info } },
+      instructions: "Answer what is asked.",
+    });
+    expect(imported.status).toBe(200);
+    const results = (await (
+      await app.handle(new Request(url(`${API}/agents/${created.id}/operator-results`)))
+    ).json()) as any;
+    expect(results.results.x).toMatchObject({ totalRowCount: 3 });
+    const settings = (await (await app.handle(new Request(url(`${API}/agents/${created.id}/settings`)))).json()) as any;
+    expect(settings.instructions).toBe("Answer what is asked.");
+
+    const archive = (await (await app.handle(new Request(url(`${API}/agents/${created.id}/archive`)))).json()) as any;
+    expect(archive.steps.map((step: any) => step.id)).toEqual(["u1", "a1"]);
+    expect(archive.results.a1.x).toMatchObject({ totalRowCount: 3 });
+    expect(archive.instructions).toBe("Answer what is asked.");
+    expect(archive.stepCount).toBe(2);
+  });
+});
