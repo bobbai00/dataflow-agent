@@ -117,6 +117,23 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   instructions as one file, which the chat's Import button (or
   `POST /api/agents/:id/import-react-steps`, with `execute: true`) loads into a
   fresh agent and runs once, so the results become that workflow's own.
+- **Seeding** (`agent-service/src/study/seed.ts`): with `AGENT_SEED_FILE`
+  naming a seed definition (`agent-service/benchmark/user-study/seeds/`),
+  every user gets the seed's workflow, agent and trace once, under their own
+  account: `POST /api/agents/seed` (the frontend's `StudySeedService` asks on
+  every login; `benchmark/user-study/seed-accounts.ts` asks ahead of time for
+  a list of accounts, activating Texera's INACTIVE self-registrations as the
+  study admin) creates the workflow and a computing unit as the user, imports
+  the archive with results and instructions, runs it once and records a
+  `seeds` row; `GET /api/agents/seed` says where it stands, a failed seed is
+  retried on the next request. `GET /api/agents` lists only the caller's
+  agents (ownerless ones to everyone) and, given `?workflowId=`, first
+  restores the caller's traced agents on that workflow that a restart
+  dropped, so a seeded agent is there whenever its user opens the workflow.
+  The study datasets must be public (`setup-datasets.ts` makes them so). The
+  same definition's `smolagents` section seeds the script agent (its
+  `--seed` flag): a notebook imported into each new account's trace, which
+  every session restores (see `smolagents-service/README.md`).
 - **Canvas and operator panel** (frontend): a native operator's box shows its
   one-line doc; a scan shows the file it reads with a document glyph
   (`frontend/src/app/workspace/service/joint-ui/joint-ui.service.ts`,
@@ -303,6 +320,7 @@ both `bin/local-dev.sh` and `bin/bench.sh` (shell-exported values win).
 | `OPENAI_API_KEY` (again) | KramaBench scoring calls gpt-5-mini directly — a dummy key silently zeroes paraphrase metrics |
 | `UDF_PYTHON_PATH` | optional: engine worker interpreter (defaults to repo `.venv`) |
 | `AGENT_TRACE_DB` | optional: the agent-service trace database — every agent's turns, steps, model requests, dataflow versions, executions and results, written as they happen (`agent-service/src/trace/trace-store.ts`); default `logs/agent-service/traces.db`, `off` disables it. `GET /api/traces` lists agents, `GET /api/traces/:id` exports one |
+| `AGENT_SEED_FILE` | optional: a seed definition (`agent-service/benchmark/user-study/seeds/scenario-2.json`); every user then gets its workflow, agent and trace on first login (`agent-service/src/study/seed.ts`, §3 Seeding). Unset: no seeding |
 
 **Never commit secrets**: `.env`, `Kramabench/.env`, local configs, build
 output, logs are all gitignored — keep it that way.
