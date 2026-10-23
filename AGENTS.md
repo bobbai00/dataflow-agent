@@ -112,7 +112,26 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   to one SQLite database as they happen; `AGENT_TRACE_DB` names it (§7),
   `GET /api/traces` / `GET /api/traces/:id` read it back, and
   `POST /api/agents/:id/restore` rebuilds an agent from it after a restart
-  (steps, dataflow versions, results and settings).
+  (steps, dataflow versions, results and settings). `GET /api/agents/:id/archive`
+  is the portable form: the steps, each step's operator results and the
+  instructions as one file, which the chat's Import button (or
+  `POST /api/agents/:id/import-react-steps`, with `execute: true`) loads into a
+  fresh agent and runs once, so the results become that workflow's own.
+- **Canvas and operator panel** (frontend): a native operator's box shows its
+  one-line doc; a scan shows the file it reads with a document glyph
+  (`frontend/src/app/workspace/service/joint-ui/joint-ui.service.ts`,
+  `service/agent/native-operator.ts`); edges are horizontal curves. Selecting
+  an operator marks everything upstream of it, operators and links, with the
+  `upstream-of-selected` class (`workflow-editor.component.ts`,
+  `applyUpstreamHighlight`). The operator panel
+  (`component/agent/agent-interaction/`) has Run, Edit, Feedback and Summary;
+  Summary sends a templated chat message and shows the agent's reply in the
+  panel as well as the chat. A registered function set with
+  `is_visualization=True` returns a chart's HTML: the runtime emits one
+  `html-content` record flagged `__is_visualization__`, the panel renders it
+  in an iframe, and `show result` reports it without the markup. Layout
+  spacing lives in `agent-service/src/agent/util/auto-layout.ts` and must stay
+  equal to `joint-graph-wrapper.ts` (`autoLayoutJoint`).
 - **LLM path**: the agent never holds a provider key. It sends the user's JWT
   to the access-control-service, which injects the LiteLLM master key and
   forwards to the proxy. Model list: `bin/single-node/litellm-config.yaml`
