@@ -38,6 +38,8 @@ const EnvSchema = z.object({
   WORKFLOW_EXECUTION_SERVICE_ENDPOINT: z.string().url().default("http://localhost:8085"),
   /** The trace database: a path, ":memory:", or "off". Unset: logs/agent-service/traces.db (see trace-store.ts). */
   AGENT_TRACE_DB: z.string().optional(),
+  /** A seed definition (see study/seed.ts): every user gets its workflow, agent and trace on first contact. Unset: no seeding. */
+  AGENT_SEED_FILE: z.string().optional(),
   EXECUTION_ENDPOINT_TEMPLATE: z.string().optional(),
 });
 

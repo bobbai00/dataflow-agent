@@ -1,0 +1,20 @@
+{
+  "name": "scenario-2",
+  "bobflow": {
+    "workflowName": "Scenario 2: San Francisco Airbnb",
+    "description": "BobFlow user study, Scenario 2. The agent's analysis is already here; ask it about the result.",
+    "archive": "~/Desktop/user-study/scenario-2/dataflow/airbnb_bobflow_archive.json",
+    "model": "claude-haiku-5.5",
+    "agentName": "Bob",
+    "settings": { "operatorDoc": true },
+    "computingUnit": { "name": "user-study", "uri": "http://localhost:8085" }
+  },
+  "smolagents": {
+    "notebook": "~/Desktop/user-study/scenario-2/notebook/scenario2_notebook.ipynb",
+    "files": [
+      "~/Desktop/user-study/scenario-2/data/listings.csv",
+      "~/Desktop/user-study/scenario-2/data/reviews_last_12_months.csv",
+      "~/Desktop/user-study/scenario-2/data/neighbourhoods.csv"
+    ]
+  }
+}

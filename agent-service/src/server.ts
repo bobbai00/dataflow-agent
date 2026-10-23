@@ -38,6 +38,16 @@ import { changesDataflow, type SnapshotData, type VersionInfo } from "./agent/wo
 import type { DataflowProgress } from "./agent/tools/dataflow-action-runtime";
 import { getBackendConfig } from "./api/backend-api";
 import { extractBearerToken, extractUserFromToken, validateToken } from "./api/auth-api";
+import { createWorkflow } from "./api/workflow-api";
+import {
+  EMPTY_WORKFLOW_CONTENT,
+  ensureComputingUnit,
+  loadSeedDefinition,
+  readSeedArchive,
+  type SeedDefinition,
+} from "./study/seed";
+import type { UserInfo } from "./types/agent";
+import type { WorkflowContent } from "./types/workflow";
 import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
 import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
@@ -634,6 +644,194 @@ function getAgent(agentId: string): TexeraAgent {
   return agent;
 }
 
+/** The delegating user behind a request, or the errors the create route raises without one. */
+function requireUser(authorization: string | undefined): { userToken: string; userInfo: UserInfo } {
+  const userToken = extractBearerToken(authorization);
+  if (!userToken) throw new Error("Authorization header with a Bearer token is required");
+  if (!validateToken(userToken)) throw new Error("Invalid or expired token");
+  return { userToken, userInfo: extractUserFromToken(userToken) };
+}
+
+/**
+ * Bring a traced agent back to life under its old id, for the user who owns it
+ * (or an admin): its settings, steps, dataflow versions and results, traced
+ * again from here on. Shared by `POST /:id/restore` and the agent list, which
+ * restores a workflow's agents when their user opens it after a restart.
+ */
+async function restoreAgent(id: string, userToken: string, requester: UserInfo): Promise<TexeraAgent> {
+  const stored = traceStore?.agent(id);
+  if (!stored) throw new Error(`No trace for agent ${id}`);
+  if (stored.user_uid != null && stored.user_uid !== requester.uid && requester.role !== "ADMIN")
+    throw new Error(`Agent ${id} belongs to another user`);
+  const delegateConfig: AgentDelegateConfig = {
+    userToken,
+    userInfo: requester,
+    workflowId: (stored.workflow_id as number | null) ?? undefined,
+    computingUnitId: (stored.computing_unit_id as number | null) ?? undefined,
+  };
+  const { agent } = await createAgentInstance(
+    String(stored.model),
+    delegateConfig,
+    typeof stored.name === "string" ? stored.name : undefined,
+    (stored.driver as AgentDriverKind | null) ?? undefined,
+    id
+  );
+  try {
+    if (stored.settings)
+      applyInitialSettings(id, agent, stored.settings as NonNullable<CreateAgentRequest["settings"]>);
+    const { headId, importedCount } = await agent.importReActSteps(
+      traceStore!.stepsOf(id),
+      traceStore!.snapshotWorkflows(id)
+    );
+    agent.restoreOperatorResults(traceStore!.operatorResultsOf(id));
+    agent.attachTrace(traceStore);
+    traceStore!.event({ agentId: id, kind: "restore", detail: { importedCount, headId } });
+  } catch (error) {
+    agent.destroy();
+    agentStore.delete(id);
+    agentDrivers.delete(id);
+    throw error;
+  }
+  return agent;
+}
+
+interface ArchiveImport {
+  steps: unknown[];
+  snapshots?: unknown;
+  results?: unknown;
+  instructions?: unknown;
+  execute?: unknown;
+}
+
+/**
+ * Load an archive into a live agent: its steps (and dataflow versions), each
+ * step's operator results, its instructions; with `execute`, the dataflow runs
+ * once so the results are this workflow's own. Shared by the import route and
+ * seeding.
+ */
+async function importArchive(
+  id: string,
+  agent: TexeraAgent,
+  archive: ArchiveImport
+): Promise<{ headId: string; importedCount: number; restored: number; executed?: { state: string } }> {
+  const snapshots =
+    archive.snapshots && typeof archive.snapshots === "object" && !Array.isArray(archive.snapshots)
+      ? (archive.snapshots as Record<string, any>)
+      : undefined;
+  const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
+  // An archive's results land on the steps that earned them; its instructions become the agent's.
+  const results =
+    archive.results && typeof archive.results === "object" && !Array.isArray(archive.results)
+      ? (archive.results as Record<string, Record<string, any>>)
+      : {};
+  const restored = Object.entries(results).flatMap(([stepId, byOperator]) =>
+    Object.entries(byOperator ?? {}).map(([operatorId, info]) => ({ stepId, operatorId, info }))
+  );
+  if (restored.length) agent.restoreOperatorResults(restored);
+  if (typeof archive.instructions === "string") agent.updateSettings({ instructions: archive.instructions });
+  // With `execute`, the dataflow runs once here, so its results are this workflow's own (an
+  // archive's results came from another workflow and would be recomputed on the first question).
+  const executed = archive.execute === true ? await agent.executeAllForHead() : undefined;
+  traceStore?.event({
+    agentId: id,
+    kind: "import",
+    detail: { importedCount, headId, results: restored.length, executed: executed?.state },
+  });
+  broadcastToAgent(id, {
+    type: "headChange",
+    headId,
+    steps: agent.getRenderableReActSteps(),
+    workflowContent: agent.getWorkflowState().getWorkflowContent(),
+    operatorResults: getOperatorResultSummaries(agent),
+  });
+  broadcastNextContext(id, agent);
+  return { headId, importedCount, restored: restored.length, ...(executed ? { executed } : {}) };
+}
+
+// ── seeding (study/seed.ts) ────────────────────────────────────────────────
+// Every user gets the seed's workflow, agent and trace once: on their first
+// visit (the frontend asks on login) or when a facilitator's script asks for
+// them. The work runs in the background; GET /seed says where it stands.
+
+let seedDefinition: SeedDefinition | undefined = loadSeedDefinition(env.AGENT_SEED_FILE);
+const runningSeeds = new Map<string, Promise<void>>();
+
+type SeedStatus =
+  | { status: "disabled" }
+  | { status: "none"; seed: string }
+  | (NonNullable<ReturnType<TraceStore["seedOf"]>> & { live: boolean });
+
+function seedStatusFor(user: UserInfo): SeedStatus {
+  if (!seedDefinition?.bobflow || !traceStore) return { status: "disabled" };
+  const row = traceStore.seedOf(user.uid, seedDefinition.name);
+  if (!row) return { status: "none", seed: seedDefinition.name };
+  return { ...row, live: row.agentId !== undefined && agentStore.has(row.agentId) };
+}
+
+/** Start the seed for a user unless it is done or under way; returns its state right away. */
+function startSeed(userToken: string, user: UserInfo): SeedStatus {
+  const current = seedStatusFor(user);
+  if (current.status === "disabled" || current.status === "done" || current.status === "running") return current;
+  const seed = seedDefinition!;
+  const key = `${user.uid}:${seed.name}`;
+  if (!runningSeeds.has(key)) {
+    traceStore!.seedStarted({ userUid: user.uid, userName: user.name, seed: seed.name });
+    runningSeeds.set(
+      key,
+      runSeed(userToken, user).finally(() => runningSeeds.delete(key))
+    );
+  }
+  return seedStatusFor(user);
+}
+
+async function runSeed(userToken: string, user: UserInfo): Promise<void> {
+  const seed = seedDefinition!;
+  const bob = seed.bobflow!;
+  let agentId: string | undefined;
+  try {
+    const computingUnitId = await ensureComputingUnit(userToken, bob.computingUnit);
+    const workflowId = await createWorkflow(
+      userToken,
+      bob.workflowName,
+      EMPTY_WORKFLOW_CONTENT as unknown as WorkflowContent,
+      bob.description ?? `Seeded for ${user.name} from ${seed.name}`
+    );
+    const settings = { operatorDoc: true, ...(bob.settings ?? {}) } as NonNullable<CreateAgentRequest["settings"]>;
+    validateNativeSettings(settings);
+    const created = await createAgentInstance(
+      bob.model,
+      { userToken, userInfo: user, workflowId, computingUnitId },
+      bob.agentName ?? "Bob"
+    );
+    agentId = created.agentId;
+    applyInitialSettings(agentId, created.agent, settings);
+    const archive = readSeedArchive(bob) as unknown as ArchiveImport;
+    if (!Array.isArray(archive.steps)) throw new Error(`${bob.archive} is not an agent archive (no steps)`);
+    const imported = await importArchive(agentId, created.agent, { ...archive, execute: true });
+    traceStore!.seedFinished(user.uid, seed.name, { status: "done", workflowId, agentId, computingUnitId });
+    log.info(
+      {
+        user: user.name,
+        seed: seed.name,
+        workflowId,
+        agentId,
+        steps: imported.importedCount,
+        executed: imported.executed,
+      },
+      "user seeded"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    traceStore!.seedFinished(user.uid, seed.name, { status: "failed", agentId, error: message });
+    log.warn({ err: error, user: user.name, seed: seed.name }, "seeding failed");
+  }
+}
+
+/** Tests swap the definition in and out. */
+export function _setSeedDefinitionForTests(definition: SeedDefinition | undefined): void {
+  seedDefinition = definition;
+}
+
 // Status codes for handler-thrown errors; anything unlisted is a 500.
 const ERROR_STATUS: Record<string, number> = {
   "Agent not found": 404,
@@ -747,9 +945,40 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     set.status = ERROR_STATUS[errorMessage] ?? 500;
     return { error: errorMessage || "Internal server error" };
   })
-  .get("/", () => {
-    const agentList = Array.from(agentStore.entries()).map(([id, agent]) => getAgentInfo(id, agent));
+  // The caller's agents (every agent, without a token or for an admin). With
+  // `workflowId`, the caller's traced agents on that workflow that a restart
+  // dropped come back first, so a seeded or earlier agent is there when its
+  // user opens the workflow.
+  .get("/", async ({ query, headers }) => {
+    const token = extractBearerToken(headers.authorization);
+    const user = token && validateToken(token) ? extractUserFromToken(token) : undefined;
+    const workflowId = query.workflowId ? Number(query.workflowId) : undefined;
+    if (user && token && workflowId !== undefined && Number.isFinite(workflowId) && traceStore) {
+      for (const stored of traceStore.agentsOf(user.uid, workflowId)) {
+        const id = String(stored.id);
+        if (agentStore.has(id)) continue;
+        try {
+          await restoreAgent(id, token, user);
+        } catch (error) {
+          log.warn({ err: error, agentId: id, workflowId }, "a traced agent could not be restored for the list");
+        }
+      }
+    }
+    // An agent is its delegating user's; one made without a workflow has no owner and shows to everyone.
+    const mine = (agent: TexeraAgent) => {
+      const owner = agent.getDelegateConfig()?.userInfo?.uid;
+      return !user || user.role === "ADMIN" || owner === undefined || owner === user.uid;
+    };
+    const agentList = Array.from(agentStore.entries())
+      .filter(([, agent]) => mine(agent))
+      .map(([id, agent]) => getAgentInfo(id, agent));
     return { agents: agentList };
+  })
+  // Seeding: the state of this user's seed, and a request to start it (see runSeed).
+  .get("/seed", ({ headers }) => seedStatusFor(requireUser(headers.authorization).userInfo))
+  .post("/seed", ({ headers }) => {
+    const { userToken, userInfo } = requireUser(headers.authorization);
+    return startSeed(userToken, userInfo);
   })
   // The built-in native operators, for clients that render native operators
   // (the workspace's property panel): each type's contract and the JSON schema
@@ -1206,43 +1435,12 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       set.status = 409;
       return { error: `Agent ${id} is live` };
     }
-    const stored = traceStore?.agent(id);
-    if (!stored) {
+    if (!traceStore?.agent(id)) {
       set.status = 404;
       return { error: `No trace for agent ${id}` };
     }
-    const userToken = extractBearerToken(headers.authorization);
-    if (!userToken) throw new Error("Authorization header with a Bearer token is required");
-    if (!validateToken(userToken)) throw new Error("Invalid or expired token");
-    const delegateConfig: AgentDelegateConfig = {
-      userToken,
-      userInfo: extractUserFromToken(userToken),
-      workflowId: (stored.workflow_id as number | null) ?? undefined,
-      computingUnitId: (stored.computing_unit_id as number | null) ?? undefined,
-    };
-    const { agent } = await createAgentInstance(
-      String(stored.model),
-      delegateConfig,
-      typeof stored.name === "string" ? stored.name : undefined,
-      (stored.driver as AgentDriverKind | null) ?? undefined,
-      id
-    );
-    try {
-      if (stored.settings)
-        applyInitialSettings(id, agent, stored.settings as NonNullable<CreateAgentRequest["settings"]>);
-      const { headId, importedCount } = await agent.importReActSteps(
-        traceStore!.stepsOf(id),
-        traceStore!.snapshotWorkflows(id)
-      );
-      agent.restoreOperatorResults(traceStore!.operatorResultsOf(id));
-      agent.attachTrace(traceStore);
-      traceStore!.event({ agentId: id, kind: "restore", detail: { importedCount, headId } });
-    } catch (error) {
-      agent.destroy();
-      agentStore.delete(id);
-      agentDrivers.delete(id);
-      throw error;
-    }
+    const { userToken, userInfo } = requireUser(headers.authorization);
+    const agent = await restoreAgent(id, userToken, userInfo);
     return getAgentInfo(id, agent);
   })
 
@@ -1271,42 +1469,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         );
       }
 
-      const snapshots =
-        archive.snapshots && typeof archive.snapshots === "object" && !Array.isArray(archive.snapshots)
-          ? (archive.snapshots as Record<string, any>)
-          : undefined;
-
-      const { headId, importedCount } = await agent.importReActSteps(archive.steps as any, snapshots);
-      // An archive's results land on the steps that earned them; its instructions become the agent's.
-      const results =
-        archive.results && typeof archive.results === "object" && !Array.isArray(archive.results)
-          ? (archive.results as Record<string, Record<string, any>>)
-          : {};
-      const restored = Object.entries(results).flatMap(([stepId, byOperator]) =>
-        Object.entries(byOperator ?? {}).map(([operatorId, info]) => ({ stepId, operatorId, info }))
-      );
-      if (restored.length) agent.restoreOperatorResults(restored);
-      if (typeof archive.instructions === "string") agent.updateSettings({ instructions: archive.instructions });
-      // With `execute`, the dataflow runs once here, so its results are this workflow's own (an
-      // archive's results came from another workflow and would be recomputed on the first question).
-      const executed = archive.execute === true ? await agent.executeAllForHead() : undefined;
-      traceStore?.event({
-        agentId: id,
-        kind: "import",
-        detail: { importedCount, headId, results: restored.length, executed: executed?.state },
-      });
-
-      const allSteps = agent.getRenderableReActSteps();
-      const workflowContent = agent.getWorkflowState().getWorkflowContent();
-      broadcastToAgent(id, {
-        type: "headChange",
-        headId,
-        steps: allSteps,
-        workflowContent,
-        operatorResults: getOperatorResultSummaries(agent),
-      });
-      broadcastNextContext(id, agent);
-
+      const { headId, importedCount, executed } = await importArchive(id, agent, archive as ArchiveImport);
       return { status: "imported", headId, importedCount, ...(executed ? { executed } : {}) };
     },
     {

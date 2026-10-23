@@ -86,9 +86,7 @@ export async function createComputingUnit(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(
-      `Failed to create computing unit: ${response.status} ${response.statusText} - ${errorText}`
-    );
+    throw new Error(`Failed to create computing unit: ${response.status} ${response.statusText} - ${errorText}`);
   }
   return (await response.json()) as DashboardComputingUnit;
 }
@@ -105,4 +103,17 @@ export async function terminateComputingUnit(token: string, cuid: number): Promi
       `Failed to terminate computing unit ${cuid}: ${response.status} ${response.statusText} - ${errorText}`
     );
   }
+}
+
+/** The computing units this user can see (own and shared), as the dashboard lists them. */
+export async function listComputingUnits(token: string): Promise<DashboardComputingUnit[]> {
+  const { computingUnitEndpoint } = getBackendConfig();
+  const response = await fetch(`${computingUnitEndpoint}/api/computing-unit`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to list computing units: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+  return (await response.json()) as DashboardComputingUnit[];
 }
