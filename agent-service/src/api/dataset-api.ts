@@ -177,3 +177,31 @@ export async function deleteDataset(token: string, did: number): Promise<void> {
     throw new Error(`Failed to delete dataset ${did}: ${response.status} ${response.statusText} - ${errorText}`);
   }
 }
+
+/** The datasets this user can see (own, shared and public), as the dashboard lists them. */
+export async function listDatasets(token: string): Promise<DashboardDataset[]> {
+  const { fileEndpoint: apiEndpoint } = getBackendConfig();
+  const response = await fetch(`${apiEndpoint}/api/dataset/list`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to list datasets: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+  return (await response.json()) as DashboardDataset[];
+}
+
+/** Flip a dataset between public and private (the file service only toggles). The caller must own it or have write access. */
+export async function toggleDatasetPublicity(token: string, did: number): Promise<void> {
+  const { fileEndpoint: apiEndpoint } = getBackendConfig();
+  const response = await fetch(`${apiEndpoint}/api/dataset/${did}/update/publicity`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to change the publicity of dataset ${did}: ${response.status} ${response.statusText} - ${errorText}`
+    );
+  }
+}

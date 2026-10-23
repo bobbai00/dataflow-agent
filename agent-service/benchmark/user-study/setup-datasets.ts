@@ -19,14 +19,23 @@
 
 /**
  * Load the user study's data files into two Texera datasets, one per scenario,
- * owned by the study account, and print the dataset paths the agent reads them
- * by. Re-running adds a new version only when a file changed.
+ * owned by the study account and public, so every participant's account can
+ * read them, and print the dataset paths the agent reads them by. Re-running
+ * only makes an existing dataset public when it is not.
  *
  *   STUDY_DIR=~/Desktop/user-study bun run benchmark/user-study/setup-datasets.ts
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createDataset, createDatasetVersion, login, presignDatasetFile, uploadFileToDataset } from "../../src/api";
+import {
+  createDataset,
+  createDatasetVersion,
+  listDatasets,
+  login,
+  presignDatasetFile,
+  toggleDatasetPublicity,
+  uploadFileToDataset,
+} from "../../src/api";
 import { STUDY, studyLogin } from "./study";
 
 const SCENARIOS: Array<{ dataset: string; folder: string; description: string }> = [
@@ -52,9 +61,15 @@ for (const { dataset, folder, description } of SCENARIOS) {
   const first = `/${owner}/${dataset}/v1/${files[0]}`;
   if (await presignDatasetFile(token, first)) {
     console.log(`${dataset}: already there (${first} resolves)`);
+    // Participants read the files from their own accounts, so the dataset must be public.
+    const existing = (await listDatasets(token)).find(d => d.dataset.name === dataset && d.isOwner);
+    if (existing && !existing.dataset.isPublic) {
+      await toggleDatasetPublicity(token, existing.dataset.did);
+      console.log(`${dataset}: made public (did=${existing.dataset.did})`);
+    }
     continue;
   }
-  const created = await createDataset(token, dataset, description, false, true);
+  const created = await createDataset(token, dataset, description, true, true);
   const did = created.dataset.did;
   for (const name of files) {
     await uploadFileToDataset(token, did, name, readFileSync(join(dir, name)), "user study data");

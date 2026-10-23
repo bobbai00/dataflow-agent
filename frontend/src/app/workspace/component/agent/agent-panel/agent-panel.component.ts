@@ -107,7 +107,7 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
     // Subscribe to agent changes
     this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
       this.agentService
-        .getAllAgents()
+        .getAllAgents(this.currentWorkflowId())
         .pipe(untilDestroyed(this))
         .subscribe(agents => {
           this.agents = agents;
@@ -116,15 +116,39 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
         });
     });
 
-    // Load initial agents
+    // Load initial agents (the service restores this workflow's traced agents first)
     this.agentService
-      .getAllAgents()
+      .getAllAgents(this.currentWorkflowId())
       .pipe(untilDestroyed(this))
       .subscribe(agents => {
         this.agents = agents;
         // Try to activate the agent if agentIdToActivate is set
         this.tryActivateAgentFromInput();
       });
+
+    // The panel exists before the workflow is known; once it is, ask again with its id so the
+    // service brings back this workflow's traced agents (a seeded one, an earlier session's).
+    let listedFor: number | undefined;
+    this.workflowActionService
+      .workflowMetaDataChanged()
+      .pipe(untilDestroyed(this))
+      .subscribe(metadata => {
+        const wid = metadata.wid ?? undefined;
+        if (wid === undefined || wid === listedFor) return;
+        listedFor = wid;
+        this.agentService
+          .getAllAgents(wid)
+          .pipe(untilDestroyed(this))
+          .subscribe(agents => {
+            this.agents = agents;
+            this.tryActivateAgentFromInput();
+          });
+      });
+  }
+
+  /** The open workflow's id, once it is saved. */
+  private currentWorkflowId(): number | undefined {
+    return this.workflowActionService.getWorkflowMetadata().wid ?? undefined;
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -205,7 +229,7 @@ export class AgentPanelComponent implements OnInit, OnDestroy, OnChanges {
 
     // Fetch the latest agent list and switch to the new agent's tab
     this.agentService
-      .getAllAgents()
+      .getAllAgents(this.currentWorkflowId())
       .pipe(untilDestroyed(this))
       .subscribe(agents => {
         this.agents = agents;

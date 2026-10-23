@@ -137,6 +137,17 @@ CREATE TABLE IF NOT EXISTS events (
     at REAL NOT NULL,
     detail TEXT
 );
+-- The seed (seeding.py) a user was given: the notebook run it made, once per user and seed.
+CREATE TABLE IF NOT EXISTS seeds (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    run_id TEXT,
+    started_at REAL NOT NULL,
+    finished_at REAL,
+    error TEXT,
+    PRIMARY KEY (user_id, name)
+);
 CREATE INDEX IF NOT EXISTS runs_by_user ON runs (user_id, started_at);
 CREATE INDEX IF NOT EXISTS llm_calls_by_step ON llm_calls (run_id, step_number);
 CREATE INDEX IF NOT EXISTS python_execs_by_step ON python_execs (run_id, step_number);
@@ -326,11 +337,36 @@ class Store:
         verb = "INSERT OR REPLACE" if replace else "INSERT"
         self._execute(f"{verb} INTO {table} ({columns}) VALUES ({marks})", tuple(row.values()))
 
+    # Seeds
+
+    def seed_of(self, user_id: int, name: str) -> dict | None:
+        rows = self._rows("SELECT * FROM seeds WHERE user_id = ? AND name = ?", (user_id, name))
+        return rows[0] if rows else None
+
+    def seed_started(self, user_id: int, name: str) -> None:
+        self._insert("seeds", {"user_id": user_id, "name": name, "status": "running", "run_id": None,
+                               "started_at": time.time(), "finished_at": None, "error": None}, replace=True)
+
+    def seed_finished(self, user_id: int, name: str, status: str, run_id: str | None, error: str | None) -> None:
+        self._execute("UPDATE seeds SET status = ?, run_id = ?, finished_at = ?, error = ? WHERE user_id = ? AND name = ?",
+                      (status, run_id, time.time(), error, user_id, name))
+
     # Reads, always scoped to one user
 
     def list_runs(self, user_id: int, limit: int = 100) -> list[dict]:
         return self._rows("SELECT * FROM run_summary WHERE user_id = ? ORDER BY started_at DESC LIMIT ?",
                           (user_id, limit))
+
+    def runs_asc(self, user_id: int) -> list[dict]:
+        """The user's finished runs, oldest first: what a new session continues from."""
+        return self._rows("SELECT * FROM runs WHERE user_id = ? AND status != 'running' ORDER BY started_at, turn",
+                          (user_id,))
+
+    def steps_of(self, run_id: str) -> list[dict]:
+        return self._rows("SELECT * FROM steps WHERE run_id = ? ORDER BY step_number", (run_id,))
+
+    def python_execs_of(self, run_id: str) -> list[dict]:
+        return self._rows("SELECT * FROM python_execs WHERE run_id = ? ORDER BY started_at, id", (run_id,))
 
     def get_run(self, user_id: int, run_id: str, context: bool = False) -> dict | None:
         runs = self._rows("SELECT * FROM run_summary WHERE id = ? AND user_id = ?", (run_id, user_id))

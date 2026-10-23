@@ -203,7 +203,9 @@ def create_app(config: Config) -> FastAPI:
         except AuthError as refused:
             return page("register", str(refused), username)
         store.record_event(user_id, "register")
-        return signed_in({"id": user_id, "username": username})
+        user = {"id": user_id, "username": username}
+        sessions.seeder.start(user)  # the account's seed imports in the background; its first page waits for it
+        return signed_in(user)
 
     @app.get("/logout")
     def logout(request: Request):
@@ -219,6 +221,15 @@ def create_app(config: Config) -> FastAPI:
     @app.get("/api/me")
     def me(request: Request):
         return require_user(request)
+
+    @app.get("/api/seed")
+    def seed_status(request: Request):
+        return sessions.seeder.status(require_user(request)["id"])
+
+    @app.post("/api/seed")
+    def seed_start(request: Request):
+        """Seed this account now unless that is done or under way (for accounts older than the seed)."""
+        return sessions.seeder.start(require_user(request))
 
     @app.get("/api/runs")
     def runs(request: Request, limit: int = 100):

@@ -290,6 +290,20 @@ CREATE TABLE IF NOT EXISTS events (
   at INTEGER NOT NULL,
   detail TEXT
 );
+-- A seed (study/seed.ts) given to a user: the workflow and agent it made, once per user and seed.
+CREATE TABLE IF NOT EXISTS seeds (
+  user_uid INTEGER NOT NULL,
+  seed TEXT NOT NULL,
+  user_name TEXT,
+  status TEXT NOT NULL,
+  workflow_id INTEGER,
+  agent_id TEXT,
+  computing_unit_id INTEGER,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  error TEXT,
+  PRIMARY KEY (user_uid, seed)
+);
 CREATE INDEX IF NOT EXISTS turns_by_agent ON turns (agent_id, started_at);
 CREATE INDEX IF NOT EXISTS steps_by_agent ON steps (agent_id, at);
 CREATE INDEX IF NOT EXISTS steps_by_message ON steps (message_id);
@@ -299,6 +313,36 @@ CREATE INDEX IF NOT EXISTS executions_by_agent ON executions (agent_id, started_
 CREATE INDEX IF NOT EXISTS operator_results_by_agent ON operator_results (agent_id, at);
 CREATE INDEX IF NOT EXISTS events_by_agent ON events (agent_id, at);
 `;
+
+/** A seed's state for one user, as `GET /api/agents/seed` reports it. */
+export interface SeedRow {
+  seed: string;
+  userUid: number;
+  userName?: string;
+  status: "running" | "done" | "failed";
+  workflowId?: number;
+  agentId?: string;
+  computingUnitId?: number;
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+function seedRow(row: Record<string, unknown>): SeedRow {
+  const number = (value: unknown) => (typeof value === "number" ? value : undefined);
+  return {
+    seed: String(row.seed),
+    userUid: Number(row.user_uid),
+    userName: typeof row.user_name === "string" ? row.user_name : undefined,
+    status: row.status as SeedRow["status"],
+    workflowId: number(row.workflow_id),
+    agentId: typeof row.agent_id === "string" ? row.agent_id : undefined,
+    computingUnitId: number(row.computing_unit_id),
+    startedAt: Number(row.started_at),
+    finishedAt: number(row.finished_at),
+    error: typeof row.error === "string" ? row.error : undefined,
+  };
+}
 
 /** Columns added after the first release, for databases created before them. */
 const MIGRATIONS: Array<[table: string, column: string, type: string]> = [["operator_results", "info", "TEXT"]];
@@ -615,6 +659,63 @@ export class TraceStore {
       )
       .all(user ?? null)
       .map(row => this.agentRow(row as Record<string, unknown>));
+  }
+
+  /** One user's agents on one workflow that were never deleted: the ones a restart should bring back. */
+  agentsOf(userUid: number, workflowId: number): Array<Record<string, unknown>> {
+    return (
+      this.db
+        .query("SELECT * FROM agents WHERE user_uid = ? AND workflow_id = ? AND ended_at IS NULL ORDER BY created_at")
+        .all(userUid, workflowId) as Array<Record<string, unknown>>
+    ).map(row => this.agentRow(row));
+  }
+
+  // ── seeds ─────────────────────────────────────────────────────────────
+
+  seedOf(userUid: number, seed: string): SeedRow | undefined {
+    const row = this.db.query("SELECT * FROM seeds WHERE user_uid = ? AND seed = ?").get(userUid, seed) as Record<
+      string,
+      unknown
+    > | null;
+    return row ? seedRow(row) : undefined;
+  }
+
+  seedStarted(seed: { userUid: number; userName?: string; seed: string }): void {
+    this.db.run(
+      `INSERT INTO seeds (user_uid, seed, user_name, status, started_at)
+       VALUES (?, ?, ?, 'running', ?)
+       ON CONFLICT (user_uid, seed) DO UPDATE SET
+         status = 'running', user_name = excluded.user_name, started_at = excluded.started_at,
+         finished_at = NULL, error = NULL, workflow_id = NULL, agent_id = NULL, computing_unit_id = NULL`,
+      [seed.userUid, seed.seed, seed.userName ?? null, Date.now()]
+    );
+  }
+
+  seedFinished(
+    userUid: number,
+    seed: string,
+    outcome: {
+      status: "done" | "failed";
+      workflowId?: number;
+      agentId?: string;
+      computingUnitId?: number;
+      error?: string;
+    }
+  ): void {
+    this.db.run(
+      `UPDATE seeds SET status = ?, workflow_id = ?, agent_id = ?, computing_unit_id = ?, finished_at = ?, error = ?
+       WHERE user_uid = ? AND seed = ?`,
+      [
+        outcome.status,
+        outcome.workflowId ?? null,
+        outcome.agentId ?? null,
+        outcome.computingUnitId ?? null,
+        Date.now(),
+        outcome.error ?? null,
+        userUid,
+        seed,
+      ]
+    );
   }
 
   agent(agentId: string): Record<string, unknown> | undefined {

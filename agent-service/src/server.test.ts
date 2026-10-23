@@ -18,7 +18,13 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildApp, buildContextAssembler, _dropLiveAgentForTests, _resetAgentStoreForTests } from "./server";
+import {
+  buildApp,
+  buildContextAssembler,
+  _dropLiveAgentForTests,
+  _resetAgentStoreForTests,
+  _setSeedDefinitionForTests,
+} from "./server";
 import { env } from "./config/env";
 import { TexeraAgent } from "./agent/texera-agent";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
@@ -642,7 +648,98 @@ describe(`POST ${API}/agents/:id/restore`, () => {
     expect(listed.agents.find(agent => agent.id === created.id)?.live).toBe(true);
     const trace = (await (await app.handle(new Request(url(`${API}/traces/${created.id}`)))).json()) as any;
     expect(trace.events.map((event: any) => event.kind)).toContain("restore");
+    // The traced initialize step is newer than the imported steps, yet the head is the conversation's last step.
+    expect(trace.events.find((event: any) => event.kind === "restore").detail.headId).toBe("a1");
     expect((await restore("nobody")).status).toBe(404);
+  });
+});
+
+describe(`GET ${API}/agents (per user, restoring a workflow's agents)`, () => {
+  const tokenFor = (userId: number, name: string): string => {
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({
+        sub: name,
+        userId,
+        email: `${name}@example.com`,
+        role: "REGULAR",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })
+    ).toString("base64url");
+    return `${header}.${payload}.test-signature`;
+  };
+  const list = async (token?: string, workflowId?: number) =>
+    (
+      (await (
+        await app.handle(
+          new Request(url(`${API}/agents${workflowId ? `?workflowId=${workflowId}` : ""}`), {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          })
+        )
+      ).json()) as { agents: Array<{ id: string }> }
+    ).agents.map(agent => agent.id);
+
+  test("lists the caller's agents and ownerless ones, every agent without a token", async () => {
+    const mine = (await (await createAgent({ modelType: "test-model", workflowId: 11 })).json()) as { id: string };
+    const theirs = (await (
+      await createAgent({ modelType: "test-model", workflowId: 12 }, tokenFor(2, "other"))
+    ).json()) as { id: string };
+    // Without a workflow an agent has no delegating user, so no owner: it shows to everyone.
+    const shared = (await (await createAgent({ modelType: "test-model" })).json()) as { id: string };
+    expect((await list()).sort()).toEqual([mine.id, theirs.id, shared.id].sort());
+    expect((await list(TOKEN)).sort()).toEqual([mine.id, shared.id].sort());
+    expect((await list(tokenFor(2, "other"))).sort()).toEqual([theirs.id, shared.id].sort());
+  });
+
+  test("brings back the caller's traced agents on the workflow asked for, as a seeded agent after a restart", async () => {
+    const created = (await (await createAgent({ modelType: "test-model", name: "Seeded", workflowId: 77 })).json()) as {
+      id: string;
+    };
+    _dropLiveAgentForTests(created.id); // the service restarted: memory is gone, the store is not
+    expect(await list(TOKEN)).toEqual([]);
+    expect(await list(TOKEN, 78)).toEqual([]); // another workflow: nothing to bring back
+    expect(await list(tokenFor(2, "other"), 77)).toEqual([]); // another user: not theirs
+    expect(await list(TOKEN, 77)).toEqual([created.id]);
+    const info = (await (
+      await app.handle(
+        new Request(url(`${API}/agents/${created.id}`), { headers: { Authorization: `Bearer ${TOKEN}` } })
+      )
+    ).json()) as { name: string };
+    expect(info.name).toBe("Seeded");
+    // A deleted agent stays deleted.
+    await app.handle(new Request(url(`${API}/agents/${created.id}`), { method: "DELETE" }));
+    expect(await list(TOKEN, 77)).toEqual([]);
+  });
+});
+
+describe(`${API}/agents/seed`, () => {
+  test("says seeding is off without a definition, and records a user's seed once it is asked for", async () => {
+    const seed = (method: "GET" | "POST", token = TOKEN) =>
+      app
+        .handle(new Request(url(`${API}/agents/seed`), { method, headers: { Authorization: `Bearer ${token}` } }))
+        .then(response => response.json() as Promise<Record<string, unknown>>);
+    expect((await seed("GET")).status).toBe("disabled");
+    expect((await seed("POST")).status).toBe("disabled");
+    _setSeedDefinitionForTests({
+      name: "test-seed",
+      bobflow: { workflowName: "Seeded", archive: "/nonexistent/archive.json", model: "test-model" },
+    });
+    try {
+      expect(await seed("GET")).toEqual({ status: "none", seed: "test-seed" });
+      const started = await seed("POST");
+      expect(started.seed).toBe("test-seed");
+      expect(["running", "failed"]).toContain(String(started.status));
+      // The platform is not here, so the seed fails and says why; a later request may retry it.
+      for (let i = 0; i < 50 && (await seed("GET")).status === "running"; i++) await Bun.sleep(100);
+      const after = await seed("GET");
+      expect(after.status).toBe("failed");
+      expect(typeof after.error).toBe("string");
+      expect(after.userUid).toBe(1);
+      expect((await seed("GET", (await Promise.resolve(TOKEN)) && TOKEN)).seed).toBe("test-seed");
+    } finally {
+      _setSeedDefinitionForTests(undefined);
+    }
+    expect((await seed("GET")).status).toBe("disabled");
   });
 });
 

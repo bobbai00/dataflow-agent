@@ -20,6 +20,7 @@
 import { Component } from "@angular/core";
 import { GuiConfigService } from "./common/service/gui-config.service";
 import { DeploymentVersionService } from "./common/service/deployment-version/deployment-version.service";
+import { StudySeedService } from "./common/service/study-seed/study-seed.service";
 import { Version } from "../environments/version";
 import { UntilDestroy } from "@ngneat/until-destroy";
 
@@ -44,7 +45,9 @@ export class AppComponent {
 
   constructor(
     private configService: GuiConfigService,
-    private deploymentVersionService: DeploymentVersionService
+    private deploymentVersionService: DeploymentVersionService,
+    // Instantiated here so a signed-in user is seeded as soon as the app loads (see the service).
+    private studySeedService: StudySeedService
   ) {
     // determine whether configuration was successfully loaded by APP_INITIALIZER
     try {

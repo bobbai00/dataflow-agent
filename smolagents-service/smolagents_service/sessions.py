@@ -26,6 +26,7 @@ run in the interpreter and join the memory as the agent's own steps.
 """
 
 import logging
+import re
 import shutil
 import threading
 import time
@@ -41,6 +42,7 @@ from smolagents.utils import AgentExecutionError, truncate_content
 from .config import Config
 from .executor import WorkerExecutor
 from .notebook import Notebook, observation_of
+from .seeding import Seeder
 from .store import Store
 from .tracing import TracedModel, Trace
 
@@ -179,10 +181,63 @@ def import_note(name: str, instructions: str, stopped_at: int | None = None, cel
     return text + ("\n\n" + instructions.strip() if instructions.strip() else "")
 
 
+@dataclass
+class RestoredRun:
+    """One earlier run of a user, rebuilt from the trace: its memory steps and the code to run again."""
+
+    run: dict
+    steps: list
+    replay: list[str]
+
+
+def action_step_from_row(row: dict, final_answer, logger, call_id: int) -> ActionStep:
+    """A traced step as the memory step it was: its reasoning, code, observation and error."""
+    code, error = row["code"], row["error"]
+    started = row["started_at"] or 0.0
+    return ActionStep(
+        step_number=row["step_number"], timing=Timing(started, row["ended_at"] or started),
+        model_output=row["model_output"], code_action=code,
+        tool_calls=[ToolCall(name="python_interpreter", arguments=code, id=f"call_{call_id}")] if code else None,
+        observations=row["observations"], error=AgentExecutionError(error, logger) if error else None,
+        is_final_answer=bool(row["is_final_answer"]), action_output=final_answer if row["is_final_answer"] else None)
+
+
+def restored_runs(store: Store, config: Config, user_id: int, logger) -> list[RestoredRun]:
+    """The user's finished runs, oldest first, as memory steps: an agent run is its task, steps and
+    answer; a notebook import the same plus the note that followed it; the user's own script its
+    code step. `replay` holds each run's code that ran without error, for a new interpreter."""
+    restored = []
+    for run in store.runs_asc(user_id):
+        steps: list = []
+        replay: list[str] = []
+        if run["kind"] == "script":
+            name = run["task"].removeprefix("Ran ")
+            for executed in store.python_execs_of(run["id"]):
+                steps.append(UserCodeStep(name=name, code=executed["code"] or "", output=executed["output"] or "",
+                                          error=executed["error"]))
+                if executed["code"] and not executed["error"]:
+                    replay.append(executed["code"])
+        else:
+            steps.append(TaskStep(task=run["task"]))
+            rows = store.steps_of(run["id"])
+            for row in rows:
+                steps.append(action_step_from_row(row, run["final_answer"], logger, len(steps)))
+                if row["code"] and not row["error"] and not row["is_final_answer"]:
+                    replay.append(row["code"])
+            if run["kind"] == "notebook":
+                stopped = re.match(r"cell (\d+) failed", run["error"] or "")
+                cells = sum(1 for row in rows if not row["is_final_answer"])
+                steps.append(NoteStep(import_note(run["task"].removeprefix("Imported "), config.notebook_instructions,
+                                                  int(stopped.group(1)) if stopped else None, cells)))
+        restored.append(RestoredRun(run, steps, replay))
+    return restored
+
+
 class ChatSession:
-    def __init__(self, store: Store, config: Config, user: dict):
+    def __init__(self, store: Store, config: Config, user: dict, restore: bool = True):
         self.user = user
         self.config = config
+        self.store = store
         self.id = store.start_chat_session(user["id"], config.model_id)
         user_dir = config.user_dir(user["id"])
         self.trace = Trace(store, user["id"], self.id, user_dir / "figures")
@@ -205,8 +260,42 @@ class ChatSession:
         self.trace.agent = self.agent
         self.busy = threading.Lock()  # one run at a time per session
         self.last_active = time.monotonic()
+        self.ready = threading.Event()  # set once the interpreter holds the restored variables
+        self.restored = {"runs": 0, "steps": 0}
         # Start the interpreter now, while the first model call is still in flight.
         threading.Thread(target=self.executor.warm, daemon=True).start()
+        if restore:
+            self._restore()
+        else:
+            self.ready.set()
+
+    def _restore(self) -> None:
+        """Continue from the user's trace: their earlier runs become the agent's memory again, and
+        the code those runs executed runs once more in the new interpreter, in the background, so
+        the variables are back too. Nothing here is traced as a run of its own."""
+        runs = restored_runs(self.store, self.config, self.user["id"], self.agent.logger)
+        replay = [code for restored in runs for code in restored.replay]
+        for restored in runs:
+            self.agent.memory.steps.extend(restored.steps)
+        self.restored = {"runs": len(runs), "steps": sum(len(r.steps) for r in runs), "replayed": len(replay)}
+        if runs:
+            self.store.record_event(self.user["id"], "restore", self.id, **self.restored)
+        if not replay:
+            self.ready.set()
+            return
+
+        def rerun() -> None:
+            try:
+                for code in replay:
+                    reply, _ = self.executor.run_python(code, "restore")
+                    if reply.get("lost"):
+                        break
+            except Exception:  # noqa: BLE001 - the agent finds out when it uses a variable
+                log.exception("replaying %s's earlier code failed", self.user["username"])
+            finally:
+                self.ready.set()
+
+        threading.Thread(target=rerun, daemon=True, name=f"restore-{self.id}").start()
 
     def run_python(self, code: str, name: str) -> tuple[dict, list]:
         """Run the user's own code in this session's interpreter, trace it as a 'script' run, and add
@@ -280,13 +369,25 @@ class Sessions:
         self._streams: dict[str, int] = {}  # open heartbeat streams, by browser session
         self._gone_since: dict[str, float] = {}  # when a browser session's last heartbeat stream ended
         self._lock = threading.Lock()
+        # The seed imports into a session of its own, never restored from the trace it is about to write.
+        self.seeder = Seeder(store, config, lambda user: ChatSession(store, config, user, restore=False))
         threading.Thread(target=self._close_idle, daemon=True).start()
 
     def get(self, key: str, user: dict) -> ChatSession:
-        replaced = None
         with self._lock:
             session = self._sessions.get(key)
             if session is not None and session.user["id"] == user["id"]:
+                session.last_active = time.monotonic()
+                return session
+        # A new session continues from the user's trace, so the seed must be in it first (an account
+        # made before seeding was switched on gets it now). Waited for outside the lock.
+        if self.seeder.enabled():
+            self.seeder.start(user)
+            self.seeder.wait(user["id"])
+        replaced = None
+        with self._lock:
+            session = self._sessions.get(key)
+            if session is not None and session.user["id"] == user["id"]:  # opened meanwhile
                 session.last_active = time.monotonic()
                 return session
             if session is not None:  # the same tab, now signed in as someone else

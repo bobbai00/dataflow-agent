@@ -2483,8 +2483,13 @@ export class TexeraAgent {
     if (leaves.length === 0) {
       throw new Error("import has no leaf steps (impossible after structure check)");
     }
-    leaves.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-    const headStep = leaves[0];
+    // A traced `initialize` step is a root of its own, newer than imported steps that keep their
+    // original times; it is never the head while any other step exists, or a restored agent
+    // would open on its empty bootstrap workflow instead of its last step.
+    const conversational = leaves.filter(s => !TexeraAgent.isInitializationStep(s));
+    const candidates = conversational.length > 0 ? conversational : leaves;
+    candidates.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+    const headStep = candidates[0];
     this.head = headStep.id;
 
     // Restore workflow visible at HEAD. The storage's read is total — if
