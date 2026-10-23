@@ -19,19 +19,21 @@
 
 import dagre from "dagre";
 import type { WorkflowState } from "../workflow-state";
+import type { OperatorLink, OperatorPredicate, Point, WorkflowContent } from "../../types/workflow";
 
 // Values mirror frontend joint-graph-wrapper.ts (`autoLayoutJoint`) so
 // agent-generated and user-generated layouts visually match.
 //
-// A box is 210×80 with its id label and row counts stacked above it (up to
-// ~30px) and its status pill below (~20px): `nodesep` keeps neighbouring rows
-// clear of each other's labels and no more, and `ranksep` leaves just enough
-// room between ranks for the curved edges to bend. Network simplex balances
-// side branches around the main path instead of stacking them.
+// A box is 210×80 with its id label above it (~30px; a selected operator adds
+// the row counts by its ports) and its status pill below (~20px): `nodesep`
+// keeps neighbouring rows clear of each other's labels and no more. `ranksep`
+// gives every link a long run between ranks, so its curve and arrowhead read
+// at a glance, also where several links enter a join. Network simplex
+// balances side branches around the main path instead of stacking them.
 const LAYOUT_CONFIG: dagre.GraphLabel = {
   nodesep: 56,
   edgesep: 20,
-  ranksep: 80,
+  ranksep: 150,
   ranker: "network-simplex",
   rankdir: "LR",
 };
@@ -39,13 +41,13 @@ const LAYOUT_CONFIG: dagre.GraphLabel = {
 const NODE_WIDTH = 210;
 const NODE_HEIGHT = 80;
 
-export function autoLayoutWorkflow(workflowState: WorkflowState): void {
-  const operators = workflowState.getAllOperators();
-  const links = workflowState.getAllLinks();
-
-  if (operators.length === 0) {
-    return;
-  }
+/** Where the layout puts each operator (dagre's node centre), by operator id. */
+export function layoutPositions(
+  operators: readonly OperatorPredicate[],
+  links: readonly OperatorLink[]
+): Map<string, Point> {
+  const positions = new Map<string, Point>();
+  if (operators.length === 0) return positions;
 
   const graph = new dagre.graphlib.Graph();
   graph.setGraph(LAYOUT_CONFIG);
@@ -71,11 +73,24 @@ export function autoLayoutWorkflow(workflowState: WorkflowState): void {
 
   for (const operator of operators) {
     const node = graph.node(layoutIds.get(operator.operatorID)!);
-    if (node) {
-      workflowState.updateOperatorPosition(operator.operatorID, {
-        x: node.x,
-        y: node.y,
-      });
-    }
+    if (node) positions.set(operator.operatorID, { x: node.x, y: node.y });
   }
+  return positions;
+}
+
+export function autoLayoutWorkflow(workflowState: WorkflowState): void {
+  const positions = layoutPositions(workflowState.getAllOperators(), workflowState.getAllLinks());
+  for (const [operatorId, position] of positions) workflowState.updateOperatorPosition(operatorId, position);
+}
+
+/**
+ * The workflow laid out as the agent lays out a dataflow now. The agent lays
+ * out its whole dataflow after every edit, so where its operators sit follows
+ * from the operators and links alone: a version stored under an earlier
+ * layout (an archive, a trace) comes back looking like one made today.
+ */
+export function withCurrentLayout(content: WorkflowContent): WorkflowContent {
+  if (!Array.isArray(content?.operators) || content.operators.length === 0) return content;
+  const positions = layoutPositions(content.operators, Array.isArray(content.links) ? content.links : []);
+  return { ...content, operatorPositions: Object.fromEntries(positions) };
 }

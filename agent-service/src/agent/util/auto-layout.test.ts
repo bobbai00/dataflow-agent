@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { autoLayoutWorkflow } from "./auto-layout";
+import { autoLayoutWorkflow, withCurrentLayout } from "./auto-layout";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, OperatorLink } from "../../types/workflow";
 
@@ -100,8 +100,8 @@ describe("autoLayoutWorkflow", () => {
 
     const a = state.getOperatorPosition("a")!;
     const b = state.getOperatorPosition("b")!;
-    // dagre stores node centers, so the gap is node width (210) + ranksep (80).
-    expect(b.x - a.x).toBe(290);
+    // dagre stores node centers, so the gap is node width (210) + ranksep (150).
+    expect(b.x - a.x).toBe(360);
   });
 
   test("lays out prototype-like operator IDs and preserves their saved positions", () => {
@@ -177,5 +177,35 @@ describe("autoLayoutWorkflow", () => {
     expect(top.x).toBe(bottom.x);
     // ...but dagre separates them vertically by nodesep.
     expect(top.y).not.toBe(bottom.y);
+  });
+});
+
+describe("withCurrentLayout", () => {
+  test("lays out a stored workflow anew and leaves the rest of it as it was", () => {
+    const state = new WorkflowState();
+    ["a", "b", "c"].forEach(id => state.addOperator(makeOperator(id), SENTINEL_POS));
+    state.addLink(makeLink("l1", "a", "b"));
+    state.addLink(makeLink("l2", "b", "c"));
+    // Stored under an older layout: every operator on one point, plus a stale entry.
+    const stored = {
+      ...state.getWorkflowContent(),
+      operatorPositions: { a: SENTINEL_POS, b: SENTINEL_POS, c: SENTINEL_POS, gone: SENTINEL_POS },
+    };
+
+    const laid = withCurrentLayout(stored);
+
+    autoLayoutWorkflow(state);
+    expect(laid.operatorPositions).toEqual(state.getWorkflowContent().operatorPositions);
+    expect(laid.operatorPositions.b.x - laid.operatorPositions.a.x).toBe(360);
+    expect(Object.hasOwn(laid.operatorPositions, "gone")).toBe(false);
+    expect(laid.operators).toBe(stored.operators);
+    expect(laid.links).toBe(stored.links);
+    // The stored workflow itself is untouched.
+    expect(stored.operatorPositions.a).toEqual(SENTINEL_POS);
+  });
+
+  test("returns a workflow without operators as it is", () => {
+    const empty = new WorkflowState().getWorkflowContent();
+    expect(withCurrentLayout(empty)).toBe(empty);
   });
 });

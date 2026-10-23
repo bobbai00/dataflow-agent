@@ -108,6 +108,7 @@ import {
   type RepeatedFailure,
 } from "./native/failure-loop";
 import { writtenOperatorId } from "./util/context-utils";
+import { withCurrentLayout } from "./util/auto-layout";
 import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
@@ -2339,8 +2340,9 @@ export class TexeraAgent {
       let ownsSnapshot = false;
 
       if (explicitSnapshots[id] !== undefined) {
-        this.snapshotStorage.createSnapshot(id, explicitSnapshots[id]);
-        myContent = explicitSnapshots[id];
+        // A stored version keeps its dataflow and takes today's layout, as a replayed one does.
+        myContent = withCurrentLayout(explicitSnapshots[id]);
+        this.snapshotStorage.createSnapshot(id, myContent);
         ownsSnapshot = true;
       } else if (step.toolCalls && step.toolCalls.length > 0) {
         this.workflowState.setWorkflowContent(parentContent);
