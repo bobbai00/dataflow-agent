@@ -20,13 +20,19 @@
 import dagre from "dagre";
 import type { WorkflowState } from "../workflow-state";
 
-// Values mirror frontend joint-graph-wrapper.ts so agent-generated and
-// user-generated layouts visually match.
+// Values mirror frontend joint-graph-wrapper.ts (`autoLayoutJoint`) so
+// agent-generated and user-generated layouts visually match.
+//
+// A box is 210×80 with its id label and row counts stacked above it (up to
+// ~30px) and its status pill below (~20px): `nodesep` keeps neighbouring rows
+// clear of each other's labels and no more, and `ranksep` leaves just enough
+// room between ranks for the curved edges to bend. Network simplex balances
+// side branches around the main path instead of stacking them.
 const LAYOUT_CONFIG: dagre.GraphLabel = {
-  nodesep: 100,
-  edgesep: 150,
-  ranksep: 90,
-  ranker: "tight-tree",
+  nodesep: 56,
+  edgesep: 20,
+  ranksep: 80,
+  ranker: "network-simplex",
   rankdir: "LR",
 };
 
