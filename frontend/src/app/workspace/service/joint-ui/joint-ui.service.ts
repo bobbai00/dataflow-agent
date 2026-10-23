@@ -53,62 +53,6 @@ export const deleteButtonSVG = `
     <title>delete operator</title>
   </svg>`;
 
-export const addPortButtonPath = `
-<path d="M215.037,36.846c-49.129-49.128-129.063-49.128-178.191,0c-49.127,49.127-49.127,129.063,0,178.19
-c24.564,24.564,56.83,36.846,89.096,36.846s64.531-12.282,89.096-36.846C264.164,165.909,264.164,85.973,215.037,36.846z
- M49.574,202.309c-42.109-42.109-42.109-110.626,0-152.735c21.055-21.054,48.711-31.582,76.367-31.582s55.313,10.527,76.367,31.582
-c42.109,42.109,42.109,110.626,0,152.735C160.199,244.417,91.683,244.417,49.574,202.309z"/>
-<path d="M194.823,116.941h-59.882V57.059c0-4.971-4.029-9-9-9s-9,4.029-9,9v59.882H57.059c-4.971,0-9,4.029-9,9s4.029,9,9,9h59.882
-v59.882c0,4.971,4.029,9,9,9s9-4.029,9-9v-59.882h59.882c4.971,0,9-4.029,9-9S199.794,116.941,194.823,116.941z"/>
-`;
-
-export const removePortButtonPath = `
-<path d="M215.037,36.846c-49.129-49.128-129.063-49.128-178.191,0c-49.127,49.127-49.127,129.063,0,178.19
-c24.564,24.564,56.83,36.846,89.096,36.846s64.531-12.282,89.096-36.846C264.164,165.909,264.164,85.973,215.037,36.846z
- M49.574,202.309c-42.109-42.109-42.109-110.626,0-152.735c21.055-21.054,48.711-31.582,76.367-31.582s55.313,10.527,76.367,31.582
-c42.109,42.109,42.109,110.626,0,152.735C160.199,244.417,91.683,244.417,49.574,202.309z"/>
-<path d="M194.823,116.941H57.059c-4.971,0-9,4.029-9,9s4.029,9,9,9h137.764c4.971,0,9-4.029,9-9S199.794,116.941,194.823,116.941z"
-/>`;
-export const addInputPortButtonSVG = `
-  <svg class="add-input-port-button">
-    <g transform="scale(0.075)">
-      ${addPortButtonPath}
-      <rect x="0" y="0" width="252" height="252" fill="transparent" pointer-events="all"/>
-    </g>
-    <title>add port</title>
-  </svg>
-`;
-
-export const removeInputPortButtonSVG = `
-  <svg class="remove-input-port-button">
-    <g transform="scale(0.075)">
-      ${removePortButtonPath}
-      <rect x="0" y="0" width="252" height="252" fill="transparent" pointer-events="all"/>
-    </g>
-    <title>remove port</title>
-  </svg>
-`;
-
-export const addOutputPortButtonSVG = `
-  <svg class="add-output-port-button">
-    <g transform="scale(0.075)">
-      ${addPortButtonPath}
-      <rect x="0" y="0" width="252" height="252" fill="transparent" pointer-events="all"/>
-    </g>
-    <title>add port</title>
-  </svg>
-`;
-
-export const removeOutputPortButtonSVG = `
-  <svg class="remove-output-port-button">
-    <g transform="scale(0.075)">
-      ${removePortButtonPath}
-      <rect x="0" y="0" width="252" height="252" fill="transparent" pointer-events="all"/>
-    </g>
-    <title>remove port</title>
-  </svg>
-`;
-
 /**
  * Defines the SVG for the chat button (message icon)
  * This button allows users to send feedback to agents about this operator
@@ -167,7 +111,8 @@ export const operatorSubtitleClass = "texera-operator-subtitle";
  *   which will show a red delete button on the top right corner
  */
 class TexeraCustomJointElement extends joint.shapes.devs.Model {
-  static getMarkup(dynamicInputPorts: boolean, dynamicOutputPorts: boolean): string {
+  // No add/remove port buttons: an operator's ports are what its definition gives it.
+  static getMarkup(): string {
     return `
     <g class="element-node">
       <rect class="body"></rect>
@@ -205,10 +150,6 @@ class TexeraCustomJointElement extends joint.shapes.devs.Model {
       </g>
       ${deleteButtonSVG}
       ${chatButtonSVG}
-      ${dynamicInputPorts ? addInputPortButtonSVG : ""}
-      ${dynamicInputPorts ? removeInputPortButtonSVG : ""}
-      ${dynamicOutputPorts ? addOutputPortButtonSVG : ""}
-      ${dynamicOutputPorts ? removeOutputPortButtonSVG : ""}
     </g>
     `;
   }
@@ -425,10 +366,7 @@ export class JointUIService {
           out: { attrs: JointUIService.getCustomPortStyleAttrs() },
         },
       },
-      markup: TexeraCustomJointElement.getMarkup(
-        operator.dynamicInputPorts ?? false,
-        operator.dynamicOutputPorts ?? false
-      ),
+      markup: TexeraCustomJointElement.getMarkup(),
     });
 
     // set operator element ID to be operator ID
@@ -518,9 +456,9 @@ export class JointUIService {
         // A cache-reused result reports a `-1` sentinel; show 0 rather than -1.
         const labelText = Math.max(0, count).toLocaleString();
         element.portProp(portId, "attrs/.port-label/text", labelText);
-        // Reveal the label now that it carries the tuple count. The port name
-        // stays hidden by default (see getCustomPortStyleAttrs); only the
-        // execution count is shown.
+        // The label carries the tuple count now (the port name stays hidden,
+        // see getCustomPortStyleAttrs). The canvas shows it only on the
+        // selected operators and their upstream (workflow-editor styles).
         element.portProp(portId, "attrs/.port-label/visibility", "visible");
       }
     });
@@ -543,7 +481,7 @@ export class JointUIService {
         const labelText = Math.max(0, count).toLocaleString();
 
         element.portProp(portId, "attrs/.port-label/text", labelText);
-        // Reveal the label now that it carries the tuple count (name stays hidden).
+        // The label carries the tuple count now; the selection decides whether it shows.
         element.portProp(portId, "attrs/.port-label/visibility", "visible");
       }
     });
@@ -680,10 +618,6 @@ export class JointUIService {
       [`.${operatorPortMetricsClass}`]: { visibility: "hidden" },
       ".delete-button": { visibility: "hidden" },
       ".chat-button": { visibility: "hidden" },
-      ".add-input-port-button": { visibility: "hidden" },
-      ".add-output-port-button": { visibility: "hidden" },
-      ".remove-input-port-button": { visibility: "hidden" },
-      ".remove-output-port-button": { visibility: "hidden" },
     });
   }
 
@@ -693,10 +627,6 @@ export class JointUIService {
       [`.${operatorPortMetricsClass}`]: { visibility: "visible" },
       ".delete-button": { visibility: "visible" },
       ".chat-button": { visibility: "visible" },
-      ".add-input-port-button": { visibility: "visible" },
-      ".add-output-port-button": { visibility: "visible" },
-      ".remove-input-port-button": { visibility: "visible" },
-      ".remove-output-port-button": { visibility: "visible" },
     });
   }
 
@@ -1027,8 +957,10 @@ export class JointUIService {
       },
       ".port-label": {
         // Hide the port name by default (e.g. "input-0", "output-1"). The label
-        // is revealed only during execution, when changeOperatorStatistics
-        // rewrites its text to the tuple count and flips visibility to visible.
+        // carries a tuple count once an operator ran (changeOperatorStatistics,
+        // setOperatorSnapshotResult flip it to visible), and even then the
+        // canvas shows it only on the selected operators and their upstream:
+        // the workflow editor's styles hide it on every other operator.
         visibility: "hidden",
         event: "input-label:evt",
         dblclick: "input-label:dbclick",
@@ -1286,38 +1218,6 @@ export class JointUIService {
         cursor: "pointer",
         fill: "#1890ff",
         event: "element:chat",
-        visibility: "hidden",
-      },
-      ".add-input-port-button": {
-        x: -26,
-        y: this.DEFAULT_OPERATOR_HEIGHT / 2 - 20,
-        cursor: "pointer",
-        fill: "#565656",
-        event: "element:add-input-port",
-        visibility: "hidden",
-      },
-      ".remove-input-port-button": {
-        x: -26,
-        y: this.DEFAULT_OPERATOR_HEIGHT / 2 + 2,
-        cursor: "pointer",
-        fill: "#565656",
-        event: "element:remove-input-port",
-        visibility: "hidden",
-      },
-      ".add-output-port-button": {
-        x: this.DEFAULT_OPERATOR_WIDTH + 8,
-        y: this.DEFAULT_OPERATOR_HEIGHT / 2 - 20,
-        cursor: "pointer",
-        fill: "#565656",
-        event: "element:add-output-port",
-        visibility: "hidden",
-      },
-      ".remove-output-port-button": {
-        x: this.DEFAULT_OPERATOR_WIDTH + 8,
-        y: this.DEFAULT_OPERATOR_HEIGHT / 2 + 2,
-        cursor: "pointer",
-        fill: "#565656",
-        event: "element:remove-output-port",
         visibility: "hidden",
       },
       ".texera-operator-icon": {

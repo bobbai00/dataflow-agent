@@ -646,7 +646,7 @@ describe("JointUIService", () => {
       expect(ports.map(p => p.id).sort()).toEqual(["in-0", "out-0"]);
     });
 
-    it("emits add/remove port buttons in the markup when dynamicInputPorts and dynamicOutputPorts are true", () => {
+    it("draws no add/remove port buttons, even for an operator with dynamic ports", () => {
       const schema = minimalSchema("DynamicOp");
       const service = new JointUIService(buildMetadataWithSchemas([schema]) as never);
       const predicate = {
@@ -662,13 +662,11 @@ describe("JointUIService", () => {
         dynamicOutputPorts: true,
       } as unknown as OperatorPredicate;
       const element = service.getJointOperatorElement(predicate, { x: 0, y: 0 });
-      // The markup is stamped onto the element's attributes; both port-button
-      // classes only appear when their dynamic-ports flag is true.
+      // The markup is stamped onto the element's attributes: an operator's ports
+      // are what its definition gives it, with no buttons to add or remove one.
       const markup = (element as unknown as { attributes: { markup: string } }).attributes.markup;
-      expect(markup).toContain("add-input-port-button");
-      expect(markup).toContain("add-output-port-button");
-      expect(markup).toContain("remove-input-port-button");
-      expect(markup).toContain("remove-output-port-button");
+      expect(markup).not.toMatch(/(add|remove)-(input|output)-port-button/);
+      expect(markup).toContain("delete-button");
     });
 
     it("renders customDisplayName in the operator name attr when supplied", () => {

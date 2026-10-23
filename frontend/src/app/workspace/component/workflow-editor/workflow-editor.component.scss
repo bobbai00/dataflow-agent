@@ -61,6 +61,14 @@
   }
 }
 
+// A port's row count shows only on the selected operators and everything
+// upstream of them (`applyUpstreamHighlight` adds `show-port-counts`); an idle
+// canvas shows just the arrows. CSS outranks the label's `visibility`
+// attribute, which still says whether a port has a count at all.
+::ng-deep .joint-element:not(.show-port-counts) .port-label {
+  visibility: hidden;
+}
+
 ::ng-deep .hide-operator-status .texera-operator-state {
   display: none;
 }

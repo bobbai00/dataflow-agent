@@ -212,8 +212,10 @@ async function canvasState(page) {
       const pill = box.querySelector(".texera-operator-status");
       const shown = pill && getComputedStyle(pill).display !== "none";
       status[id] = shown ? (box.querySelector(".texera-operator-status-text")?.textContent ?? "").trim() : "";
+      // The counts a port carries (its label's own visibility attribute): the
+      // canvas shows them only on the selected operators and their upstream.
       ports[id] = Array.from(box.querySelectorAll(".port-label"))
-        .filter(label => getComputedStyle(label).visibility !== "hidden")
+        .filter(label => label.getAttribute("visibility") !== "hidden")
         .map(label => label.textContent.trim());
     }
     return { operators: boxes.map(box => box.getAttribute("model-id")), status, ports };

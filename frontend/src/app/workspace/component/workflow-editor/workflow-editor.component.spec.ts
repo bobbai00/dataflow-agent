@@ -40,13 +40,13 @@ import * as joint from "jointjs";
 import { marbles } from "rxjs-marbles";
 import {
   mockCommentBox,
-  mockMultiInputOutputPredicate,
   mockPoint,
   mockResultPredicate,
   mockScanPredicate,
   mockScanResultLink,
   mockScanSentimentLink,
   mockSentimentPredicate,
+  mockSentimentResultLink,
 } from "../../service/workflow-graph/model/mock-workflow-data";
 import { WorkflowStatusService } from "../../service/workflow-status/workflow-status.service";
 import { OperatorState } from "../../types/execute-workflow.interface";
@@ -367,6 +367,38 @@ describe("WorkflowEditorComponent", () => {
       // the highlighter element should not exist
       const jointHighlighterElementAfterUnhighlight = jointCellView.$el.children(".joint-highlight-stroke");
       expect(jointHighlighterElementAfterUnhighlight.length).toEqual(0);
+    });
+
+    it("shows port row counts only on the selected operators and everything upstream of them", async () => {
+      const wrapper = workflowActionService.getJointGraphWrapper();
+      workflowActionService.addOperator(mockScanPredicate, mockPoint);
+      workflowActionService.addOperator(mockSentimentPredicate, mockPoint);
+      workflowActionService.addOperator(mockResultPredicate, mockPoint);
+      workflowActionService.addLink(mockScanSentimentLink);
+      workflowActionService.addLink(mockSentimentResultLink);
+      const ids = [mockScanPredicate, mockSentimentPredicate, mockResultPredicate].map(op => op.operatorID);
+      const showing = () =>
+        ids.map(id => component.paper.findViewByModel(id).el.classList.contains("show-port-counts"));
+      // The marks are repainted once per animation frame.
+      const nextFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+
+      // An added operator is selected; with nothing selected, no counts show.
+      wrapper.unhighlightElements(wrapper.getCurrentHighlights());
+      await nextFrame();
+      expect(showing()).toEqual([false, false, false]);
+
+      wrapper.highlightOperators(mockSentimentPredicate.operatorID);
+      await nextFrame();
+      expect(showing()).toEqual([true, true, false]);
+
+      wrapper.unhighlightOperators(mockSentimentPredicate.operatorID);
+      wrapper.highlightOperators(mockResultPredicate.operatorID);
+      await nextFrame();
+      expect(showing()).toEqual([true, true, true]);
+
+      wrapper.unhighlightOperators(mockResultPredicate.operatorID);
+      await nextFrame();
+      expect(showing()).toEqual([false, false, false]);
     });
 
     it("pulls the active agent's operator results when an operator's chat popover opens", () => {
@@ -1136,23 +1168,12 @@ describe("WorkflowEditorComponent", () => {
     /**
      * Covers the JointJS paper event handlers wired in ngAfterViewInit. Each test
      * drives the real paper by triggering the callback event the handler subscribes
-     * to (element:delete, element:*-port, element:magnet:pointerclick, cell:pointerdown,
+     * to (element:delete, element:magnet:pointerclick, cell:pointerdown,
      * cell:pointerdblclick, link:mouseenter/leave, center-event) and asserts the
      * resulting graph / router / paper state. Mouse-wheel pan/zoom and clipboard
      * copy/cut/paste are intentionally excluded — those need real-browser DOM.
      */
     describe("joint paper event handlers", () => {
-      // A predicate whose type exists in the stub metadata but with dynamic ports
-      // enabled, so the add/remove-port handlers' addPort calls are accepted.
-      const dynamicPortPredicate: OperatorPredicate = {
-        ...mockMultiInputOutputPredicate,
-        operatorID: "dynamic-port-op",
-        inputPorts: [{ portID: "input-0" }],
-        outputPorts: [{ portID: "output-0" }],
-        dynamicInputPorts: true,
-        dynamicOutputPorts: true,
-      };
-
       it("deletes the operator when its element:delete button fires", () => {
         const texeraGraph = workflowActionService.getTexeraGraph();
         workflowActionService.addOperator(mockScanPredicate, mockPoint);
@@ -1163,38 +1184,6 @@ describe("WorkflowEditorComponent", () => {
         (component.paper as any).trigger("element:delete", view, new Event("click"), 0, 0);
 
         expect(texeraGraph.hasOperator(mockScanPredicate.operatorID)).toBe(false);
-      });
-
-      it("adds then removes an input port on the matching element port events", () => {
-        const texeraGraph = workflowActionService.getTexeraGraph();
-        const opID = dynamicPortPredicate.operatorID;
-        workflowActionService.addOperator(dynamicPortPredicate, mockPoint);
-        const view = component.paper.findViewByModel(opID);
-        expect(texeraGraph.getOperator(opID).inputPorts.length).toEqual(1);
-
-        // The port buttons fire `element:*-port` (cell view, DOM event, x, y);
-        // fromJointPaperEvent only emits the arg array when several args are passed.
-        (component.paper as any).trigger("element:add-input-port", view, new Event("click"), 0, 0);
-        expect(texeraGraph.getOperator(opID).inputPorts.length).toEqual(2);
-
-        (component.paper as any).trigger("element:remove-input-port", view, new Event("click"), 0, 0);
-        expect(texeraGraph.getOperator(opID).inputPorts.length).toEqual(1);
-      });
-
-      it("adds then removes an output port on the matching element port events", () => {
-        const texeraGraph = workflowActionService.getTexeraGraph();
-        const opID = dynamicPortPredicate.operatorID;
-        workflowActionService.addOperator(dynamicPortPredicate, mockPoint);
-        const view = component.paper.findViewByModel(opID);
-        expect(texeraGraph.getOperator(opID).outputPorts.length).toEqual(1);
-
-        // The port buttons fire `element:*-port` (cell view, DOM event, x, y);
-        // fromJointPaperEvent only emits the arg array when several args are passed.
-        (component.paper as any).trigger("element:add-output-port", view, new Event("click"), 0, 0);
-        expect(texeraGraph.getOperator(opID).outputPorts.length).toEqual(2);
-
-        (component.paper as any).trigger("element:remove-output-port", view, new Event("click"), 0, 0);
-        expect(texeraGraph.getOperator(opID).outputPorts.length).toEqual(1);
       });
 
       it("highlights the clicked port when a port magnet is clicked", () => {
