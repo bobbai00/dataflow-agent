@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from .app import create_app, use_private_temp
 from .config import Config
+from .seeding import load_seed
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +55,9 @@ def main() -> None:
                         help="seconds after a tab closes before its session and worker are closed")
     parser.add_argument("--sandbox", choices=["auto", "seatbelt", "none"], default="auto")
     parser.add_argument("--secure-cookies", action="store_true", help="when served over HTTPS")
+    parser.add_argument("--seed", default="",
+                        help="a seed definition (JSON with a `smolagents` section: a notebook and its files) "
+                             "imported into every new account; see seeding.py")
     args = parser.parse_args()
 
     # Credentials as bin/local-dev.sh reads them: the repo-root .env, shell-exported values first.
@@ -66,7 +70,7 @@ def main() -> None:
         max_steps=args.max_steps,
         concurrency=args.concurrency, max_sessions=args.max_sessions, exec_timeout=args.exec_timeout,
         idle_minutes=args.idle_minutes, disconnect_grace_seconds=args.disconnect_grace, sandbox=args.sandbox,
-        secret_files=(env_file,), secure_cookies=args.secure_cookies)
+        secret_files=(env_file,), secure_cookies=args.secure_cookies, seed=load_seed(args.seed or None))
     if not config.api_key:
         raise SystemExit("LITELLM_MASTER_KEY is not set (shell or repo-root .env)")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")

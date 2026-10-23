@@ -82,6 +82,7 @@ and why, and the agent's memory notes where the import stopped.
 | `--idle-minutes` | 60 | a session unused this long ends |
 | `--sandbox` | `auto` | `seatbelt` on macOS, else `none`; see Isolation |
 | `--secure-cookies` | off | set when served over HTTPS |
+| `--seed` | | a seed definition: a notebook and its data files imported into every new account; see Seeding |
 
 ## How it fits together
 
@@ -141,6 +142,39 @@ ORDER BY s.started_at DESC LIMIT 20;
 The same records, for the signed-in user only: `GET /api/runs`,
 `GET /api/runs/{id}?context=true`, `DELETE /api/runs/{id}`, `GET /api/events`,
 `GET /api/me`.
+
+## Seeding, and sessions that continue from the trace
+
+A session used to start empty: the agent remembered nothing from an earlier tab,
+and a prepared analysis had to be uploaded by hand. Now a new session starts from
+the user's trace (`sessions.py`, `restored_runs`): every finished run becomes
+the agent's memory again (the task, each step with its code and observation, the
+answer; a notebook import with the note that followed it; the user's own code as
+its step), the chat opens on the same history, and the runs' code runs once more
+in the new interpreter, in the background, so the variables are back too. Nothing
+of that is traced as a run; an `events` row of kind `restore` says how much came
+back. A reload, a new tab or a new login therefore continues the conversation.
+
+With `--seed PATH`, every account is given a seed once (`seeding.py`): the
+definition's `smolagents` section names a notebook and its data files, which are
+copied into the new account's files and imported in a session of its own right
+after registration, traced as a `notebook` run under that user. Accounts made
+before the flag get it on their first session. The `seeds` table holds one row
+per user (`status`, the import's `run_id`, timing, error); `GET /api/seed` reports
+it and `POST /api/seed` asks for it again after a failure. The same definition
+file seeds BobFlow's agent service (its `bobflow` section, `AGENT_SEED_FILE`), so
+one file describes a study scenario for both systems:
+
+```json
+{"name": "scenario-2",
+ "bobflow": {"workflowName": "…", "archive": "~/study/scenario-2/dataflow/archive.json", "model": "claude-haiku-5.5"},
+ "smolagents": {"notebook": "~/study/scenario-2/notebook/analysis.ipynb",
+                "files": ["~/study/scenario-2/data/listings.csv"]}}
+```
+
+`study/seeded_login.mjs BASE USER PASSWORD OUT` shows what a seeded participant
+sees: the imported notebook on login, an answer to a question, and all of it
+again after a reload.
 
 ## Isolation
 

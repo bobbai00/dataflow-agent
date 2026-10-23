@@ -18,6 +18,15 @@ from typing import Any, Callable
 from smolagents import OpenAIServerModel
 
 
+@dataclass(frozen=True)
+class Seed:
+    """What every new account starts with: a notebook, imported with its data files (see seeding.py)."""
+
+    name: str
+    notebook: Path
+    files: tuple[Path, ...] = ()
+
+
 @dataclass
 class Config:
     data_dir: Path
@@ -36,6 +45,7 @@ class Config:
     secret_files: tuple[Path, ...] = ()  # files model code must not read, such as the server's .env
     login_days: float = 7.0
     secure_cookies: bool = False  # set behind HTTPS
+    seed: Seed | None = None  # given to every new account on registration; None seeds nothing
     model_factory: Callable[[], Any] | None = None  # tests swap in a scripted model
 
     def __post_init__(self):

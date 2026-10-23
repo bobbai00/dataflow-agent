@@ -31,14 +31,17 @@ from pathlib import Path
 import gradio as gr
 from smolagents.memory import ActionStep, FinalAnswerStep
 from smolagents.models import ChatMessageStreamDelta
+from smolagents.monitoring import AgentLogger, LogLevel
 from smolagents.utils import AgentMaxStepsError
 
 from .config import Config
 from .notebook import missing_files, read_notebook
-from .render import (answer_messages, escape_tags, import_footnote, import_stopped, script_messages, step_messages,
-                     streaming_message)
-from .sessions import SessionLimit, Sessions, user_files
+from .render import (FOOTNOTE, answer_messages, escape_tags, import_footnote, import_stopped, script_messages,
+                     step_messages, streaming_message)
+from .sessions import SessionLimit, Sessions, UserCodeStep, restored_runs, user_files
 from .store import Store
+
+SEED_WAIT_SECONDS = 180.0  # a page load waits this long for the user's seed before showing the chat
 
 STREAM_SECONDS = 0.15  # a streaming step is redrawn at most this often, not on every token
 DATA_SUFFIXES = [".csv", ".tsv", ".json", ".jsonl", ".parquet", ".xlsx", ".xls", ".txt"]
@@ -139,11 +142,56 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
                  seconds(r["seconds"]), r["steps"], seconds(r["llm_seconds"]), seconds(r["python_seconds"]),
                  r["input_tokens"], r["output_tokens"], r["id"]] for r in store.list_runs(user["id"])]
 
+    def history_of(user: dict) -> list[gr.ChatMessage]:
+        """The user's earlier runs as the chat showed them, from the trace: what a new tab opens on."""
+        history: list[gr.ChatMessage] = []
+        logger = AgentLogger(level=LogLevel.OFF)
+        for restored in restored_runs(store, config, user["id"], logger):
+            run = restored.run
+            name = run["task"].removeprefix("Imported ") if run["kind"] == "notebook" else None
+            if run["kind"] == "notebook":
+                history.append(gr.ChatMessage(role="user", content=f"📓 `{name}`"))
+            elif run["kind"] == "script":
+                history.append(gr.ChatMessage(role="user", content=f"▶ Ran `{run['task'].removeprefix('Ran ')}`"))
+            else:
+                history.append(gr.ChatMessage(role="user", content=run["task"]))
+            steps = 0
+            for step in restored.steps:
+                if isinstance(step, ActionStep):
+                    if step.is_final_answer:
+                        history.append(gr.ChatMessage(role="assistant", content=str(step.action_output)))
+                    else:
+                        steps += 1
+                        history.extend(step_messages(step))
+                elif isinstance(step, UserCodeStep):
+                    history.extend(script_messages(step.name, step.code,
+                                                   {"output": step.output, "value": step.value, "error": step.error},
+                                                   []))
+            if run["kind"] == "agent" and run["status"] != "ok" and run["error"]:
+                history.append(gr.ChatMessage(role="assistant", content=run["error"],
+                                              metadata={"title": "💥 The run failed", "status": "done"}))
+            seconds = (run["ended_at"] or run["started_at"]) - run["started_at"]
+            what = (f"imported {steps} cell{'s' if steps != 1 else ''} from `{name}`" if run["kind"] == "notebook"
+                    else f"{steps} step{'s' if steps != 1 else ''}" if run["kind"] == "agent" else "ran your code")
+            history.append(gr.ChatMessage(role="assistant",
+                                          content=FOOTNOTE.format(escape_tags(f"✓ {what} · {seconds:.1f} s · "
+                                                                              "from your trace"))))
+        if history:
+            history.append(gr.ChatMessage(role="assistant", content=FOOTNOTE.format(
+                "Your earlier work is back from your trace: the agent remembers it, and its variables are "
+                "restored in this session's Python.")))
+        return history
+
     def on_load(request: gr.Request):
         user = user_of(request)
         who = (f"Signed in as <b>{html.escape(user['username'])}</b> · "
                '<a href="/logout" target="_self">Log out</a>')
-        return who, files_markdown(user), runs_table(user), gr.Dropdown(choices=scripts_of(user))
+        # A just-created account's seed may still be importing: the chat should open on it.
+        if sessions.seeder.enabled():
+            sessions.seeder.start(user)
+            sessions.seeder.wait(user["id"], SEED_WAIT_SECONDS)
+        return (who, files_markdown(user), runs_table(user), gr.Dropdown(choices=scripts_of(user)),
+                history_of(user))
 
     def open_session(request: gr.Request, user: dict, history: list):
         """The tab's chat session, locked for one run; or None, with the reason added to the chat."""
@@ -155,6 +203,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         if not session.busy.acquire(blocking=False):
             history.append(gr.ChatMessage(role="assistant", content="Still working on your previous request."))
             return None
+        session.ready.wait()  # the restored variables are in the interpreter before anything else runs
         return session
 
     def lock_inputs(prompt: str):
@@ -362,7 +411,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         script_name = gr.State("")  # the script loaded into the code box
         script_text = gr.State("")  # its text when loaded, to tell an edited copy apart
 
-        demo.load(on_load, outputs=[who, files, runs, script_picker])
+        demo.load(on_load, outputs=[who, files, runs, script_picker, chatbot])
         for trigger in (prompt.submit, submit.click):
             trigger(lock_inputs, [prompt], [sent, prompt, submit]).then(
                 chat, [sent, chatbot], [chatbot], concurrency_limit=config.concurrency, concurrency_id="agent").then(
