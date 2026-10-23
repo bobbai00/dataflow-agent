@@ -1164,11 +1164,18 @@ export class AgentService {
   public importReActSteps(
     agentId: string,
     steps: unknown[],
-    snapshots?: Record<string, unknown>
+    snapshots?: Record<string, unknown>,
+    extras: { results?: Record<string, unknown>; instructions?: string; execute?: boolean } = {}
   ): Observable<{ headId: string; importedCount: number }> {
     return this.http.post<{ headId: string; importedCount: number }>(
       `${this.AGENT_API_BASE}/agents/${agentId}/import-react-steps`,
-      { steps, ...(snapshots ? { snapshots } : {}) },
+      {
+        steps,
+        ...(snapshots ? { snapshots } : {}),
+        ...(extras.results ? { results: extras.results } : {}),
+        ...(extras.instructions ? { instructions: extras.instructions } : {}),
+        ...(extras.execute ? { execute: true } : {}),
+      },
       this.agentHeaders(agentId)
     );
   }

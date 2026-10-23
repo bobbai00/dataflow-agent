@@ -1029,11 +1029,22 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.notificationService.error("JSON does not contain a non-empty `steps` array");
         return;
       }
+      // An archive from /agents/:id/archive also carries each step's operator results
+      // and the agent's instructions; an older export has only the steps.
+      const snapshots = parsed?.snapshots && typeof parsed.snapshots === "object" ? parsed.snapshots : undefined;
+      const results = parsed?.results && typeof parsed.results === "object" ? parsed.results : undefined;
+      const instructions = typeof parsed?.instructions === "string" ? parsed.instructions : undefined;
+      // Rebuilding the dataflow and, for an archive, running it once takes a while.
+      this.notificationService.info(
+        `Importing ${steps.length} ReAct steps${results ? " and running the dataflow (about a minute)" : ""}…`
+      );
       this.agentService
-        .importReActSteps(this.agentInfo.id, steps)
+        // An archive with results is a finished analysis: run it once so the results are this workflow's.
+        .importReActSteps(this.agentInfo.id, steps, snapshots, { results, instructions, execute: !!results })
         .pipe(untilDestroyed(this))
         .subscribe({
           next: result => {
+            if (instructions !== undefined) this.settingsInstructions = instructions;
             this.notificationService.success(`Imported ${result.importedCount} ReAct steps`);
           },
           error: err => {

@@ -2116,15 +2116,61 @@ export class TexeraAgent {
   }
 
   /**
+   * Execute every operator and put the results on the snapshot HEAD reads:
+   * after an import, the archive's results become this workflow's own, with
+   * the execution proof a later run checks, so nothing is recomputed or
+   * invalidated on the first question. The agent is busy while it runs.
+   */
+  async executeAllForHead(): Promise<{ success: boolean; state: string; errorText?: string } | undefined> {
+    const execConfig = this.buildExecutionConfig();
+    const stepId = this.snapshotStorage.getAssociatedSnapshot(this.head).reactStepId;
+    if (!execConfig || !stepId || this.workflowState.getAllOperators().length === 0) return undefined;
+    if (this.state !== AgentStateEnum.AVAILABLE) throw new Error("The agent is working; try again when it finishes.");
+    this.state = AgentStateEnum.GENERATING;
+    try {
+      const outcome = await executeWorkflowAndPersist(this.workflowState, execConfig, {
+        opsToViewResult: this.workflowState.getAllOperators().map(op => op.operatorID),
+        onExecution: run => this.trace?.execution({ agentId: this.agentId, stepId, run }),
+        onResult: (opId, info) => this.snapshotStorage.setOperatorResult(stepId, opId, info),
+      });
+      return { success: outcome.success, state: outcome.state, errorText: outcome.errorText };
+    } finally {
+      this.state = AgentStateEnum.AVAILABLE;
+    }
+  }
+
+  /**
+   * Each rendered step's own operator results, as an import archive carries
+   * them: `{ [stepId]: { [operatorId]: OperatorInfo } }` for every step that
+   * owns a snapshot. `restoreOperatorResults` is the inverse.
+   */
+  exportOperatorResults(): Record<string, Record<string, OperatorInfo>> {
+    const results: Record<string, Record<string, OperatorInfo>> = {};
+    for (const step of this.getRenderableReActSteps()) {
+      const snapshot = this.snapshotStorage.getOwnedSnapshot(step.id);
+      if (!snapshot) continue;
+      for (const [operatorId, entry] of snapshot.results)
+        if (entry.sourceStepId === step.id) (results[step.id] ??= {})[operatorId] = entry.info;
+    }
+    return results;
+  }
+
+  /**
    * Put stored operator results back on the snapshots their steps own (after
    * `importReActSteps`), then let descendants inherit them, as a live run
-   * leaves them. A result whose step owns no snapshot is skipped.
+   * leaves them. A result whose step owns no snapshot is skipped. A result
+   * another workflow produced (an archive imported here) loses the execution
+   * proof that tied it to that workflow and binds as a current value, as a
+   * result parsed from an old context does.
    */
   restoreOperatorResults(results: ReadonlyArray<{ stepId: string; operatorId: string; info: OperatorInfo }>): void {
+    const here = this.delegateConfig?.workflowId;
     for (const { stepId, operatorId, info } of results) {
       if (!this.snapshotStorage.hasSnapshotFor(stepId)) continue;
+      const foreign = info.executionContext && here !== undefined && info.executionContext.workflowId !== here;
+      const { executionContext, materialization, ...local } = info;
       try {
-        this.snapshotStorage.setOperatorResult(stepId, operatorId, info);
+        this.snapshotStorage.setOperatorResult(stepId, operatorId, foreign ? (local as OperatorInfo) : info);
       } catch (err) {
         this.log.warn({ err, stepId, operatorId }, "restore: failed to set operator result, skipping");
       }
