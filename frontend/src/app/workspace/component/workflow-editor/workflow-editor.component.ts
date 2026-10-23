@@ -24,7 +24,12 @@ import { NzModalRef, NzModalService } from "ng-zorro-antd/modal";
 import { DragDropService } from "../../service/drag-drop/drag-drop.service";
 import { DynamicSchemaService } from "../../service/dynamic-schema/dynamic-schema.service";
 import { ExecuteWorkflowService } from "../../service/execute-workflow/execute-workflow.service";
-import { fromJointPaperEvent, JointUIService, linkPathStrokeColor } from "../../service/joint-ui/joint-ui.service";
+import {
+  CurveLinkView,
+  fromJointPaperEvent,
+  JointUIService,
+  linkPathStrokeColor,
+} from "../../service/joint-ui/joint-ui.service";
 import { Validation, ValidationWorkflowService } from "../../service/validation/validation-workflow.service";
 import { WorkflowActionService } from "../../service/workflow-graph/model/workflow-action.service";
 import { WorkflowStatusService } from "../../service/workflow-status/workflow-status.service";
@@ -402,6 +407,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       interactive: defaultInteractiveOption,
       // set a default link element used by jointjs when user creates a link on UI
       defaultLink: JointUIService.getDefaultLinkCell(),
+      // arrowheads turned along the curve, not the straight line between a link's ends
+      linkView: CurveLinkView,
       // disable jointjs default action that stops propagate click events on jointjs paper
       preventDefaultBlankAction: false,
       // prevents normal right click menu showing up on jointjs paper

@@ -22,6 +22,7 @@ import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
 import { MAIN_CANVAS } from "../workflow-editor.component";
 import * as joint from "jointjs";
+import { CurveLinkView } from "../../../service/joint-ui/joint-ui.service";
 import { JointGraphWrapper } from "../../../service/workflow-graph/model/joint-graph-wrapper";
 import { PanelService } from "../../../service/panel/panel.service";
 import { CdkDrag } from "@angular/cdk/drag-drop";
@@ -66,6 +67,7 @@ export class MiniMapComponent implements AfterViewInit, OnDestroy {
       model: this.workflowActionService.getJointGraphWrapper().jointGraph,
       background: { color: "#F6F6F6" },
       interactive: false,
+      linkView: CurveLinkView,
       width: map.offsetWidth,
       height: map.offsetHeight,
     })
