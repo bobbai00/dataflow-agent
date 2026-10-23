@@ -97,6 +97,20 @@ class StoreTest(unittest.TestCase):
         for table in ("steps", "llm_calls", "python_execs"):
             self.assertEqual(self.store._rows(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"], 0)
 
+    def test_runs_from_before_chats_become_one_chat_per_user(self):
+        alice = self.store.create_user("alice", "correct horse")
+        bob = self.store.create_user("bob", "battery staple")
+        for user, task, kind in ((alice, "Imported totals.ipynb", "notebook"), (bob, "how many rows?", "agent"),
+                                 (alice, "and the mean?", "agent")):
+            self.store.start_run(user, self.store.start_chat_session(user, "m"), 1, task, kind)  # no chat yet
+        self.store.close()
+        self.store = Store(Path(self.folder.name) / "traces.db")  # the next start adopts them
+        [alices], [bobs] = self.store.list_chats(alice), self.store.list_chats(bob)
+        self.assertEqual((alices["title"], alices["runs"]), ("📓 totals.ipynb", 2))
+        self.assertEqual((bobs["title"], bobs["runs"]), ("how many rows?", 1))
+        self.assertIsNone(self.store.get_chat(bob, alices["id"]))  # chats are scoped to their owner too
+        self.assertEqual({r["chat_title"] for r in self.store.list_runs(alice)}, {"📓 totals.ipynb"})
+
     def test_concurrent_writers(self):
         users = [self.store.create_user(f"user{i}", "long enough") for i in range(10)]
         threads = [threading.Thread(target=lambda u=u: [self._run(u, time.time()) for _ in range(20)]) for u in users]

@@ -31,6 +31,7 @@ import base64
 import io
 import json
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -47,6 +48,14 @@ SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 
 class WorkerLost(RuntimeError):
     """The worker died or overran; it is restarted on the next execution, without its variables."""
+
+
+LOST = re.compile(r"The code ran for more than \d+ s and was stopped|The Python worker exited")  # WorkerLost's words
+
+
+def was_lost(error: str | None) -> bool:
+    """Whether a recorded execution error is a lost worker's, after which no earlier variable was left."""
+    return bool(error and LOST.search(error))
 
 
 def resolve_sandbox(requested: str) -> str:

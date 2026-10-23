@@ -13,12 +13,13 @@
 
 """Chat sessions: one agent, one worker process and one trace per browser session.
 
-A session belongs to the user who opened it, keyed by Gradio's session hash. It
-ends when its tab has been gone for the disconnect grace period (the tab's
-heartbeat stream, watched by app.HeartbeatWatch, ended and did not come back),
-when the user signs in as someone else in that tab, or when it sits idle past the
-configured limit. Agents share nothing: each has its own memory, its own
-interpreter state and its own trace. The user can also run their own code in the
+A session belongs to the user who opened it, keyed by Gradio's session hash, and
+to one of the user's chats: a new chat, or an earlier one, whose runs it restores
+from the trace. It ends when its tab has been gone for the disconnect grace period
+(the tab's heartbeat stream, watched by app.HeartbeatWatch, ended and did not come
+back), when the tab moves to another chat, when the user signs in as someone else
+in that tab, or when it sits idle past the configured limit. Agents share nothing:
+each has its own memory, its own interpreter state and its own trace. The user can also run their own code in the
 session's interpreter (`ChatSession.run_python`); the run then joins the agent's
 memory as a `UserCodeStep`, so follow-up questions can build on its output and its
 variables. A notebook can be imported (`ChatSession.import_notebook`): its cells
@@ -40,7 +41,7 @@ from smolagents.monitoring import AgentLogger, LogLevel, Timing
 from smolagents.utils import AgentExecutionError, truncate_content
 
 from .config import Config
-from .executor import WorkerExecutor
+from .executor import WorkerExecutor, was_lost
 from .notebook import Notebook, observation_of
 from .seeding import Seeder
 from .store import Store
@@ -183,11 +184,21 @@ def import_note(name: str, instructions: str, stopped_at: int | None = None, cel
 
 @dataclass
 class RestoredRun:
-    """One earlier run of a user, rebuilt from the trace: its memory steps and the code to run again."""
+    """One earlier run of a user, rebuilt from the trace: its memory steps and the code to run again,
+    in order; None where the worker was lost, and the variables with it."""
 
     run: dict
     steps: list
-    replay: list[str]
+    replay: list[str | None]
+
+
+def replay_of(code: str | None, error: str | None) -> list[str | None]:
+    """What to run again for one traced execution. Code that failed still ran up to the error, and
+    what it assigned before then stayed, so it is run again too; code that lost the worker is not
+    (it would only time out again), and marks where the variables were gone."""
+    if was_lost(error):
+        return [None]
+    return [code] if code else []
 
 
 def action_step_from_row(row: dict, final_answer, logger, call_id: int) -> ActionStep:
@@ -202,28 +213,26 @@ def action_step_from_row(row: dict, final_answer, logger, call_id: int) -> Actio
         is_final_answer=bool(row["is_final_answer"]), action_output=final_answer if row["is_final_answer"] else None)
 
 
-def restored_runs(store: Store, config: Config, user_id: int, logger) -> list[RestoredRun]:
-    """The user's finished runs, oldest first, as memory steps: an agent run is its task, steps and
+def restored_runs(store: Store, config: Config, user_id: int, chat_id: str, logger) -> list[RestoredRun]:
+    """The chat's finished runs, oldest first, as memory steps: an agent run is its task, steps and
     answer; a notebook import the same plus the note that followed it; the user's own script its
-    code step. `replay` holds each run's code that ran without error, for a new interpreter."""
+    code step. `replay` holds the code each run executed (see `replay_of`), for a new interpreter."""
     restored = []
-    for run in store.runs_asc(user_id):
+    for run in store.runs_of_chat(user_id, chat_id):
         steps: list = []
-        replay: list[str] = []
+        replay: list[str | None] = []
         if run["kind"] == "script":
             name = run["task"].removeprefix("Ran ")
             for executed in store.python_execs_of(run["id"]):
                 steps.append(UserCodeStep(name=name, code=executed["code"] or "", output=executed["output"] or "",
                                           error=executed["error"]))
-                if executed["code"] and not executed["error"]:
-                    replay.append(executed["code"])
+                replay += replay_of(executed["code"], executed["error"])
         else:
             steps.append(TaskStep(task=run["task"]))
             rows = store.steps_of(run["id"])
             for row in rows:
                 steps.append(action_step_from_row(row, run["final_answer"], logger, len(steps)))
-                if row["code"] and not row["error"] and not row["is_final_answer"]:
-                    replay.append(row["code"])
+                replay += replay_of(row["code"], row["error"])
             if run["kind"] == "notebook":
                 stopped = re.match(r"cell (\d+) failed", run["error"] or "")
                 cells = sum(1 for row in rows if not row["is_final_answer"])
@@ -234,13 +243,16 @@ def restored_runs(store: Store, config: Config, user_id: int, logger) -> list[Re
 
 
 class ChatSession:
-    def __init__(self, store: Store, config: Config, user: dict, restore: bool = True):
+    def __init__(self, store: Store, config: Config, user: dict, chat_id: str | None = None):
+        """A session on the user's chat `chat_id`, restored from its trace, or on a new chat (None),
+        which its first run creates."""
         self.user = user
         self.config = config
         self.store = store
         self.id = store.start_chat_session(user["id"], config.model_id)
+        self.opened_on = chat_id
         user_dir = config.user_dir(user["id"])
-        self.trace = Trace(store, user["id"], self.id, user_dir / "figures")
+        self.trace = Trace(store, user["id"], self.id, user_dir / "figures", chat_id)
         self.executor = WorkerExecutor(user_dir=user_dir, data_dir=config.data_dir,
                                        authorized_imports=AUTHORIZED_IMPORTS, timeout=config.exec_timeout,
                                        sandbox=config.sandbox, secret_files=list(config.secret_files),
@@ -264,22 +276,37 @@ class ChatSession:
         self.restored = {"runs": 0, "steps": 0}
         # Start the interpreter now, while the first model call is still in flight.
         threading.Thread(target=self.executor.warm, daemon=True).start()
-        if restore:
-            self._restore()
+        if chat_id is not None:
+            self._restore(chat_id)
         else:
             self.ready.set()
 
-    def _restore(self) -> None:
-        """Continue from the user's trace: their earlier runs become the agent's memory again, and
-        the code those runs executed runs once more in the new interpreter, in the background, so
-        the variables are back too. Nothing here is traced as a run of its own."""
-        runs = restored_runs(self.store, self.config, self.user["id"], self.agent.logger)
-        replay = [code for restored in runs for code in restored.replay]
+    @property
+    def chat_id(self) -> str | None:
+        return self.trace.chat_id
+
+    def continues(self, chat_id: str | None) -> bool:
+        """Whether this session is on the chat a tab asks for: that chat, or, for a tab on a new chat
+        (None), the new chat this session opened, whose first run may have created it since."""
+        return chat_id == self.chat_id if chat_id else self.opened_on is None
+
+    def _restore(self, chat_id: str) -> None:
+        """Continue the chat from the trace: its runs become the agent's memory again, and the code
+        those runs executed runs once more in the new interpreter, in the background, so the
+        variables are back too. Nothing here is traced as a run of its own."""
+        runs = restored_runs(self.store, self.config, self.user["id"], chat_id, self.agent.logger)
+        replay: list[str] = []
         for restored in runs:
             self.agent.memory.steps.extend(restored.steps)
+            for code in restored.replay:
+                if code is None:  # the worker was lost here: nothing that ran before it was left
+                    replay.clear()
+                else:
+                    replay.append(code)
+        self.trace.turns = len(runs)  # the chat's next run is its next turn
         self.restored = {"runs": len(runs), "steps": sum(len(r.steps) for r in runs), "replayed": len(replay)}
         if runs:
-            self.store.record_event(self.user["id"], "restore", self.id, **self.restored)
+            self.store.record_event(self.user["id"], "restore", self.id, chat_id=chat_id, **self.restored)
         if not replay:
             self.ready.set()
             return
@@ -369,34 +396,28 @@ class Sessions:
         self._streams: dict[str, int] = {}  # open heartbeat streams, by browser session
         self._gone_since: dict[str, float] = {}  # when a browser session's last heartbeat stream ended
         self._lock = threading.Lock()
-        # The seed imports into a session of its own, never restored from the trace it is about to write.
-        self.seeder = Seeder(store, config, lambda user: ChatSession(store, config, user, restore=False))
+        # The seed imports into a new chat of its own, in a session of its own.
+        self.seeder = Seeder(store, config, lambda user: ChatSession(store, config, user))
         threading.Thread(target=self._close_idle, daemon=True).start()
 
-    def get(self, key: str, user: dict) -> ChatSession:
-        with self._lock:
-            session = self._sessions.get(key)
-            if session is not None and session.user["id"] == user["id"]:
-                session.last_active = time.monotonic()
-                return session
-        # A new session continues from the user's trace, so the seed must be in it first (an account
-        # made before seeding was switched on gets it now). Waited for outside the lock.
-        if self.seeder.enabled():
-            self.seeder.start(user)
-            self.seeder.wait(user["id"])
+    def get(self, key: str, user: dict, chat_id: str | None = None) -> ChatSession:
+        """The tab's session on the user's chat `chat_id` (None: a new chat), opened if need be. A
+        session the tab holds on another chat, or for another user, ends."""
         replaced = None
         with self._lock:
             session = self._sessions.get(key)
-            if session is not None and session.user["id"] == user["id"]:  # opened meanwhile
+            if session is not None and session.user["id"] == user["id"] and session.continues(chat_id):
                 session.last_active = time.monotonic()
                 return session
-            if session is not None:  # the same tab, now signed in as someone else
+            if session is not None:  # the tab moved to another chat, or is signed in as someone else now
+                if session.busy.locked():
+                    raise SessionLimit("Still working on your previous request.")
                 replaced = self._sessions.pop(key)
             if len(self._sessions) >= self.config.max_sessions:
                 raise SessionLimit("The server has as many open sessions as it allows. Try again in a few minutes.")
-            session = self._sessions[key] = ChatSession(self.store, self.config, user)
+            session = self._sessions[key] = ChatSession(self.store, self.config, user, chat_id)
         if replaced is not None:
-            self._end(replaced, "replaced by another login")
+            self._end(replaced, "another chat" if replaced.user["id"] == user["id"] else "replaced by another login")
         self.store.record_event(user["id"], "chat_session_start", session.id)
         log.info("session %s opened for %s (%d open)", session.id, user["username"], len(self._sessions))
         return session
@@ -412,6 +433,24 @@ class Sessions:
             if self._streams[key] <= 0:
                 del self._streams[key]
                 self._gone_since[key] = time.monotonic()
+
+    def peek(self, key: str) -> ChatSession | None:
+        """The tab's session, if it has one; opens nothing."""
+        with self._lock:
+            return self._sessions.get(key)
+
+    def leave(self, key: str, reason: str) -> bool:
+        """End the tab's session, as the tab moves to another chat, unless it is mid-run; whether the
+        tab is free to move. Uploads not yet mentioned to the agent stay with the tab."""
+        with self._lock:
+            session = self._sessions.get(key)
+            if session is not None:
+                if not session.busy.acquire(blocking=False):
+                    return False
+                del self._sessions[key]  # `busy` stays held: nothing runs on an ended session
+        if session is not None:
+            self._end(session, reason)
+        return True
 
     def add_pending(self, key: str, path: str) -> None:
         with self._lock:

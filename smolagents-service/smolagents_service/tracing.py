@@ -15,7 +15,8 @@
 
 A run is one user message and everything the agent does to answer it, one piece
 of the user's own code run in the session's interpreter (a 'script' run), or a
-notebook imported into the session (a 'notebook' run, one step per cell).
+notebook imported into the session (a 'notebook' run, one step per cell). Every
+run belongs to the session's chat; a new chat is created with its first run.
 Inside an agent run, `TracedModel` records each model call (request start, first
 streamed token, last token, token counts and the exact messages sent), the
 executor reports each code execution (round trip, the time measured inside the
@@ -59,10 +60,12 @@ def _text(value) -> str | None:
 
 
 class Trace:
-    def __init__(self, store: Store, user_id: int, chat_session_id: str, figures_dir: Path):
+    def __init__(self, store: Store, user_id: int, chat_session_id: str, figures_dir: Path,
+                 chat_id: str | None = None):
         self.store = store
         self.user_id = user_id
         self.chat_session_id = chat_session_id
+        self.chat_id = chat_id  # None until a new chat's first run
         self.figures_dir = Path(figures_dir)
         self.agent = None  # set once the agent exists; its step_number labels calls and executions
         self.run_id: str | None = None
@@ -81,7 +84,9 @@ class Trace:
     def start_run(self, task: str, kind: str = "agent") -> str:
         self.turns += 1
         self.kind, self.steps, self._figures = kind, {}, []
-        self.run_id = self.store.start_run(self.user_id, self.chat_session_id, self.turns, task, kind)
+        if self.chat_id is None:
+            self.chat_id = self.store.create_chat(self.user_id, task, kind)
+        self.run_id = self.store.start_run(self.user_id, self.chat_session_id, self.turns, task, kind, self.chat_id)
         return self.run_id
 
     def _add(self, **amounts) -> None:

@@ -16,9 +16,11 @@
 The chat shows each part of a run once (see render.py). Below it, the user can run
 their own code, typed in or loaded from their files, in the chat's Python session;
 the agent then sees that run. An uploaded notebook is imported into the chat: its
-cells run in that session and the agent takes them as its own steps. Every handler
-resolves the signed-in user from the request and reads or writes only that user's
-records and files.
+cells run in that session and the agent takes them as its own steps. The sidebar
+lists the user's chats: a tab opens on the latest, can move to any other (its
+session then continues that chat from the trace), or start a new one. Every
+handler resolves the signed-in user from the request and reads or writes only that
+user's records and files.
 """
 
 import html
@@ -53,12 +55,19 @@ LATEX_DELIMITERS = [
     {"left": r"\[", "right": r"\]", "display": True},
     {"left": r"\(", "right": r"\)", "display": False},
 ]
-RUN_COLUMNS = ["started", "turn", "message", "kind", "status", "seconds", "steps", "LLM s", "Python s",
+RUN_COLUMNS = ["started", "chat", "turn", "message", "kind", "status", "seconds", "steps", "LLM s", "Python s",
                "input tokens", "output tokens", "run id"]
 STEP_COLUMNS = ["step", "started", "seconds", "LLM s", "Python s", "other s", "input tokens", "output tokens",
                 "figures", "error"]
 SPAN_COLUMNS = ["at (s into run)", "kind", "step", "seconds", "first token (s)", "worker s", "worker pid",
                 "input tokens", "output tokens", "error"]
+# The chat list: one line per chat, scrolling past a few, like a chat app's sidebar.
+CSS = """
+#chat-list .wrap { flex-direction: column; flex-wrap: nowrap; gap: 2px; max-height: 30vh; overflow-y: auto; }
+#chat-list .wrap label { width: 100%; box-sizing: border-box; margin: 0; }
+#chat-list .wrap input[type=radio] { display: none; }  /* the selected chat is highlighted instead */
+#chat-list .wrap label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+"""
 
 
 def clock(timestamp: float | None) -> str:
@@ -74,6 +83,24 @@ def seconds(value: float | None) -> float | None:
 def clip(text: str | None, width: int) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def chat_labels(chats: list[dict]) -> list[str]:
+    """The chats as the list shows them: by name, and a name that two chats share with when each was
+    last used (the time today, else the day)."""
+    labels = []
+    for chat in chats:
+        label = clip(chat["title"], 60)
+        if sum(other["title"] == chat["title"] for other in chats) > 1:
+            when = time.localtime(chat["last_run_at"] or chat["created_at"])
+            today = time.strftime("%b %d") == time.strftime("%b %d", when)
+            label += f" · {time.strftime('%H:%M' if today else '%b %d', when)}"
+        labels.append(label)
+    return labels
+
+
+def names(paths: list[Path]) -> str:
+    return ", ".join(f"`{path.name}`" for path in paths)
 
 
 def run_agent(session, task: str, history: list):
@@ -138,15 +165,23 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         return [Path(path).name for path in user_files(config, user["id"]) if path.endswith(SCRIPT_SUFFIX)]
 
     def runs_table(user: dict) -> list[list]:
-        return [[clock(r["started_at"]), r["turn"], clip(r["task"], 90), r["kind"], r["status"],
+        return [[clock(r["started_at"]), clip(r["chat_title"], 40), r["turn"], clip(r["task"], 90), r["kind"], r["status"],
                  seconds(r["seconds"]), r["steps"], seconds(r["llm_seconds"]), seconds(r["python_seconds"]),
                  r["input_tokens"], r["output_tokens"], r["id"]] for r in store.list_runs(user["id"])]
 
-    def history_of(user: dict) -> list[gr.ChatMessage]:
-        """The user's earlier runs as the chat showed them, from the trace: what a new tab opens on."""
+    def chat_picker(user: dict, current: str) -> gr.Radio:
+        """The user's chats, `current` selected (none for a new chat)."""
+        chats = store.list_chats(user["id"])
+        choices = list(zip(chat_labels(chats), (chat["id"] for chat in chats)))
+        return gr.Radio(choices=choices, value=current if current in {c[1] for c in choices} else None)
+
+    def history_of(user: dict, chat_id: str) -> list[gr.ChatMessage]:
+        """The chat's runs as the chat showed them, from the trace: what a tab opens on."""
         history: list[gr.ChatMessage] = []
+        if not chat_id:
+            return history
         logger = AgentLogger(level=LogLevel.OFF)
-        for restored in restored_runs(store, config, user["id"], logger):
+        for restored in restored_runs(store, config, user["id"], chat_id, logger):
             run = restored.run
             name = run["task"].removeprefix("Imported ") if run["kind"] == "notebook" else None
             if run["kind"] == "notebook":
@@ -178,11 +213,12 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
                                                                               "from your trace"))))
         if history:
             history.append(gr.ChatMessage(role="assistant", content=FOOTNOTE.format(
-                "Your earlier work is back from your trace: the agent remembers it, and its variables are "
+                "This chat is back from your trace: the agent remembers it, and its variables are "
                 "restored in this session's Python.")))
         return history
 
     def on_load(request: gr.Request):
+        """The page, opened on the user's latest chat."""
         user = user_of(request)
         who = (f"Signed in as <b>{html.escape(user['username'])}</b> · "
                '<a href="/logout" target="_self">Log out</a>')
@@ -190,13 +226,43 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         if sessions.seeder.enabled():
             sessions.seeder.start(user)
             sessions.seeder.wait(user["id"], SEED_WAIT_SECONDS)
+        latest = store.list_chats(user["id"], 1)
+        current = latest[0]["id"] if latest else ""
         return (who, files_markdown(user), runs_table(user), gr.Dropdown(choices=scripts_of(user)),
-                history_of(user))
+                history_of(user, current), chat_picker(user, current), current)
 
-    def open_session(request: gr.Request, user: dict, history: list):
-        """The tab's chat session, locked for one run; or None, with the reason added to the chat."""
+    def new_chat(current: str, request: gr.Request):
+        """Start a new chat in this tab: an empty one, with a new agent and Python session."""
+        user = user_of(request)
+        if not sessions.leave(request.session_hash, "new chat"):
+            gr.Warning("Still working on your previous request: start a new chat once it is done.")
+            return gr.update(), gr.update(), current
+        return [], chat_picker(user, ""), ""
+
+    def switch_chat(chosen: str | None, current: str, request: gr.Request):
+        """Move this tab to another of the user's chats, shown from the trace; its session restores it."""
+        user = user_of(request)
+        if not chosen or chosen == current:
+            return gr.update(), gr.update(), current
+        if store.get_chat(user["id"], chosen) is None:
+            raise gr.Error("That chat is not yours or no longer exists.")
+        if not sessions.leave(request.session_hash, "another chat"):
+            gr.Warning("Still working on your previous request: switch chats once it is done.")
+            return gr.update(), chat_picker(user, current), current
+        return history_of(user, chosen), gr.update(), chosen
+
+    def chats_after_run(current: str, request: gr.Request):
+        """The chat list once a run is over: a new chat's first run has created it."""
+        user = user_of(request)
+        session = sessions.peek(request.session_hash)
+        if session is not None and session.user["id"] == user["id"] and session.continues(current or None):
+            current = session.chat_id or current
+        return chat_picker(user, current), current
+
+    def open_session(request: gr.Request, user: dict, chat_id: str, history: list):
+        """The tab's session on its chat, locked for one run; or None, with the reason added to the chat."""
         try:
-            session = sessions.get(request.session_hash, user)
+            session = sessions.get(request.session_hash, user, chat_id or None)
         except SessionLimit as full:
             history.append(gr.ChatMessage(role="assistant", content=str(full)))
             return None
@@ -212,13 +278,13 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
     def unlock_inputs():
         return gr.Textbox(interactive=True), gr.Button(interactive=True)
 
-    def chat(prompt: str, history: list, request: gr.Request):
+    def chat(prompt: str, history: list, current: str, request: gr.Request):
         user = user_of(request)
         history = list(history or [])
         if not prompt.strip():
             yield history
             return
-        session = open_session(request, user, history)
+        session = open_session(request, user, current, history)
         if session is None:
             yield history
             return
@@ -233,7 +299,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             session.last_active = time.monotonic()
             session.busy.release()
 
-    def run_code(code: str, name: str, loaded: str, history: list, request: gr.Request):
+    def run_code(code: str, name: str, loaded: str, history: list, current: str, request: gr.Request):
         """Run the user's own code in the chat's Python session, where the agent will see it."""
         user = user_of(request)
         history = list(history or [])
@@ -241,7 +307,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             yield history
             return
         label = (name if code == loaded else f"{name} (edited)") if name else "your code"
-        session = open_session(request, user, history)
+        session = open_session(request, user, current, history)
         if session is None:
             yield history
             return
@@ -263,29 +329,35 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         code = path.read_text(errors="replace")
         return code, choice, code
 
-    def import_notebook(path: Path, name: str, history: list, request: gr.Request, user: dict):
+    def import_notebook(path: Path, history: list, request: gr.Request, user: dict, current: str, said: str):
         """Run the notebook's cells in the chat's Python session and show them as the agent's
-        steps, one by one; yields the upload's outputs after each."""
+        steps, one by one; yields the upload's outputs after each, its status after `said` (what
+        the upload did before), and returns that status."""
+        name = path.name
+
         def outputs(status: str):
-            return (status, files_markdown(user), gr.Dropdown(choices=scripts_of(user))) + (gr.update(),) * 4 + (
-                None, history)
+            return (f"{said} {status}".strip(), files_markdown(user), gr.Dropdown(choices=scripts_of(user))) + (
+                gr.update(),) * 4 + (None, history)
 
         try:
             notebook = read_notebook(path)
         except ValueError as bad:
-            yield outputs(f"Added `{name}`, but it was not imported: {bad}.")
-            return
+            status = f"Added `{name}`, but it was not imported: {bad}."
+            yield outputs(status)
+            return status
         missing = missing_files(notebook, path.parent)
         if missing:
             one = len(missing) == 1
-            yield outputs(f"Added `{name}`, but did not import it: it reads {', '.join(f'`{m}`' for m in missing)}, "
-                          f"which {'is' if one else 'are'} not in your files. Upload {'it' if one else 'them'}, then "
-                          "upload the notebook again.")
-            return
-        session = open_session(request, user, history)
+            status = (f"Added `{name}`, but did not import it: it reads {', '.join(f'`{m}`' for m in missing)}, "
+                      f"which {'is' if one else 'are'} not in your files. Upload {'it' if one else 'them'}, then "
+                      "upload the notebook again.")
+            yield outputs(status)
+            return status
+        session = open_session(request, user, current, history)
         if session is None:
-            yield outputs(f"Added `{name}`; it was not imported.")
-            return
+            status = f"Added `{name}`; it was not imported."
+            yield outputs(status)
+            return status
         try:
             cells = len(notebook.cells)
             history.append(gr.ChatMessage(role="user", content=f"📓 `{name}`" + (f"\n\n{notebook.task}"
@@ -303,47 +375,62 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
                 history.append(import_stopped(failed.step_number, cells, failed.error))
             history.append(import_footnote(name, cells, time.monotonic() - started, session.trace.totals()["python"],
                                            failed and failed.step_number))
-            yield outputs(f"Imported `{name}`." if failed is None else
-                          f"Cell {failed.step_number} of `{name}` failed, so the import stopped there. Fix what it "
-                          "needs, such as a data file to upload, then upload the notebook again.")
+            status = (f"Imported `{name}`." if failed is None else
+                      f"Cell {failed.step_number} of `{name}` failed, so the import stopped there. Fix what it "
+                      "needs, such as a data file to upload, then upload the notebook again.")
+            yield outputs(status)
+            return status
         finally:
             session.last_active = time.monotonic()
             session.busy.release()
 
-    def upload(file, history: list, request: gr.Request):
-        """Add a file to the user's files. A script is loaded into the code box; data is
-        mentioned to the agent; a notebook is imported into the chat. The upload box empties
-        again, ready for the next file."""
+    def upload(uploaded, history: list, current: str, request: gr.Request):
+        """Add one or more files to the user's files. Data is mentioned to the agent with the next
+        message; the last script is loaded into the code box; each notebook is imported into the
+        chat, once every file of the upload is in place, so a notebook dropped with its data reads
+        it. The upload box empties again, ready for the next files."""
         user = user_of(request)
         history = list(history or [])
         unchanged = (gr.update(),) * 5  # the script picker, code, its name, its loaded text, the panel
-        if not file:
+        paths = [uploaded] if isinstance(uploaded, str) else list(uploaded or [])
+        if not paths:
             yield (gr.update(), files_markdown(user)) + unchanged + (None, history)
-            return
-        name = re.sub(r"[^\w\-.]", "_", Path(file).name)
-        suffix = Path(name).suffix.lower()
-        if suffix not in UPLOAD_SUFFIXES:
-            allowed = ", ".join(UPLOAD_SUFFIXES)
-            yield (f"`{name}` was not added: allowed types are {allowed}.", files_markdown(user)) + unchanged + (
-                None, history)
             return
         folder = config.user_dir(user["id"]) / "files"
         folder.mkdir(parents=True, exist_ok=True)
-        destination = folder / name
-        shutil.copyfile(file, destination)
-        store.record_artifact(user["id"], "upload", str(destination))
-        store.record_event(user["id"], "upload", None, file=name, bytes=destination.stat().st_size)
-        if suffix == SCRIPT_SUFFIX:
-            code = destination.read_text(errors="replace")
-            yield (f"Added `{name}`. It is loaded below the chat: press Run to run it.", files_markdown(user),
-                   gr.Dropdown(choices=scripts_of(user), value=name), code, name, code, gr.Accordion(open=True), None,
-                   history)
-        elif suffix == NOTEBOOK_SUFFIX:
-            yield from import_notebook(destination, name, history, request, user)
-        else:
-            sessions.add_pending(request.session_hash, str(destination))
-            yield (f"Added `{name}`; the agent hears about it with your next message.", files_markdown(user),
-                   gr.Dropdown(choices=scripts_of(user))) + unchanged[1:] + (None, history)
+        data, scripts, notebooks, refused = [], [], [], []
+        for path in paths:
+            name = re.sub(r"[^\w\-.]", "_", Path(path).name)
+            suffix = Path(name).suffix.lower()
+            if suffix not in UPLOAD_SUFFIXES:
+                refused.append(Path(name))
+                continue
+            destination = folder / name
+            shutil.copyfile(path, destination)
+            store.record_artifact(user["id"], "upload", str(destination))
+            store.record_event(user["id"], "upload", None, file=name, bytes=destination.stat().st_size)
+            kind = scripts if suffix == SCRIPT_SUFFIX else notebooks if suffix == NOTEBOOK_SUFFIX else data
+            kind.append(destination)
+        said = []
+        if refused:
+            said.append(f"{names(refused)} {'was' if len(refused) == 1 else 'were'} not added: allowed types are "
+                        f"{', '.join(UPLOAD_SUFFIXES)}.")
+        for path in data:
+            sessions.add_pending(request.session_hash, str(path))
+        if data:
+            said.append(f"Added {names(data)}; the agent hears about {'it' if len(data) == 1 else 'them'} with your "
+                        "next message.")
+        script_outputs = (gr.Dropdown(choices=scripts_of(user)),) + unchanged[1:]
+        if scripts:
+            loaded = scripts[-1]
+            code = loaded.read_text(errors="replace")
+            said.append(f"Added `{loaded.name}`. It is loaded below the chat: press Run to run it." if len(scripts) == 1
+                        else f"Added {names(scripts)}; `{loaded.name}` is loaded below the chat: press Run to run it.")
+            script_outputs = (gr.Dropdown(choices=scripts_of(user), value=loaded.name), code, loaded.name, code,
+                              gr.Accordion(open=True))
+        yield (" ".join(said), files_markdown(user)) + script_outputs + (None, history)
+        for notebook in notebooks:
+            said.append((yield from import_notebook(notebook, history, request, user, current, " ".join(said))))
 
     def show_run(table, event: gr.SelectData, request: gr.Request):
         user = user_of(request)
@@ -381,11 +468,16 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             who = gr.HTML()
             gr.Markdown(f"A smolagents `CodeAgent` on `{config.model_id}`. Its Python runs in your own "
                         "interpreter, and every step is traced to your account (see **My traces**).")
+            new_chat_button = gr.Button("＋ New chat", size="sm", elem_id="new-chat")
+            chat_list = gr.Radio(label="Your chats", choices=[], elem_id="chat-list")
             with gr.Group():
                 prompt = gr.Textbox(lines=3, label="Your request", placeholder="Ask about your data, then Submit")
                 submit = gr.Button("Submit", variant="primary")
-            upload_file = gr.File(label="Add a data file, a Python script or a notebook", file_types=UPLOAD_SUFFIXES)
-            upload_status = gr.Markdown()
+            # Any type gets through to `upload`, which adds the files it can take and names the rest: a
+            # file_types filter would refuse a whole drop over one file.
+            upload_file = gr.File(label="Add data files, Python scripts or notebooks", file_count="multiple",
+                                  elem_id="upload-box")
+            upload_status = gr.Markdown(elem_id="upload-status")
             files = gr.Markdown()
         with gr.Tab("Chat"):
             chatbot = gr.Chatbot(label="Agent", latex_delimiters=LATEX_DELIMITERS, scale=1, height="65vh")
@@ -398,7 +490,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         with gr.Tab("My traces"):
             refresh_runs = gr.Button("Refresh", size="sm")
             runs = gr.Dataframe(headers=RUN_COLUMNS, interactive=False, wrap=True, max_height=320, elem_id="runs-table",
-                                column_widths=["170px", "60px", "320px"] + ["90px"] * 7 + ["150px"])
+                                column_widths=["170px", "200px", "60px", "320px"] + ["90px"] * 7 + ["150px"])
             gr.Markdown("Select a run for its steps and timeline; select a step for the context its model call saw.")
             steps = gr.Dataframe(headers=STEP_COLUMNS, interactive=False, wrap=True, max_height=320,
                                  elem_id="steps-table",
@@ -410,20 +502,27 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         sent = gr.State("")
         script_name = gr.State("")  # the script loaded into the code box
         script_text = gr.State("")  # its text when loaded, to tell an edited copy apart
+        current_chat = gr.State("")  # the chat this tab is on; "" for a new chat, until its first run
 
-        demo.load(on_load, outputs=[who, files, runs, script_picker, chatbot])
+        demo.load(on_load, outputs=[who, files, runs, script_picker, chatbot, chat_list, current_chat])
+        new_chat_button.click(new_chat, [current_chat], [chatbot, chat_list, current_chat])
+        chat_list.input(switch_chat, [chat_list, current_chat], [chatbot, chat_list, current_chat])
         for trigger in (prompt.submit, submit.click):
             trigger(lock_inputs, [prompt], [sent, prompt, submit]).then(
-                chat, [sent, chatbot], [chatbot], concurrency_limit=config.concurrency, concurrency_id="agent").then(
-                unlock_inputs, None, [prompt, submit])
+                chat, [sent, chatbot, current_chat], [chatbot], concurrency_limit=config.concurrency,
+                concurrency_id="agent").then(
+                unlock_inputs, None, [prompt, submit]).then(
+                chats_after_run, [current_chat], [chat_list, current_chat])
         run_button.click(lambda: gr.Button(interactive=False), None, [run_button]).then(
-            run_code, [code_box, script_name, script_text, chatbot], [chatbot],
+            run_code, [code_box, script_name, script_text, chatbot, current_chat], [chatbot],
             concurrency_limit=config.concurrency, concurrency_id="agent").then(
-            lambda: gr.Button(interactive=True), None, [run_button])
+            lambda: gr.Button(interactive=True), None, [run_button]).then(
+            chats_after_run, [current_chat], [chat_list, current_chat])
         script_picker.input(load_script, [script_picker], [code_box, script_name, script_text])
-        upload_file.upload(upload, [upload_file, chatbot], [upload_status, files, script_picker, code_box, script_name,
-                                                            script_text, python_panel, upload_file, chatbot],
-                           concurrency_limit=config.concurrency, concurrency_id="agent")
+        upload_file.upload(upload, [upload_file, chatbot, current_chat],
+                           [upload_status, files, script_picker, code_box, script_name, script_text, python_panel,
+                            upload_file, chatbot], concurrency_limit=config.concurrency, concurrency_id="agent").then(
+            chats_after_run, [current_chat], [chat_list, current_chat])
         refresh_runs.click(refresh, None, [runs])
         runs.select(show_run, [runs], [steps, spans, selected_run, context])
         steps.select(show_context, [steps, selected_run], [context])

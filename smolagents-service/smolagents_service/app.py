@@ -16,7 +16,7 @@
     /register, /login, /logout   HTML forms; a login is an httpOnly cookie naming a
                                  server-side login record (store.logins)
     /app/                        the Gradio chat and trace pages, for signed-in users
-    /api/me, /api/runs, /api/runs/{id}, /api/events
+    /api/me, /api/chats, /api/runs, /api/runs/{id}, /api/events
                                  the signed-in user's own traces as JSON
 
 Gradio sees the user through `auth_dependency`, so `gr.Request.username` is the
@@ -37,7 +37,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from .config import Config
 from .sessions import Sessions, adopt_old_folders
 from .store import AuthError, Store
-from .ui import build_ui
+from .ui import CSS, build_ui
 
 COOKIE = "smolagents_login"
 HEARTBEAT = re.compile(r"^/app/gradio_api/heartbeat/([^/]+)$")
@@ -231,6 +231,10 @@ def create_app(config: Config) -> FastAPI:
         """Seed this account now unless that is done or under way (for accounts older than the seed)."""
         return sessions.seeder.start(require_user(request))
 
+    @app.get("/api/chats")
+    def chats(request: Request, limit: int = 100):
+        return store.list_chats(require_user(request)["id"], min(max(limit, 1), 1000))
+
     @app.get("/api/runs")
     def runs(request: Request, limit: int = 100):
         return store.list_runs(require_user(request)["id"], min(max(limit, 1), 1000))
@@ -262,7 +266,7 @@ def create_app(config: Config) -> FastAPI:
 
     demo = build_ui(store, sessions, config)
     demo.queue(default_concurrency_limit=config.concurrency)
-    gr.mount_gradio_app(app, demo, path="/app", ssr_mode=False, theme="ocean",
+    gr.mount_gradio_app(app, demo, path="/app", ssr_mode=False, theme="ocean", css=CSS,
                         auth_dependency=lambda request: (current_user(request) or {}).get("username"))
     app.add_middleware(LoginWall, signed_in=lambda request: current_user(request) is not None)
     app.add_middleware(HeartbeatWatch, sessions=sessions)

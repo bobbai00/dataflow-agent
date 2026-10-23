@@ -18,10 +18,12 @@ readers (the sqlite3 shell, a notebook) read while the server writes. Timestamps
 are Unix epoch seconds as floats. Every read takes the caller's user id and
 filters on it: that filter is the isolation the API and the UI rely on.
 
-Tables, from the outside in: a `chat_sessions` row is one browser session with
-its own agent and Python worker; a `runs` row is either one user message and the
-agent's whole answer to it (kind 'agent') or one piece of the user's own code run
-in the session's interpreter (kind 'script'); a `steps` row is one agent step;
+Tables, from the outside in: a `chats` row is one conversation, the runs a
+session restores when it opens that chat; a `chat_sessions` row is one browser
+session with its own agent and Python worker; a `runs` row is either one user
+message and the agent's whole answer to it (kind 'agent'), one piece of the
+user's own code run in the session's interpreter (kind 'script'), or a notebook
+imported into it (kind 'notebook'), in one chat; a `steps` row is one agent step;
 `llm_calls` and `python_execs` are the model call and the code execution inside
 a step, each with its own start and end, and each execution names the worker
 process that ran it. `events` records account actions (register, login, logout,
@@ -52,6 +54,12 @@ CREATE TABLE IF NOT EXISTS logins (
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chats (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    title TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -64,6 +72,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     chat_session_id TEXT NOT NULL REFERENCES chat_sessions(id),
+    chat_id TEXT REFERENCES chats(id),
     turn INTEGER NOT NULL,
     task TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'agent',
@@ -154,10 +163,12 @@ CREATE INDEX IF NOT EXISTS python_execs_by_step ON python_execs (run_id, step_nu
 CREATE INDEX IF NOT EXISTS artifacts_by_run ON artifacts (run_id);
 CREATE INDEX IF NOT EXISTS events_by_user ON events (user_id, at);
 CREATE INDEX IF NOT EXISTS logins_by_user ON logins (user_id);
+CREATE INDEX IF NOT EXISTS chats_by_user ON chats (user_id);
 """
 
 # Columns added after the first release, for databases created before them.
-MIGRATIONS = [("runs", "kind", "TEXT NOT NULL DEFAULT 'agent'"), ("python_execs", "worker_pid", "INTEGER")]
+MIGRATIONS = [("runs", "kind", "TEXT NOT NULL DEFAULT 'agent'"), ("python_execs", "worker_pid", "INTEGER"),
+              ("runs", "chat_id", "TEXT REFERENCES chats(id)")]
 
 # Recreated at every start, so they always have every column of their tables.
 VIEWS = """
@@ -213,6 +224,16 @@ def check_password(password: str, stored: str) -> bool:
 _DUMMY_HASH = hash_password(secrets.token_hex(8))
 
 
+def chat_title(task: str, kind: str = "agent") -> str:
+    """A chat's name, from its first run: the first line of the message, or the notebook or script."""
+    line = (task.strip().splitlines() or ["New chat"])[0]
+    if kind == "notebook":
+        line = "📓 " + line.removeprefix("Imported ")
+    elif kind == "script":
+        line = "▶ " + line.removeprefix("Ran ")
+    return line if len(line) <= 120 else line[:119] + "…"
+
+
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -231,7 +252,21 @@ class Store:
             for table, column, declaration in MIGRATIONS:
                 if column not in {row[1] for row in self._db.execute(f"PRAGMA table_info({table})")}:
                     self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+            self._db.execute("CREATE INDEX IF NOT EXISTS runs_by_chat ON runs (chat_id, started_at)")
+            self._adopt_runs_without_a_chat()
             self._db.executescript(VIEWS)
+
+    def _adopt_runs_without_a_chat(self) -> None:
+        """Runs from before chats: each user's become one chat, as every new session continued from all of them."""
+        for row in self._db.execute("SELECT user_id, MIN(started_at) AS first FROM runs WHERE chat_id IS NULL "
+                                    "GROUP BY user_id").fetchall():
+            run = self._db.execute("SELECT task, kind FROM runs WHERE user_id = ? AND chat_id IS NULL "
+                                   "ORDER BY started_at LIMIT 1", (row["user_id"],)).fetchone()
+            chat_id = uuid.uuid4().hex
+            self._db.execute("INSERT INTO chats (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
+                             (chat_id, row["user_id"], chat_title(run["task"], run["kind"]), row["first"]))
+            self._db.execute("UPDATE runs SET chat_id = ? WHERE user_id = ? AND chat_id IS NULL",
+                             (chat_id, row["user_id"]))
 
     def _execute(self, sql: str, params=()) -> sqlite3.Cursor:
         with self._lock:
@@ -304,10 +339,19 @@ class Store:
         self._execute("UPDATE chat_sessions SET ended_at = ?, end_reason = ? WHERE id = ? AND ended_at IS NULL",
                       (time.time(), reason, session_id))
 
-    def start_run(self, user_id: int, chat_session_id: str, turn: int, task: str, kind: str = "agent") -> str:
+    def create_chat(self, user_id: int, task: str, kind: str = "agent") -> str:
+        """A new chat, named after its first run's `task`."""
+        chat_id = uuid.uuid4().hex
+        self._execute("INSERT INTO chats (id, user_id, title, created_at) VALUES (?, ?, ?, ?)",
+                      (chat_id, user_id, chat_title(task, kind), time.time()))
+        return chat_id
+
+    def start_run(self, user_id: int, chat_session_id: str, turn: int, task: str, kind: str = "agent",
+                  chat_id: str | None = None) -> str:
         run_id = uuid.uuid4().hex
-        self._execute("INSERT INTO runs (id, user_id, chat_session_id, turn, task, kind, started_at) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, user_id, chat_session_id, turn, task, kind, time.time()))
+        self._execute("INSERT INTO runs (id, user_id, chat_session_id, chat_id, turn, task, kind, started_at) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      (run_id, user_id, chat_session_id, chat_id, turn, task, kind, time.time()))
         return run_id
 
     def finish_run(self, run_id: str, status: str, final_answer: str | None, error: str | None) -> None:
@@ -354,13 +398,23 @@ class Store:
     # Reads, always scoped to one user
 
     def list_runs(self, user_id: int, limit: int = 100) -> list[dict]:
-        return self._rows("SELECT * FROM run_summary WHERE user_id = ? ORDER BY started_at DESC LIMIT ?",
-                          (user_id, limit))
+        return self._rows("SELECT r.*, c.title AS chat_title FROM run_summary r LEFT JOIN chats c ON c.id = r.chat_id "
+                          "WHERE r.user_id = ? ORDER BY r.started_at DESC LIMIT ?", (user_id, limit))
 
-    def runs_asc(self, user_id: int) -> list[dict]:
-        """The user's finished runs, oldest first: what a new session continues from."""
-        return self._rows("SELECT * FROM runs WHERE user_id = ? AND status != 'running' ORDER BY started_at, turn",
-                          (user_id,))
+    def list_chats(self, user_id: int, limit: int = 100) -> list[dict]:
+        """The user's chats that hold a run, the most recently used first."""
+        return self._rows("SELECT c.*, COUNT(r.id) AS runs, MAX(r.started_at) AS last_run_at FROM chats c "
+                          "JOIN runs r ON r.chat_id = c.id AND r.user_id = c.user_id WHERE c.user_id = ? "
+                          "GROUP BY c.id ORDER BY last_run_at DESC LIMIT ?", (user_id, limit))
+
+    def get_chat(self, user_id: int, chat_id: str) -> dict | None:
+        rows = self._rows("SELECT * FROM chats WHERE id = ? AND user_id = ?", (chat_id, user_id))
+        return rows[0] if rows else None
+
+    def runs_of_chat(self, user_id: int, chat_id: str) -> list[dict]:
+        """The chat's finished runs, oldest first: what a session that opens it continues from."""
+        return self._rows("SELECT * FROM runs WHERE user_id = ? AND chat_id = ? AND status != 'running' "
+                          "ORDER BY started_at, turn", (user_id, chat_id))
 
     def steps_of(self, run_id: str) -> list[dict]:
         return self._rows("SELECT * FROM steps WHERE run_id = ? ORDER BY step_number", (run_id,))
