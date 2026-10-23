@@ -11,11 +11,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Someone with a seeded chat (when the server seeds) starts new chats and moves
-// between them. A notebook and its two data files are dropped in one drag; the
-// agent answers from the notebook's variables; a scratch chat sets its own; then
-// the person goes back to each chat, whose history and variables (and only its
-// own) are back, and a reload opens the chat used last.
+// Someone with a seeded chat (when the server seeds) signs in to a new, empty
+// chat with the seeded one listed, and moves between chats. A notebook and its
+// two data files are dropped in one drag; the agent answers from the notebook's
+// variables; a scratch chat sets its own; then the person goes back to each chat,
+// whose history and variables (and only its own) are back. A reload stays on the
+// chat in use; opening the app afresh starts a new chat again.
 //
 //   node tests/e2e/chats_flow.mjs BASE_URL OUT_DIR
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -38,6 +39,7 @@ const checks = {};
 const chats = async (page) => (await page.request.get(`${base}/api/chats`)).json();
 const selected = async (page) => (await page.locator("#chat-list label.selected").allInnerTexts()).join("|");
 const shown = async (page) => page.locator("[role=log]").innerText();
+const empty = async (page) => (await page.locator("[role=log] .message").count()) === 0;
 async function open(page, title, waitFor) {
   await page.locator("#chat-list label", { hasText: title }).click();
   await page.locator("[role=log]").getByText(waitFor).first().waitFor({ timeout: 30_000 });
@@ -54,14 +56,13 @@ try {
   }
   const seeded = (await chats(page))[0];
   if (seeded) {
-    await page.locator("[role=log]").getByText("from your trace").first().waitFor({ timeout: 240_000 });
-    checks.opensOnTheSeed = (await selected(page)).startsWith(seeded.title);
+    await page.locator("#chat-list label", { hasText: seeded.title }).waitFor({ timeout: 240_000 });
+    checks.seedListed = true;
   }
+  await page.getByText("Signed in as").waitFor({ timeout: 240_000 });
+  checks.opensOnANewChat = (await selected(page)) === "" && await empty(page) && !page.url().includes("chat=");
   await page.screenshot({ path: `${out}/1-opened.png` });
 
-  await page.getByRole("button", { name: "＋ New chat" }).click();
-  await page.waitForFunction(() => !document.querySelector("[role=log] .message"));
-  checks.newChatIsEmpty = (await selected(page)) === "";
   await drop(page, [`${out}/region_review.ipynb`, `${out}/sales.csv`, `${out}/managers.csv`],
     "Imported region_review.ipynb");
   checks.dropStatus = await page.locator("#upload-status").innerText();
@@ -97,8 +98,11 @@ try {
   const last = seeded ? seeded.title : "▶ your code";
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.locator("[role=log]").getByText("from your trace").first().waitFor({ timeout: 60_000 });
-  checks.reloadOpensTheLastChat = (await selected(page)).startsWith(last);
+  checks.reloadStaysOnTheChat = (await selected(page)).startsWith(last) && page.url().includes("chat=");
   await page.screenshot({ path: `${out}/4-reloaded.png` });
+  await page.goto(`${base}/app/`);
+  await page.locator("#chat-list label", { hasText: last }).waitFor({ timeout: 60_000 });
+  checks.freshVisitOpensANewChat = (await selected(page)) === "" && await empty(page);
 
   const listed = await chats(page);
   checks.chats = listed.map((chat) => `${chat.title} (${chat.runs})`);
@@ -112,10 +116,10 @@ await browser.close();
 
 writeFileSync(`${out}/report.json`, JSON.stringify(checks, null, 1));
 console.log(JSON.stringify(checks, null, 1));
-const passed = !checks.error && checks.newChatIsEmpty && checks.dropAddedAll && checks.importedChatSelected && checks.answerRight
-  && checks.scratchRan && checks.scratchChatListed && checks.notebookChatBack && checks.notebookVariablesBack
-  && checks.scratchVariablesBack && checks.reloadOpensTheLastChat && checks.everyRunInAListedChat
-  && checks.chats.length === (checks.opensOnTheSeed === undefined ? 2 : 3)
-  && (checks.opensOnTheSeed === undefined || (checks.opensOnTheSeed && checks.seedVariablesBack));
+const passed = !checks.error && checks.opensOnANewChat && checks.dropAddedAll && checks.importedChatSelected
+  && checks.answerRight && checks.scratchRan && checks.scratchChatListed && checks.notebookChatBack
+  && checks.notebookVariablesBack && checks.scratchVariablesBack && checks.reloadStaysOnTheChat
+  && checks.freshVisitOpensANewChat && checks.everyRunInAListedChat
+  && checks.chats.length === (checks.seedListed ? 3 : 2) && (!checks.seedListed || checks.seedVariablesBack);
 console.log(passed ? "PASSED" : "FAILED");
 process.exit(passed ? 0 : 1);
