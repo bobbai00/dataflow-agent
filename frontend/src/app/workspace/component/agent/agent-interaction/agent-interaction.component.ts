@@ -102,10 +102,10 @@ export function explainRequest(operatorId: string, inputIds: readonly string[]):
       ? `its input${inputIds.length > 1 ? "s" : ""} ${inputIds.map(id => `\`${id}\``).join(", ")}`
       : "what it reads";
   return (
-    `Explain \`${operatorId}\`. First see whether it has a result: look at it, and if it has none yet, run it. ` +
+    `Explain \`${operatorId}\`. First see whether it has a result: look at it (show it; do not run anything). ` +
     `Then, in a few sentences, say what this operator does and how its result is computed from ${from}, ` +
     "and use the result in the explanation: how many rows it has, its key columns, and the values that matter. " +
-    "Do not change any operator."
+    "If it has no result yet, say so and explain it from its definition. Do not change any operator."
   );
 }
 
@@ -534,7 +534,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   /**
    * Ask the agent to explain the operator: what it does, how its result is
    * computed from its inputs, and what the result holds, which it looks at
-   * (or computes) first. The request and the reply are ordinary chat
+   * first. It runs nothing: a run would replace the results downstream. The request and the reply are ordinary chat
    * messages; the reply also shows here, under the actions.
    */
   public explain(): void {

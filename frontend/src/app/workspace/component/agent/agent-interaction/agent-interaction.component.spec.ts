@@ -515,10 +515,11 @@ describe("AgentInteractionComponent", () => {
       const request = explainRequest("kept", ["records"]);
       expect(agentService.sendMessage).toHaveBeenCalledWith("a1", request, "feedback");
       expect(request).toMatch(
-        /^Explain `kept`\. First see whether it has a result: look at it, and if it has none yet, run it\./
+        /^Explain `kept`\. First see whether it has a result: look at it \(show it; do not run anything\)\./
       );
       expect(request).toContain("computed from its input `records`");
       expect(request).toContain("use the result in the explanation");
+      expect(request).toContain("If it has no result yet, say so");
       expect(text(element.querySelector(".op-explanation-pending"))).toBe("Bob is explaining…");
       const step = (id: string, role: "user" | "agent", content: string, toolCalls?: unknown[]) =>
         ({
