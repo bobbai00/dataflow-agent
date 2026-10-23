@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit } from "@angular/core";
+import { AfterViewInit, ChangeDetectorRef, Component, ElementRef, OnDestroy, OnInit, ViewChild } from "@angular/core";
 import { combineLatest, fromEvent, merge, Subject } from "rxjs";
 import { NzModalCommentBoxComponent } from "./comment-box-modal/nz-modal-comment-box.component";
 import { NzModalRef, NzModalService } from "ng-zorro-antd/modal";
@@ -106,6 +106,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   /** Screen-space gap between an operator's bottom edge and its panel: room for the caret, and for the
    *  status pill below the operator. */
   private static readonly CHAT_POPOVER_GAP_PX = 32;
+  /** The gap when the panel sits above the operator: room for the caret and the id label over the box. */
+  private static readonly CHAT_POPOVER_GAP_ABOVE_PX = 34;
+  /** Space the panel keeps from the canvas's edges and from the agent's chat panel. */
+  private static readonly PANEL_MARGIN_PX = 12;
+  /** The tallest the panel grows before its content scrolls. */
+  private static readonly PANEL_MAX_HEIGHT_PX = 760;
 
   /** Agent action labels currently drawn on the canvas (see
    *  `applyAgentActionHighlight`); kept so the paint can be redone when the
@@ -120,11 +126,31 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   public chatPopoverOperator: {
     operatorId: string;
     displayName: string;
-    position: { x: number; y: number };
+    /** The operator's box on screen: its centre x, its bottom and its top. */
+    position: { x: number; y: number; top: number };
     native?: boolean;
     /** "feedback": opened from the operator's chat button. */
     mode?: "actions" | "feedback";
   } | null = null;
+
+  /** Where the operator's panel sits (`placeOperatorPanel`): under the operator, or over it when
+   *  there is more room there, kept inside the canvas and clear of the agent's chat panel. */
+  public panelPlacement = { left: 0, top: 0, caretX: 0, above: false, maxHeight: 600 };
+  private panelElement?: HTMLElement;
+  private panelObserver?: ResizeObserver;
+
+  /** The panel's container: re-placed whenever its size changes (its data arrives, a chart, an edit form). */
+  @ViewChild("operatorPanel")
+  set operatorPanel(ref: ElementRef<HTMLElement> | undefined) {
+    if (ref?.nativeElement === this.panelElement) return;
+    this.panelObserver?.disconnect();
+    this.panelElement = ref?.nativeElement;
+    if (!this.panelElement) return;
+    this.panelObserver = new ResizeObserver(() => this.placeOperatorPanel());
+    this.panelObserver.observe(this.panelElement);
+    const content = this.panelElement.querySelector(".chat-popover-content > *");
+    if (content) this.panelObserver.observe(content);
+  }
 
   // Cached agent result summaries for port label display
 
@@ -326,6 +352,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   ngOnDestroy(): void {
     document.removeEventListener("keydown", this._handleKeyboardAction.bind(this));
+    this.panelObserver?.disconnect();
   }
 
   private _handleKeyboardAction(event: any) {
@@ -1818,6 +1845,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         const position = this.getOperatorChatPopoverPosition(this.chatPopoverOperator.operatorId);
         if (position) {
           this.chatPopoverOperator = { ...this.chatPopoverOperator, position };
+          this.placeOperatorPanel();
         }
       }
 
@@ -1833,6 +1861,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           const position = this.getOperatorChatPopoverPosition(this.chatPopoverOperator.operatorId);
           if (position) {
             this.chatPopoverOperator = { ...this.chatPopoverOperator, position };
+            this.placeOperatorPanel();
           }
         }
 
@@ -1880,7 +1909,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           const panel = this.chatPopoverOperator;
           if (!panel || panel.operatorId !== operator.operatorID || !graph.hasOperator(panel.operatorId)) return;
           const position = this.getOperatorChatPopoverPosition(panel.operatorId);
-          if (position) this.chatPopoverOperator = { ...panel, position };
+          if (position) {
+            this.chatPopoverOperator = { ...panel, position };
+            this.placeOperatorPanel();
+          }
           if (panel.native && !this.wrapper.getCurrentHighlightedOperatorIDs().includes(panel.operatorId))
             this.wrapper.highlightOperators(panel.operatorId);
           this.changeDetectorRef.detectChanges();
@@ -1912,6 +1944,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.dynamicSchemaService.getDynamicSchema(operatorId)?.additionalMetadata.userFriendlyName ??
       operator.operatorType;
     this.chatPopoverOperator = { operatorId, displayName, position, native: isNativeOperator(operator), mode };
+    this.placeOperatorPanel();
     // Results are pulled on demand (not pushed over the socket); refresh the
     // active agent's summaries so the panel shows current data.
     const activeAgentId = this.agentService.getActivelyConnectedAgentIds()[0];
@@ -1919,9 +1952,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   /**
-   * Get the screen position for the chat popover relative to an operator.
+   * The operator's box on screen, relative to the canvas: its centre x, its
+   * bottom and its top.
    */
-  private getOperatorChatPopoverPosition(operatorId: string): { x: number; y: number } | null {
+  private getOperatorChatPopoverPosition(operatorId: string): { x: number; y: number; top: number } | null {
     const jointCell = this.paper.getModelById(operatorId);
     if (!jointCell) {
       return null;
@@ -1930,14 +1964,62 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const bbox = jointCell.getBBox();
     const scale = this.paper.scale();
     const translate = this.paper.translate();
+    return {
+      x: (bbox.x + bbox.width / 2) * scale.sx + translate.tx,
+      y: (bbox.y + bbox.height) * scale.sy + translate.ty,
+      top: bbox.y * scale.sy + translate.ty,
+    };
+  }
 
-    // Position popover directly below the operator body, centered horizontally.
-    // The display name lives inside the box, so only a small screen-space gap
-    // (for the popover's caret) separates the two.
-    const screenX = (bbox.x + bbox.width / 2) * scale.sx + translate.tx;
-    const screenY = (bbox.y + bbox.height) * scale.sy + translate.ty + WorkflowEditorComponent.CHAT_POPOVER_GAP_PX;
+  /**
+   * Place the operator's panel by its size: under the operator, or over it
+   * when it does not fit under it and there is more room over it; as tall as
+   * that room allows (it scrolls beyond); centred on the operator, but kept
+   * inside the canvas and, where there is room, clear of the agent's chat
+   * panel. The caret keeps pointing at the operator.
+   */
+  private placeOperatorPanel(): void {
+    const panel = this.chatPopoverOperator;
+    const editor = this.elementRef.nativeElement as HTMLElement;
+    if (!panel) return;
+    const margin = WorkflowEditorComponent.PANEL_MARGIN_PX;
+    const bounds = editor.getBoundingClientRect();
+    const element = this.panelElement;
+    const width = element?.offsetWidth || 480;
+    const content = element?.querySelector<HTMLElement>(".chat-popover-content > *");
+    const natural = content?.scrollHeight ?? 0;
+    const { x, y, top } = panel.position;
 
-    return { x: screenX, y: screenY };
+    // Horizontally: the canvas, less the agent's chat panel when it covers the operator's side.
+    let right = bounds.width - margin;
+    let left = margin;
+    const chat = document.getElementById("agent-container")?.getBoundingClientRect();
+    if (chat && chat.width > 0 && chat.height > 0) {
+      const chatLeft = chat.left - bounds.left;
+      const chatRight = chat.right - bounds.left;
+      if (chatLeft > x && chatLeft - margin - left >= width) right = Math.min(right, chatLeft - margin);
+      else if (chatRight < x && right - (chatRight + margin) >= width) left = Math.max(left, chatRight + margin);
+    }
+    const panelLeft = Math.max(left, Math.min(x - width / 2, right - width));
+
+    // Vertically: under the operator unless it fits better over it.
+    const below = y + WorkflowEditorComponent.CHAT_POPOVER_GAP_PX;
+    const roomBelow = bounds.height - below - margin;
+    const roomAbove = top - WorkflowEditorComponent.CHAT_POPOVER_GAP_ABOVE_PX - margin;
+    const above = natural > roomBelow && roomAbove > roomBelow;
+    const room = Math.max(160, above ? roomAbove : roomBelow);
+    const maxHeight = Math.min(WorkflowEditorComponent.PANEL_MAX_HEIGHT_PX, room);
+    const height = Math.min(natural || maxHeight, maxHeight);
+    const placement = {
+      left: Math.round(panelLeft),
+      top: Math.round(above ? top - WorkflowEditorComponent.CHAT_POPOVER_GAP_ABOVE_PX - height : below),
+      caretX: Math.round(Math.max(18, Math.min(x - panelLeft, width - 18))),
+      above,
+      maxHeight: Math.round(maxHeight),
+    };
+    if (JSON.stringify(placement) === JSON.stringify(this.panelPlacement)) return;
+    this.panelPlacement = placement;
+    this.changeDetectorRef.detectChanges();
   }
 
   /**

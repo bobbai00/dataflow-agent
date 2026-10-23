@@ -17,19 +17,16 @@
  * under the License.
  */
 
-// The operator's panel: what it is, its settings, then its data — kept to a
-// fixed width and short tables, so a wide or long result never blows it up.
+// The operator's panel: what it is, its settings, then its data. Its width
+// (bound by the component) grows with a wide table or a chart, up to a limit,
+// and its tables stay short, so a large result never blows it up.
 .operator-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: 420px;
-  padding: 10px 12px 12px;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  font-size: 14px;
   background: #fff;
-
-  &.with-chart {
-    width: 520px;
-  }
 }
 
 .op-header {
@@ -40,9 +37,9 @@
 
 .op-icon {
   flex: none;
-  width: 34px;
-  height: 34px;
-  padding: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 6px;
   object-fit: contain;
   border-radius: 8px;
   background: #f4f6fa;
@@ -62,7 +59,7 @@
 
 .op-id {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 600;
   color: #262626;
   text-overflow: ellipsis;
@@ -71,22 +68,23 @@
 
 .op-type {
   flex: none;
-  padding: 0 7px;
-  font-size: 11px;
-  line-height: 18px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  line-height: 20px;
   color: #0958d9;
   background: #e6f4ff;
   border: 1px solid #91caff;
   border-radius: 10px;
 }
 
-.op-summary {
+.op-doc {
   display: -webkit-box;
-  margin-top: 2px;
+  margin-top: 3px;
   overflow: hidden;
-  font-size: 12px;
-  color: #8c8c8c;
-  -webkit-line-clamp: 2;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #595959;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
 
@@ -106,9 +104,9 @@
   flex: 1;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 30px;
-  font-size: 13px;
+  gap: 7px;
+  height: 36px;
+  font-size: 14.5px;
   color: #262626;
   cursor: pointer;
   background: #fff;
@@ -120,7 +118,7 @@
     background 0.15s;
 
   i {
-    font-size: 12px;
+    font-size: 14px;
   }
 
   &:hover:not(:disabled) {
@@ -146,38 +144,38 @@
 }
 
 .op-status {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #8c8c8c;
 }
 
-// The agent's summary of the operator, under the actions.
-.op-summary-card {
-  padding: 8px 10px;
-  font-size: 12.5px;
+// The agent's explanation of the operator, under the actions.
+.op-explanation {
+  padding: 10px 12px;
+  font-size: 14px;
   color: #262626;
   background: #f6f8fb;
   border: 1px solid #e4e8ee;
   border-radius: 8px;
 }
 
-.op-summary-head {
+.op-explanation-head {
   display: flex;
   gap: 6px;
   align-items: center;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
   color: #595959;
 
   i {
-    color: #1677ff;
+    color: #d48806;
   }
 }
 
-.op-summary-title {
+.op-explanation-title {
   font-weight: 600;
 }
 
-.op-summary-by {
+.op-explanation-by {
   flex: 1;
   overflow: hidden;
   color: #8c8c8c;
@@ -185,35 +183,41 @@
   white-space: nowrap;
 }
 
-.op-summary-close {
+.op-explanation-close {
   margin: -4px -6px -4px 0;
   color: #8c8c8c;
 }
 
-.op-summary-pending {
+.op-explanation-pending {
   display: flex;
   gap: 6px;
   align-items: center;
   color: #8c8c8c;
 }
 
-.op-summary-text {
+.op-explanation-text {
   display: block;
-  max-height: 180px;
+  max-height: 280px;
   overflow: auto;
-  line-height: 1.5;
+  line-height: 1.55;
 
   ::ng-deep p {
-    margin: 0 0 6px;
+    margin: 0 0 8px;
   }
 
   ::ng-deep p:last-child {
     margin-bottom: 0;
   }
 
+  ::ng-deep ul,
+  ::ng-deep ol {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
+
   ::ng-deep code {
     padding: 0 3px;
-    font-size: 11.5px;
+    font-size: 13px;
     background: #eef1f5;
     border-radius: 3px;
   }
@@ -231,9 +235,9 @@
 }
 
 .op-error {
-  max-height: 120px;
-  padding: 6px 8px;
-  font-size: 12px;
+  max-height: 140px;
+  padding: 8px 10px;
+  font-size: 13.5px;
 }
 
 // Properties and Data: titled sections under a hairline.
@@ -246,8 +250,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
-  font-size: 11px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #8c8c8c;
   text-transform: uppercase;
@@ -266,7 +270,7 @@
   }
 
   i {
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .section-meta {
@@ -280,9 +284,9 @@
 .property-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 4px 12px;
+  gap: 6px 14px;
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
 
   dt {
     color: #8c8c8c;
@@ -293,25 +297,26 @@
     margin: 0;
     overflow: hidden;
     font-family: "SFMono-Regular", Consolas, Menlo, monospace;
-    font-size: 11.5px;
+    font-size: 13px;
+    line-height: 1.45;
     color: #262626;
     word-break: break-word;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
   }
 }
 
 // One table the operator reads or produces.
 .data-block + .data-block {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .data-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-size: 12px;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
 
   .data-role {
     font-weight: 600;
@@ -333,9 +338,9 @@
 }
 
 .data-badge.cached {
-  padding: 0 6px;
-  font-size: 10px;
-  line-height: 16px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  line-height: 18px;
   color: #0958d9;
   background: #e6f4ff;
   border: 1px solid #91caff;
@@ -344,7 +349,7 @@
 
 // A few records at most; wide tables scroll sideways inside the box.
 .data-table-wrapper {
-  max-height: 150px;
+  max-height: 232px;
   overflow: auto;
   border: 1px solid #f0f0f0;
   border-radius: 6px;
@@ -354,12 +359,12 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 13px;
 
   th,
   td {
-    max-width: 140px;
-    padding: 3px 8px;
+    max-width: 180px;
+    padding: 5px 10px;
     overflow: hidden;
     text-align: left;
     text-overflow: ellipsis;
@@ -379,7 +384,7 @@
 
   .column-type {
     display: block;
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 400;
     color: #8c8c8c;
   }
@@ -399,8 +404,8 @@
 }
 
 .data-note {
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 6px;
+  font-size: 12.5px;
   color: #8c8c8c;
 
   &.running {
@@ -409,15 +414,15 @@
 }
 
 .data-error {
-  max-height: 72px;
-  padding: 4px 8px;
-  font-size: 11px;
+  max-height: 96px;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
-// Kept short on purpose: a tall chart would push the rest of the panel out of view.
+// The panel widens for a chart; this height keeps the rest of the panel in view.
 .data-chart {
   width: 100%;
-  height: 240px;
+  height: 380px;
   background: #fff;
   border: 1px solid #f0f0f0;
   border-radius: 6px;
@@ -464,7 +469,7 @@
 
 .feedback-input {
   width: 100%;
-  font-size: 13px;
+  font-size: 14px;
   resize: none;
 }
 
@@ -477,7 +482,7 @@
 
 .hint-text {
   margin-right: auto;
-  font-size: 11px;
+  font-size: 12.5px;
   color: #999;
 }
 
@@ -497,7 +502,7 @@
   justify-content: center;
   gap: 8px;
   padding: 14px;
-  font-size: 13px;
+  font-size: 14px;
   color: #999;
   background: #f5f5f5;
   border-radius: 6px;

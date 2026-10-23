@@ -19,7 +19,8 @@
 
 <div
   class="operator-panel"
-  [class.with-chart]="chart">
+  [class.with-chart]="chart"
+  [style.width.px]="panelWidth">
   <div class="op-header">
     <img
       *ngIf="icon"
@@ -33,7 +34,7 @@
       </div>
       <div
         *ngIf="doc"
-        class="op-summary"
+        class="op-doc"
         [title]="doc">
         {{ doc }}
       </div>
@@ -89,15 +90,15 @@
     </button>
     <button
       type="button"
-      class="op-action summary-action"
+      class="op-action explain-action"
       [disabled]="!canAct"
       nz-tooltip
-      [nzTooltipTitle]="'Ask ' + agentName + ' what this operator does and how its result is computed from its inputs'"
-      (click)="summarize()">
+      [nzTooltipTitle]="'Ask ' + agentName + ' to explain this operator, using its result'"
+      (click)="explain()">
       <i
         nz-icon
-        nzType="file-text"></i>
-      <span>Summary</span>
+        nzType="bulb"></i>
+      <span>Explain</span>
     </button>
   </div>
 
@@ -112,45 +113,45 @@
     {{ actionError }}
   </div>
 
-  <!-- The agent's summary of the operator; the same reply is in the chat. -->
+  <!-- The agent's explanation of the operator, with its result; the same reply is in the chat. -->
   <div
-    *ngIf="summary"
-    class="op-summary-card">
-    <div class="op-summary-head">
+    *ngIf="explanation"
+    class="op-explanation">
+    <div class="op-explanation-head">
       <i
         nz-icon
-        nzType="file-text"></i>
-      <span class="op-summary-title">Summary</span>
-      <span class="op-summary-by">{{ summary.agentName }}</span>
+        nzType="bulb"></i>
+      <span class="op-explanation-title">Explanation</span>
+      <span class="op-explanation-by">{{ explanation.agentName }}</span>
       <button
         nz-button
         nzType="text"
         nzSize="small"
-        class="op-summary-close"
+        class="op-explanation-close"
         nz-tooltip
         nzTooltipTitle="Hide"
-        (click)="dismissSummary()">
+        (click)="dismissExplanation()">
         <i
           nz-icon
           nzType="close"></i>
       </button>
     </div>
     <div
-      *ngIf="summary.pending"
-      class="op-summary-pending">
+      *ngIf="explanation.pending"
+      class="op-explanation-pending">
       <i
         nz-icon
         nzType="loading"></i>
-      <span>{{ summary.agentName }} is summarizing…</span>
+      <span>{{ explanation.agentName }} is explaining…</span>
     </div>
     <markdown
-      *ngIf="!summary.pending && summary.text"
-      class="op-summary-text"
-      [data]="summary.text"></markdown>
+      *ngIf="!explanation.pending && explanation.text"
+      class="op-explanation-text"
+      [data]="explanation.text"></markdown>
     <div
-      *ngIf="!summary.pending && !summary.text"
-      class="op-summary-pending">
-      No summary came back; the chat has {{ summary.agentName }}'s reply.
+      *ngIf="!explanation.pending && !explanation.text"
+      class="op-explanation-pending">
+      No explanation came back; the chat has {{ explanation.agentName }}'s reply.
     </div>
   </div>
 

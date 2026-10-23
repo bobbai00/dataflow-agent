@@ -22,13 +22,13 @@ import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { NoopAnimationsModule } from "@angular/platform-browser/animations";
 import { BehaviorSubject, EMPTY, Subject, of, throwError } from "rxjs";
 import { HttpErrorResponse } from "@angular/common/http";
-import { AgentInteractionComponent } from "./agent-interaction.component";
+import { AgentInteractionComponent, explainRequest } from "./agent-interaction.component";
 import { AgentInfo, AgentService, OperatorResultSummary } from "../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
 import { WorkflowResultService } from "../../../service/workflow-result/workflow-result.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
 import { commonTestProviders } from "../../../../common/testing/test-utils";
-import { AgentState } from "../../../service/agent/agent-types";
+import { AgentState, ReActStep } from "../../../service/agent/agent-types";
 import { NativeOperatorEditorComponent } from "../native-operator-editor/native-operator-editor.component";
 import { NativeStatementForm } from "../../../service/agent/native-operator";
 
@@ -108,6 +108,7 @@ describe("AgentInteractionComponent", () => {
     editNativeOperator: ReturnType<typeof vi.fn>;
     getNativeStatementForm: ReturnType<typeof vi.fn>;
     getNativeCatalog: ReturnType<typeof vi.fn>;
+    getReActStepsObservable: ReturnType<typeof vi.fn>;
   };
   let workflowActionService: {
     getTexeraGraph: ReturnType<typeof vi.fn>;
@@ -137,6 +138,7 @@ describe("AgentInteractionComponent", () => {
       editNativeOperator: vi.fn(),
       getNativeStatementForm: vi.fn().mockReturnValue(EMPTY),
       getNativeCatalog: vi.fn().mockReturnValue(of([])),
+      getReActStepsObservable: vi.fn().mockReturnValue(EMPTY),
     };
     workflowActionService = {
       getTexeraGraph: vi.fn().mockReturnValue(graphWith()),
@@ -352,17 +354,17 @@ describe("AgentInteractionComponent", () => {
       Array.from(element.querySelectorAll<HTMLButtonElement>(".op-action")).find(b => b.textContent?.trim() === name)!;
     const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 
-    it("names the operator, its doc, and offers Run, Edit, Feedback and Summary", () => {
+    it("names the operator, its doc, and offers Run, Edit, Feedback and Explain", () => {
       const element = createNative();
       expect(text(element.querySelector(".op-id"))).toBe("kept");
       expect(text(element.querySelector(".op-type"))).toBe("Filter");
-      expect(text(element.querySelector(".op-summary"))).toBe("Keep the records over 15.");
+      expect(text(element.querySelector(".op-doc"))).toBe("Keep the records over 15.");
       expect(element.querySelector(".op-icon")?.getAttribute("src")).toBe("assets/operator_images/Filter.png");
       expect(Array.from(element.querySelectorAll(".op-action")).map(text)).toEqual([
         "Run",
         "Edit",
         "Feedback",
-        "Summary",
+        "Explain",
       ]);
       // One agent needs no picker, and the feedback box waits for Feedback.
       expect(element.querySelector(".header-row")).toBeNull();
@@ -502,6 +504,45 @@ describe("AgentInteractionComponent", () => {
       expect(agentService.sendMessage).toHaveBeenCalledWith("a1", "Feedback on `kept`: Use 20 instead.", "feedback");
       fixture.detectChanges();
       expect(text(element.querySelector(".op-status"))).toBe("Sent to Bob; the reply is in the chat.");
+    });
+
+    it("asks its agent to explain it, with its result, and shows the reply under the actions", () => {
+      const steps = new BehaviorSubject<ReActStep[]>([]);
+      agentService.getReActStepsObservable.mockReturnValue(steps);
+      const element = createNative();
+      button(element, "Explain").click();
+      fixture.detectChanges();
+      const request = explainRequest("kept", ["records"]);
+      expect(agentService.sendMessage).toHaveBeenCalledWith("a1", request, "feedback");
+      expect(request).toMatch(
+        /^Explain `kept`\. First see whether it has a result: look at it, and if it has none yet, run it\./
+      );
+      expect(request).toContain("computed from its input `records`");
+      expect(request).toContain("use the result in the explanation");
+      expect(text(element.querySelector(".op-explanation-pending"))).toBe("Bob is explaining…");
+      const step = (id: string, role: "user" | "agent", content: string, toolCalls?: unknown[]) =>
+        ({
+          id,
+          role,
+          content,
+          toolCalls,
+          isBegin: true,
+          isEnd: true,
+          messageId: "m",
+          stepId: 0,
+        }) as unknown as ReActStep;
+      steps.next([
+        step("u1", "user", request),
+        step("a1", "agent", "", [{ toolName: "dataflow" }]),
+        step("a2", "agent", "kept keeps 2 of its 3 records: 20 and 30."),
+      ]);
+      fixture.detectChanges();
+      expect(element.querySelector(".op-explanation-pending")).toBeNull();
+      expect(component.explanation).toMatchObject({
+        pending: false,
+        text: "kept keeps 2 of its 3 records: 20 and 30.",
+      });
+      expect(element.querySelector(".op-explanation")).not.toBeNull();
     });
 
     it("closes from its close button", () => {

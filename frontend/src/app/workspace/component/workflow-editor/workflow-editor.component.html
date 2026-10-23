@@ -27,14 +27,20 @@
     <texera-context-menu></texera-context-menu>
   </nz-dropdown-menu>
 
-  <!-- The operator's panel: what it is, its data, and the agent's Run / Edit / Feedback -->
+  <!-- The operator's panel: what it is, its data, and the agent's Run / Edit / Feedback / Explain.
+       Placed by its size (placeOperatorPanel): under the operator or over it. -->
   <div
+    #operatorPanel
     class="chat-popover-container"
     *ngIf="chatPopoverOperator"
-    [style.left.px]="chatPopoverOperator.position.x"
-    [style.top.px]="chatPopoverOperator.position.y">
+    [class.above]="panelPlacement.above"
+    [style.left.px]="panelPlacement.left"
+    [style.top.px]="panelPlacement.top"
+    [style.--caret-x.px]="panelPlacement.caretX">
     <div class="chat-popover">
-      <div class="chat-popover-content">
+      <div
+        class="chat-popover-content"
+        [style.max-height.px]="panelPlacement.maxHeight">
         <texera-agent-interaction
           [operatorId]="chatPopoverOperator.operatorId"
           [operatorDisplayName]="chatPopoverOperator.displayName"

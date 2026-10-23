@@ -110,10 +110,10 @@ try {
   await page.mouse.dblclick(at.x, at.y);
   const panel = page.locator("texera-agent-interaction");
   await panel.waitFor({ timeout: 15_000 });
-  const summaryButton = panel.locator(".summary-action");
+  const summaryButton = panel.locator(".explain-action");
   await summaryButton.waitFor({ timeout: 15_000 });
   const disabled = await summaryButton.isDisabled();
-  console.log(`panel open; Summary ${disabled ? "disabled (no connected agent)" : "enabled"}`);
+  console.log(`panel open; Explain ${disabled ? "disabled (no connected agent)" : "enabled"}`);
   const chartFrames = await panel.locator("iframe.data-chart").count();
   console.log(`chart frames in the panel: ${chartFrames}`);
   if (chartFrames > 0) {
@@ -123,15 +123,15 @@ try {
   }
   if (!disabled && !process.env.SKIP_SUMMARY) {
     await summaryButton.click();
-    await panel.locator(".op-summary-card").waitFor({ timeout: 10_000 });
-    const text = panel.locator(".op-summary-text");
+    await panel.locator(".op-explanation").waitFor({ timeout: 10_000 });
+    const text = panel.locator(".op-explanation-text");
     await text.waitFor({ timeout: 180_000 });
     const summary = (await text.innerText()).replace(/\s+/g, " ").trim();
     console.log(`summary in panel (${summary.length} chars): ${summary.slice(0, 400)}`);
     await page.waitForTimeout(1000);
     const chat = await page.locator("texera-agent-chat").innerText();
     console.log(
-      `chat has the request: ${chat.includes(`Summarize ${operatorId}`) || chat.includes("Summarize `" + operatorId)}; chat has the reply: ${chat.includes(summary.slice(0, 40))}`
+      `chat has the request: ${chat.includes(`Explain ${operatorId}`) || chat.includes("Explain `" + operatorId)}; chat has the reply: ${chat.includes(summary.slice(0, 40))}`
     );
   }
   await shot("panel");

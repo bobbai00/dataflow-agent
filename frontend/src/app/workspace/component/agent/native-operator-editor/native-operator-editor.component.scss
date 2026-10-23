@@ -23,7 +23,7 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14.5px;
 }
 
 .editor-loading {
@@ -50,14 +50,14 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 500;
   color: #595959;
 }
 
 .field-key {
   font-family: $mono;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: normal;
   color: #8c8c8c;
   background: #f5f5f5;
@@ -75,11 +75,11 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
 
 .code {
   font-family: $mono;
-  font-size: 12px;
+  font-size: 13.5px;
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: 12.5px;
   color: #8c8c8c;
 }
 
@@ -109,7 +109,7 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   align-self: flex-start;
   height: auto;
   padding: 0;
-  font-size: 12px;
+  font-size: 13.5px;
 }
 
 .statement-preview {
@@ -119,14 +119,14 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   padding: 6px 8px;
 
   .preview-label {
-    font-size: 11px;
+    font-size: 12.5px;
     color: #8c8c8c;
   }
 
   .preview-code {
     margin: 2px 0 0;
     font-family: $mono;
-    font-size: 11.5px;
+    font-size: 13px;
     color: #262626;
     white-space: pre-wrap;
     word-break: break-word;
@@ -134,7 +134,7 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
 .about {
-  font-size: 12px;
+  font-size: 13.5px;
   color: #595959;
 
   summary {
@@ -145,14 +145,14 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   .about-signature {
     margin: 4px 0 0;
     font-family: $mono;
-    font-size: 11px;
+    font-size: 12.5px;
     white-space: pre-wrap;
     word-break: break-word;
   }
 
   .about-doc {
     margin: 4px 0 0;
-    max-height: 140px;
+    max-height: 180px;
     overflow-y: auto;
   }
 }
@@ -162,7 +162,7 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
   align-items: flex-start;
   gap: 6px;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: 13.5px;
   color: #cf1322;
   background: #fff1f0;
   border: 1px solid #ffccc7;
@@ -186,13 +186,13 @@ $mono: "JetBrains Mono", Menlo, Consolas, monospace;
 
   .code-toggle {
     padding: 0;
-    font-size: 12px;
+    font-size: 13.5px;
   }
 }
 
 .editor-note {
   margin-top: -4px;
-  font-size: 11px;
+  font-size: 12.5px;
   color: #8c8c8c;
   text-align: right;
 }
