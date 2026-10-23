@@ -199,10 +199,12 @@
               [class.off-path]="!edge.isOnActivePath"
               class="tree-edge" />
           </svg>
-          <!-- Snapshot tree node: shows the snapshot id. All nodes share one
-               colour; the active snapshot (currently rendered on the canvas)
-               gets a distinct fill + dashed outline. Clicking navigates to the
-               ReAct steps that produced the snapshot. -->
+          <!-- History tree node: a version ("v3 add kept") or a message the
+               user sent, after an icon for who made it (the user or the
+               agent). The active node (what the canvas and the chat show)
+               gets a solid fill. Clicking goes back to it. The tooltip sits
+               to the right and lets the pointer through, so it never covers
+               the nodes above. -->
           <div
             *ngFor="let node of snapshotNodes"
             class="snapshot-node"
@@ -211,6 +213,7 @@
             [class.off-path]="!node.isOnActivePath"
             [class.is-root]="node.isRoot"
             [class.by-user]="node.byUser"
+            [class.is-message]="!!node.messageStepId"
             [class.is-request]="node.request"
             [class.is-failed]="node.failed"
             [style.left.px]="node.x - node.width / 2"
@@ -219,7 +222,14 @@
             [style.height.px]="node.height"
             (click)="onSnapshotNodeClick(node)"
             nz-tooltip
+            nzTooltipPlacement="right"
+            [nzTooltipOverlayStyle]="{ 'pointer-events': 'none' }"
             [nzTooltipTitle]="node.timeLabel ? node.title + ' · ' + node.timeLabel : node.title">
+            <i
+              nz-icon
+              class="snapshot-node-icon"
+              [nzType]="node.icon"
+              nzTheme="outline"></i>
             <span class="snapshot-node-label">{{ node.label }}</span>
           </div>
         </div>
