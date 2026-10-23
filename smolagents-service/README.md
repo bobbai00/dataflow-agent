@@ -35,7 +35,8 @@ and the exact context each model call was sent. `LITELLM_MASTER_KEY` comes from
 the shell or the repo-root `.env`, as for `bin/local-dev.sh`.
 
 **Chats.** The sidebar lists your chats, the most recently used first, and the
-page opens on the latest. **＋ New chat** starts an empty one, with a new agent
+page opens on a new, empty chat; a reload stays on the chat you are in (it is in
+the page address, `?chat=`). **＋ New chat** starts an empty one, with a new agent
 and a new Python session; it joins the list with its first message, script or
 notebook, named after it. Pick a chat in the list to go back to it: the chat
 shows its history from the trace, and its agent and Python session continue it
@@ -121,8 +122,8 @@ A browser tab is on one chat at a time, and its session has one Python worker
 process: every step of every message runs in it, the user's own code included.
 Variables carry over from step to step and from message to message. Moving the
 tab to another chat ends the session; the other chat gets a session of its own,
-restored from the trace. Another tab, or a page reload, opens the latest chat in
-a new session, restored the same way. The agent loop and the model calls run in
+restored from the trace. A page reload reopens the tab's chat in a new session,
+restored the same way; another tab starts on a new chat. The agent loop and the model calls run in
 the server process; only code runs in the worker. A step that times out or
 crashes the worker restarts it, without the earlier variables.
 
@@ -170,15 +171,16 @@ in the background, so the variables are back too. Code that failed runs again as
 well, since what it assigned before the error stayed; code that lost the worker
 (a timeout or a crash) does not, and nothing before it is replayed, since the
 worker lost those variables the first time too. Nothing of that is traced as a
-run; an `events` row of kind `restore` says how much came back. A reload, a new
-tab, a new login or a switch back to the chat therefore continues it. Runs from
+run; an `events` row of kind `restore` says how much came back. A reload, or a
+switch back to the chat from any tab or login, therefore continues it. Runs from
 before chats existed became one chat per user, as every session then continued
 from all of a user's runs.
 
 With `--seed PATH`, every account is given a seed once (`seeding.py`): the
 definition's `smolagents` section names a notebook and its data files, which are
 copied into the new account's files and imported into a new chat right after
-registration, traced as a `notebook` run under that user; the page opens on it.
+registration, traced as a `notebook` run under that user; it is in their chat list,
+one click away (the page itself opens on a new chat).
 Accounts made before the flag get it when they next open the page. The `seeds` table holds one row
 per user (`status`, the import's `run_id`, timing, error); `GET /api/seed` reports
 it and `POST /api/seed` asks for it again after a failure. The same definition
@@ -193,8 +195,8 @@ one file describes a study scenario for both systems:
 ```
 
 `study/seeded_login.mjs BASE USER PASSWORD OUT` shows what a seeded participant
-sees: the imported notebook on login, an answer to a question, and all of it
-again after a reload.
+sees: the imported notebook's chat listed on login, that chat opened, an answer to
+a question, and all of it again after a reload.
 
 ## Isolation
 
@@ -248,11 +250,12 @@ with it, and asks the agent to reuse the notebook's `top()` function, which read
 globals a later cell set, for another ranking. It checks the answer, that no
 agent code hit a `NameError`, and that every run had one worker pid.
 
-`chats_flow.mjs` registers (opening on the seeded chat when the server seeds),
-starts a new chat, drops a notebook and its two data files in one drag, asks the
-agent about the notebook's tables, starts a scratch chat, then goes back to each
-chat. Each must show its own history and hold its own variables and no others,
-and a reload must open the chat used last.
+`chats_flow.mjs` registers, which must open a new, empty chat (with the seeded
+chat listed when the server seeds), drops a notebook and its two data files in
+one drag, asks the agent about the notebook's tables, starts a scratch chat, then
+goes back to each chat. Each must show its own history and hold its own variables
+and no others; a reload must stay on the chat in use, and opening the app afresh
+must start a new chat.
 
 Each simulated person in `concurrent_users.mjs`:
 1. registers and uploads the CSV

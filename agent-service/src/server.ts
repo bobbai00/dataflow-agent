@@ -53,7 +53,7 @@ import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
-import { openTraceStore, type TraceStore } from "./trace/trace-store";
+import { openTraceStore, storedTreeComplete, type TraceStore } from "./trace/trace-store";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
@@ -679,11 +679,22 @@ async function restoreAgent(id: string, userToken: string, requester: UserInfo):
   try {
     if (stored.settings)
       applyInitialSettings(id, agent, stored.settings as NonNullable<CreateAgentRequest["settings"]>);
-    const { headId, importedCount } = await agent.importReActSteps(
-      traceStore!.stepsOf(id),
-      traceStore!.snapshotWorkflows(id)
-    );
-    agent.restoreOperatorResults(traceStore!.operatorResultsOf(id));
+    // The trace's version tree comes back as it was: every version, each with its own results,
+    // and HEAD where the user left it. A tree the trace lost rows of (recorded before it kept each
+    // agent's rows apart) is replayed from the steps instead, under ids it has not used.
+    const steps = traceStore!.stepsOf(id);
+    const snapshots = traceStore!.snapshotsOf(id);
+    const results = traceStore!.snapshotResultsOf(id);
+    const complete = storedTreeComplete(steps, snapshots);
+    agent.getSnapshotStorage().skipIdsThrough(snapshots.map(snapshot => snapshot.id));
+    const { headId, importedCount } = await agent.importReActSteps(steps, undefined, {
+      ...(complete ? { tree: { snapshots, results } } : {}),
+      head: traceStore!.lastCheckout(id),
+    });
+    if (!complete)
+      agent.restoreOperatorResults(
+        results.flatMap(({ stepId, operatorId, info }) => (stepId ? [{ stepId, operatorId, info }] : []))
+      );
     agent.attachTrace(traceStore);
     traceStore!.event({ agentId: id, kind: "restore", detail: { importedCount, headId } });
   } catch (error) {
@@ -1486,10 +1497,15 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     }
   )
 
-  .post("/:id/checkout", ({ params: { id }, body }) => {
+  .post("/:id/checkout", ({ params: { id }, body, set }) => {
     const agent = getAgent(id);
     const { stepId } = body as { stepId: string };
     if (!stepId) throw new Error("stepId is required");
+    // Moving HEAD under a running turn would graft its next steps elsewhere.
+    if (agent.getState() !== AgentState.AVAILABLE) {
+      set.status = 409;
+      return { error: "The agent is working; try again when it finishes." };
+    }
 
     const success = agent.checkout(stepId);
     traceStore?.event({ agentId: id, kind: "checkout", detail: { stepId, success } });

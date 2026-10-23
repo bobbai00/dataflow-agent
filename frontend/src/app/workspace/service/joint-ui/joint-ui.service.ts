@@ -208,8 +208,9 @@ export class JointUIService {
   };
   public static readonly AGENT_ACTION_FONT_SIZE = 14;
 
-  public static readonly DEFAULT_OPERATOR_WIDTH = 210;
-  public static readonly DEFAULT_OPERATOR_HEIGHT = 80;
+  // Room for a native operator's doc in full (about 100 characters, four lines).
+  public static readonly DEFAULT_OPERATOR_WIDTH = 240;
+  public static readonly DEFAULT_OPERATOR_HEIGHT = 96;
   /** How far below the box the centre of its status pill sits; the pill is 18px tall. */
   public static readonly STATUS_PILL_OFFSET = 13;
   // Width of the left icon section; the divider is drawn at this x offset.
@@ -223,12 +224,15 @@ export class JointUIService {
   // The wrapping box for the right-section description text.
   private static readonly DESC_TEXT_WIDTH =
     JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.ICON_SECTION_WIDTH - JointUIService.TEXT_SECTION_PADDING * 2;
-  private static readonly DESC_TEXT_HEIGHT = JointUIService.DEFAULT_OPERATOR_HEIGHT - 16;
+  private static readonly DESC_TEXT_HEIGHT = JointUIService.DEFAULT_OPERATOR_HEIGHT - 14;
   // Font sizes for the in-box labels. Kept here (not inline) so the rendered
   // size and the size `breakText` measures with stay in sync — a mismatch
   // makes wrapping/ellipsis disagree with what's actually drawn.
-  private static readonly DESC_FONT_SIZE = 14; // custom display name / description
-  private static readonly ID_FONT_SIZE = 16; // operator id label above the box
+  private static readonly DESC_FONT_SIZE = 13.5; // custom display name / description
+  private static readonly ID_FONT_SIZE = 15; // operator id label above the box
+  // A scan's file name, in bold, and its doc under it.
+  private static readonly FILE_FONT_SIZE = 13.5;
+  private static readonly SCAN_DOC_FONT_SIZE = 12;
   /** Corner radius of the box; the icon section's left corners follow it. */
   private static readonly BOX_RADIUS = 9;
 
@@ -258,6 +262,40 @@ export class JointUIService {
     ctx.font = JointUIService.OPERATOR_NAME_FONT;
     JointUIService.measureCtx = ctx;
     return ctx;
+  }
+
+  /** The width of `text` drawn in `font` (a CSS font), approximated where no canvas measures it. */
+  private static measureText(text: string, font: string): number {
+    const ctx = JointUIService.getMeasureContext();
+    if (!ctx) return text.length * 7.5;
+    const previous = ctx.font;
+    ctx.font = font;
+    const width = ctx.measureText(text).width;
+    ctx.font = previous;
+    return width;
+  }
+
+  /**
+   * A file name on at most two lines, the second ellipsized: broken after an
+   * underscore, dot or dash where one fits, else where the line is full.
+   */
+  public static wrapFileName(name: string, width: number, fontSize: number): string {
+    const measure = (text: string) => JointUIService.measureText(text, `600 ${fontSize}px sans-serif`);
+    if (!name || measure(name) <= width) return name;
+    let fits = 1;
+    while (fits < name.length && measure(name.slice(0, fits + 1)) <= width) fits++;
+    let cut = fits;
+    for (let i = fits; i > fits / 2; i--)
+      if (/[_.\-]/.test(name[i - 1])) {
+        cut = i;
+        break;
+      }
+    const tail = name.slice(cut);
+    if (measure(tail) <= width) return `${name.slice(0, cut)}\n${tail}`;
+    const ellipsis = "…";
+    let kept = tail.length;
+    while (kept > 0 && measure(tail.slice(0, kept) + ellipsis) > width) kept--;
+    return `${name.slice(0, cut)}\n${tail.slice(0, kept)}${ellipsis}`;
   }
 
   public static measureOperatorNameWidth(text: string): number {
@@ -740,29 +778,33 @@ export class JointUIService {
    * fixed right-hand section of the operator box. JointJS renders the label as
    * plain SVG text with no intrinsic wrapping, so without this a long summary
    * like "Inner join customers+orders on customer_id; filter ..." would extend
-   * indefinitely and overlap neighboring operators.
-   *
-   * `joint.util.breakText` inserts hard newlines at the given pixel width and,
-   * when a `height` and `ellipsis: true` are supplied, truncates the text to
-   * the number of lines that fit and appends an ellipsis. Descriptions are
-   * typically 20–30 words; anything longer is ellipsized rather than resizing
+   * indefinitely and overlap neighboring operators. The box has room for about
+   * a hundred characters; anything longer is ellipsized rather than resizing
    * the box.
    */
   private static wrapOperatorDisplayName(text: string): string {
+    return JointUIService.wrapText(text, JointUIService.DESC_FONT_SIZE, JointUIService.DESC_TEXT_HEIGHT, 1.2);
+  }
+
+  /**
+   * `text` broken into lines as wide as the box's text section, as many as fit
+   * in `height` at `fontSize` and `lineHeight` (in em, as drawn), the last
+   * ellipsized when it does not all fit. `joint.util.breakText` measures in
+   * the DOM; without one (unit tests) characters are counted instead.
+   */
+  private static wrapText(text: string, fontSize: number, height: number, lineHeight = 1.3): string {
     if (!text) return text;
+    const width = JointUIService.DESC_TEXT_WIDTH;
     try {
       return joint.util.breakText(
         text,
-        { width: JointUIService.DESC_TEXT_WIDTH, height: JointUIService.DESC_TEXT_HEIGHT },
-        { "font-size": `${JointUIService.DESC_FONT_SIZE}px` },
+        { width, height },
+        { "font-size": `${fontSize}px`, lineHeight: `${lineHeight}em` },
         { ellipsis: true }
       );
     } catch {
-      // breakText needs DOM measurement; fall back to char-based wrapping if
-      // we're somewhere it can't run (e.g. unit tests without document).
-      // ~7px per character at DESC_FONT_SIZE, DESC_TEXT_HEIGHT / line height.
-      const approxCharsPerLine = Math.max(8, Math.floor(JointUIService.DESC_TEXT_WIDTH / 7));
-      const maxLines = Math.max(1, Math.floor(JointUIService.DESC_TEXT_HEIGHT / (JointUIService.DESC_FONT_SIZE * 1.2)));
+      const approxCharsPerLine = Math.max(8, Math.floor(width / (fontSize / 2)));
+      const maxLines = Math.max(1, Math.floor(height / (fontSize * lineHeight)));
       // Hard-break words longer than a line so a single long token can't escape the box.
       const words = text
         .split(/\s+/)
@@ -995,6 +1037,30 @@ export class JointUIService {
     const nameText = (scan && nativeScanFileLabel(scan)) || operatorDisplayName;
     const subtitle = scan ? scan.doc?.trim() ?? "" : "";
     const fileKind = scan ? nativeScanFileKind(scan).slice(0, 4) : "";
+    const H = JointUIService.DEFAULT_OPERATOR_HEIGHT;
+    // A scan's text block: its file name (two lines at most) over its doc (two lines at most), centred.
+    const fileName = scan
+      ? JointUIService.wrapFileName(nameText, JointUIService.DESC_TEXT_WIDTH, JointUIService.FILE_FONT_SIZE)
+      : "";
+    const scanDoc = subtitle
+      ? JointUIService.wrapText(subtitle, JointUIService.SCAN_DOC_FONT_SIZE, JointUIService.SCAN_DOC_FONT_SIZE * 2.6)
+      : "";
+    const fileLines = fileName ? fileName.split("\n").length : 0;
+    const docLines = scanDoc ? scanDoc.split("\n").length : 0;
+    const fileLineHeight = JointUIService.FILE_FONT_SIZE * 1.25;
+    const docLineHeight = JointUIService.SCAN_DOC_FONT_SIZE * 1.3;
+    const scanBlock = fileLines * fileLineHeight + (docLines ? 5 + docLines * docLineHeight : 0);
+    const scanTop = (H - scanBlock) / 2;
+    // The label over the box: the operator's id, then its type. A native operator's shows in full; an
+    // engine operator's id is a long generated one and is cut short of the buttons.
+    const typeName = isNativeOperator(operator) ? nativeOperatorTypeName(operator.nativeOp) : operatorType;
+    const label = isNativeOperator(operator)
+      ? `${operator.operatorID}: ${typeName}`
+      : JointUIService.truncateToWidth(
+          `${operator.operatorID}: ${typeName}`,
+          JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.BUTTON_ROW_WIDTH,
+          `${JointUIService.ID_FONT_SIZE}px`
+        );
     return {
       ".texera-operator-coeditor-editing": {
         text: "",
@@ -1025,7 +1091,7 @@ export class JointUIService {
         "font-family": "'Inter', 'SF Pro Display', -apple-system, sans-serif",
         visibility: "hidden",
         "ref-x": 0.5,
-        "ref-y": 95,
+        "ref-y": H + 15,
         ref: "rect.body",
         "text-anchor": "middle",
         "x-alignment": "middle",
@@ -1115,7 +1181,7 @@ export class JointUIService {
       },
       "path.right-boundary": {
         ref: "rect.body",
-        d: "M 20 80 C 0 60 0 20 20 0",
+        d: `M 20 ${H} C 0 ${H * 0.75} 0 ${H * 0.25} 20 0`,
         stroke: "rgba(0,0,0,0)",
         "stroke-width": "10",
         fill: "transparent",
@@ -1124,7 +1190,7 @@ export class JointUIService {
       },
       "path.left-boundary": {
         ref: "rect.body",
-        d: "M 0 80 C 20 60 20 20 0 0",
+        d: `M 0 ${H} C 20 ${H * 0.75} 20 ${H * 0.25} 0 0`,
         stroke: "rgba(0,0,0,0)",
         "stroke-width": "10",
         fill: "transparent",
@@ -1133,52 +1199,53 @@ export class JointUIService {
       },
       // Description / custom display name, rendered inside the right section of
       // the box (to the right of the divider), left-aligned and vertically
-      // centred. Wrapping + ellipsis keep it within the fixed box.
-      ".texera-operator-name": {
-        text: scan
-          ? JointUIService.truncateToWidth(
-              nameText,
-              JointUIService.DESC_TEXT_WIDTH,
-              `${JointUIService.DESC_FONT_SIZE}px`
-            )
-          : JointUIService.wrapOperatorDisplayName(nameText),
-        fill: "#262626",
-        "font-size": `${JointUIService.DESC_FONT_SIZE}px`,
-        "font-weight": scan ? 600 : 400,
-        ref: "rect.body",
-        "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
-        "ref-y": subtitle ? 0.37 : 0.5,
-        "text-anchor": "start",
-        "y-alignment": "middle",
-        "x-alignment": "left",
-      },
+      // centred. Wrapping + ellipsis keep it within the fixed box. A scan's is
+      // its file name, in bold, over its doc.
+      ".texera-operator-name": scan
+        ? {
+            text: fileName,
+            fill: "#262626",
+            "font-size": `${JointUIService.FILE_FONT_SIZE}px`,
+            "font-weight": 600,
+            lineHeight: "1.25em",
+            ref: "rect.body",
+            "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
+            "ref-y": scanTop,
+            "text-anchor": "start",
+            textVerticalAnchor: "top",
+          }
+        : {
+            text: JointUIService.wrapOperatorDisplayName(nameText),
+            fill: "#262626",
+            "font-size": `${JointUIService.DESC_FONT_SIZE}px`,
+            "font-weight": 400,
+            lineHeight: "1.2em",
+            ref: "rect.body",
+            "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
+            "ref-y": 0.5,
+            "text-anchor": "start",
+            textVerticalAnchor: "middle",
+          },
       // A scan's doc, under its file name.
       [`.${operatorSubtitleClass}`]: {
-        text: JointUIService.truncateToWidth(subtitle, JointUIService.DESC_TEXT_WIDTH, "11.5px"),
+        text: scanDoc,
         fill: "#8c8c8c",
-        "font-size": "11.5px",
-        display: subtitle ? "inline" : "none",
+        "font-size": `${JointUIService.SCAN_DOC_FONT_SIZE}px`,
+        lineHeight: "1.3em",
+        display: scanDoc ? "inline" : "none",
         ref: "rect.body",
         "ref-x": JointUIService.ICON_SECTION_WIDTH + JointUIService.TEXT_SECTION_PADDING,
-        "ref-y": 0.7,
+        "ref-y": scanTop + fileLines * fileLineHeight + 5,
         "text-anchor": "start",
-        "y-alignment": "middle",
-        "x-alignment": "left",
+        textVerticalAnchor: "top",
       },
-      // Operator id + type, in small grey text just above the box
-      // ("op5: CSVFileScan"). The id alone is what the agent's chat refers to;
-      // the type says what the box actually is without opening it.
-      //
-      // Left-aligned, and truncated to stop short of `BUTTON_ROW_WIDTH`: the
-      // delete and agent-chat buttons live in that top-right strip, and a
-      // centred label grew straight under them once it carried the type too.
+      // Operator id + type, just above the box ("listings: Scan"): the id is
+      // what the agent's chat calls it, the type what the box is. The id is
+      // the darker part.
       ".texera-operator-friendly-name": {
-        text: JointUIService.truncateToWidth(
-          `${operator.operatorID}: ${isNativeOperator(operator) ? nativeOperatorTypeName(operator.nativeOp) : operatorType}`,
-          JointUIService.DEFAULT_OPERATOR_WIDTH - JointUIService.BUTTON_ROW_WIDTH,
-          `${JointUIService.ID_FONT_SIZE}px`
-        ),
-        fill: "#888888",
+        text: label,
+        annotations: [{ start: 0, end: operator.operatorID.length, attrs: { fill: "#434343", "font-weight": 600 } }],
+        fill: "#8c8c8c",
         "font-size": `${JointUIService.ID_FONT_SIZE}px`,
         "ref-x": 2,
         "ref-y": -12,
@@ -1204,6 +1271,8 @@ export class JointUIService {
       // Top-row buttons, right to left: delete pinned hardest into the corner
       // (overhanging the body a little, like a badge), the agent-chat button
       // tight against it with a 4px gap. Both clear the id label above the box.
+      // A native operator has neither: a click opens its panel (Feedback included), and its
+      // agent owns its edits; its full id and type take the strip over the box instead.
       ".delete-button": {
         x: this.DEFAULT_OPERATOR_WIDTH - 16,
         y: -26,
@@ -1211,6 +1280,7 @@ export class JointUIService {
         fill: "#D8656A",
         event: "element:delete",
         visibility: "hidden",
+        display: isNativeOperator(operator) ? "none" : "inline",
       },
       ".chat-button": {
         x: this.DEFAULT_OPERATOR_WIDTH - 40,
@@ -1219,6 +1289,7 @@ export class JointUIService {
         fill: "#1890ff",
         event: "element:chat",
         visibility: "hidden",
+        display: isNativeOperator(operator) ? "none" : "inline",
       },
       ".texera-operator-icon": {
         "xlink:href": isNativeOperator(operator)
@@ -1238,7 +1309,7 @@ export class JointUIService {
       // The file glyph: a sheet with a folded corner, 22×28, centred in the
       // icon section, with the kind of file written on it.
       [`.${operatorFileGlyphClass}`]: {
-        d: "M 13 26 H 28 L 35 33 V 54 H 13 Z M 28 26 V 33 H 35",
+        d: `M 13 ${H / 2 - 14} H 28 L 35 ${H / 2 - 7} V ${H / 2 + 14} H 13 Z M 28 ${H / 2 - 14} V ${H / 2 - 7} H 35`,
         fill: "#ffffff",
         stroke: "#4B5B6E",
         "stroke-width": 1.4,
@@ -1248,7 +1319,7 @@ export class JointUIService {
       [`.${operatorFileKindClass}`]: {
         text: fileKind,
         x: 24,
-        y: 48.5,
+        y: H / 2 + 8.5,
         fill: "#2F5FA8",
         "font-size": fileKind.length > 3 ? "6px" : "7px",
         "font-weight": 700,

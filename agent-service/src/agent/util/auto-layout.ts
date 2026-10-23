@@ -24,7 +24,7 @@ import type { OperatorLink, OperatorPredicate, Point, WorkflowContent } from "..
 // Values mirror frontend joint-graph-wrapper.ts (`autoLayoutJoint`) so
 // agent-generated and user-generated layouts visually match.
 //
-// A box is 210×80 with its id label above it (~30px; a selected operator adds
+// A box is 240×96 with its id label above it (~30px; a selected operator adds
 // the row counts by its ports) and its status pill below (~20px): `nodesep`
 // keeps neighbouring rows clear of each other's labels and no more. `ranksep`
 // gives every link a long run between ranks, so its curve and arrowhead read
@@ -38,8 +38,8 @@ const LAYOUT_CONFIG: dagre.GraphLabel = {
   rankdir: "LR",
 };
 
-const NODE_WIDTH = 210;
-const NODE_HEIGHT = 80;
+const NODE_WIDTH = 240;
+const NODE_HEIGHT = 96;
 
 /** Where the layout puts each operator (dagre's node centre), by operator id. */
 export function layoutPositions(

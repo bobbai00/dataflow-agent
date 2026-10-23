@@ -18,10 +18,10 @@ account made before seeding was switched on opens the page), the files are
 copied into the user's files folder and the notebook is imported into a new chat
 of their own, in the background: its cells run and become the agent's steps,
 traced as a `notebook` run under that user, exactly as an upload would be. The
-session then ends. The page opens on the user's latest chat, which for a new
-account is that one, and a session on a chat restores it from the trace, so the
-imported work is simply there when they sign in, and is still there after a
-reload; the user can start other chats beside it and come back to it.
+session then ends. The page opens on a new chat with that one in the chat list,
+and a session on a chat restores it from the trace, so the imported work is there
+one click after they sign in, and is still there after a reload; the user can
+start other chats beside it and come back to it.
 
 The seed definition is one JSON file shared with the BobFlow agent service,
 which reads its own section (`AGENT_SEED_FILE`); this service reads

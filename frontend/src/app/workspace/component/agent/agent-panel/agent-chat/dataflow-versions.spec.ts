@@ -21,6 +21,10 @@ import { SnapshotTreeNode } from "../../../../service/agent/agent.service";
 import {
   dataflowChips,
   dataflowFailure,
+  headNode,
+  historyNodes,
+  isUserMessage,
+  messageLabel,
   shownVersion,
   stepVersions,
   versionLabel,
@@ -198,5 +202,77 @@ describe("dataflow versions in the chat", () => {
       "v8 edit 2 operators"
     );
     expect(versionLabel(node("S11", "S10"))).toEqual({ label: "S11", title: "S11" });
+  });
+
+  it("puts the user's messages in the tree, between the version they were sent at and the versions that answered", () => {
+    const owned = (id: string, parentId: string, stepId: string, version?: number, action?: object, own = true) =>
+      ({ ...node(id, parentId, version, action), reactStepId: stepId, owned: own }) as SnapshotTreeNode;
+    const nodes = [
+      owned("S1", "S0", "init", 0, { kind: "start", author: "agent" }),
+      owned("S2", "S1", "a1", 1, { kind: "add", operatorId: "records", author: "agent" }, false),
+      owned("S3", "S2", "a1", 2, { kind: "run", author: "agent" }),
+      owned("S4", "S3", "a3", 3, { kind: "add", operatorId: "kept", author: "agent" }),
+      owned("S5", "S4", "x1", 4, { kind: "update", operatorId: "kept", author: "user" }),
+      // A restore of v1: no version of its own.
+      owned("S6", "S2", "rs"),
+    ];
+    const at = (id: string, parentId: string | undefined, role: "user" | "agent", extra: object = {}) => ({
+      id,
+      parentId,
+      role,
+      isBegin: true,
+      content: `${id} text`,
+      timestamp: new Date(Date.UTC(2026, 9, 23, 10, 0, Number(id.replace(/\D/g, "")) || 0)),
+      ...extra,
+    });
+    const steps = [
+      at("init", undefined, "agent"),
+      at("m1", "init", "user", { messageSource: "chat", content: "Load the records" }),
+      at("a1", "m1", "agent"),
+      at("r1", "a1", "agent"),
+      at("m2", "r1", "user", { messageSource: "feedback", content: "Feedback on `records`: keep fewer\nPlease." }),
+      at("r2", "m2", "agent"),
+      at("m3", "r2", "user", { messageSource: "chat" }),
+      at("a3", "m3", "agent"),
+      at("c1", "a3", "user", { messageSource: "correction" }),
+      at("x1", "a3", "user", { messageSource: "action", userAction: { kind: "edit", status: "ok" } }),
+      at("rs", "a1", "user", { messageSource: "action", userAction: { kind: "restore", version: 1, status: "ok" } }),
+      at("m4", "rs", "user", { messageSource: "chat" }),
+    ];
+    expect(steps.filter(isUserMessage).map(s => s.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    const tree = historyNodes(nodes, steps);
+    expect(tree.map(n => [n.id, n.parentId])).toEqual([
+      ["S1", undefined],
+      // The first version of a turn hangs under the message it answers.
+      ["S2", "message:m1"],
+      ["S3", "S2"],
+      ["S4", "message:m3"],
+      // A canvas edit is the user's version; nothing came between it and the version before.
+      ["S5", "S4"],
+      ["message:m1", "S1"],
+      ["message:m2", "S3"],
+      // Nothing changed between two messages: the second follows the first.
+      ["message:m3", "message:m2"],
+      // Sent after going back to v1: it hangs under v1.
+      ["message:m4", "S2"],
+    ]);
+    expect(tree.find(n => n.id === "message:m2")?.message).toEqual({
+      stepId: "m2",
+      text: "Feedback on `records`: keep fewer\nPlease.",
+    });
+    expect(messageLabel("Feedback on `records`: keep fewer\nPlease.")).toBe("Feedback on records: keep fewer");
+    // HEAD on a message, or on a reply that made no version, is at that message.
+    expect(headNode(nodes, steps, "r2", "S3")).toBe("message:m2");
+    expect(headNode(nodes, steps, "m4", "S6")).toBe("message:m4");
+    // HEAD on a step with a snapshot is at the version it shows.
+    expect(headNode(nodes, steps, "x1", "S5")).toBe("S5");
+    expect(headNode(nodes, steps, "rs", "S6")).toBe("S2");
+    // Without messages the tree is the versions alone.
+    expect(
+      historyNodes(
+        nodes,
+        steps.filter(s => !isUserMessage(s))
+      )
+    ).toEqual(versionNodes(nodes));
   });
 });

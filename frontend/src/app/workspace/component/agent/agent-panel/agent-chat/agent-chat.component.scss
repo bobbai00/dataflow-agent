@@ -492,7 +492,8 @@
   // On the root→active path: blue outline, so the lineage reads at a glance.
   &.on-path {
     border-color: #69b1ff;
-    .snapshot-node-label {
+    .snapshot-node-label,
+    .snapshot-node-icon {
       color: #1d39c4;
     }
   }
@@ -509,8 +510,31 @@
   &.by-user {
     border-color: #95de64;
 
-    .snapshot-node-label {
+    .snapshot-node-label,
+    .snapshot-node-icon {
       color: #389e0d;
+    }
+  }
+
+  // A message the user sent: their words, in the chat bubble's blue.
+  &.is-message {
+    justify-content: flex-start;
+    background: #e6f4ff;
+    border-color: #91caff;
+
+    .snapshot-node-label {
+      font-family: inherit;
+      font-size: 11.5px;
+      text-align: left;
+      color: #0958d9;
+    }
+
+    .snapshot-node-icon {
+      color: #1677ff;
+    }
+
+    &:hover {
+      background: #d6ebff;
     }
   }
 
@@ -535,10 +559,23 @@
     border-color: #1677ff;
     box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.18);
 
-    .snapshot-node-label {
+    .snapshot-node-label,
+    .snapshot-node-icon {
       color: #ffffff;
       font-weight: 600;
     }
+
+    &:hover {
+      background: #1677ff;
+    }
+  }
+
+  // Who made the node: a person for the user, a robot for the agent.
+  .snapshot-node-icon {
+    flex: none;
+    margin-right: 4px;
+    font-size: 11px;
+    color: #8c8c8c;
   }
 
   .snapshot-node-label {
@@ -549,9 +586,10 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     text-align: center;
-    line-height: 1;
+    line-height: 1.2;
   }
 }
 

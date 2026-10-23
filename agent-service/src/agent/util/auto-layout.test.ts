@@ -100,8 +100,8 @@ describe("autoLayoutWorkflow", () => {
 
     const a = state.getOperatorPosition("a")!;
     const b = state.getOperatorPosition("b")!;
-    // dagre stores node centers, so the gap is node width (210) + ranksep (150).
-    expect(b.x - a.x).toBe(360);
+    // dagre stores node centers, so the gap is node width (240) + ranksep (150).
+    expect(b.x - a.x).toBe(390);
   });
 
   test("lays out prototype-like operator IDs and preserves their saved positions", () => {
@@ -196,7 +196,7 @@ describe("withCurrentLayout", () => {
 
     autoLayoutWorkflow(state);
     expect(laid.operatorPositions).toEqual(state.getWorkflowContent().operatorPositions);
-    expect(laid.operatorPositions.b.x - laid.operatorPositions.a.x).toBe(360);
+    expect(laid.operatorPositions.b.x - laid.operatorPositions.a.x).toBe(390);
     expect(Object.hasOwn(laid.operatorPositions, "gone")).toBe(false);
     expect(laid.operators).toBe(stored.operators);
     expect(laid.links).toBe(stored.links);

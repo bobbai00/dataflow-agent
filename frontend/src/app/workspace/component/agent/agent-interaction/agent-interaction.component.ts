@@ -70,6 +70,12 @@ import { MarkdownComponent } from "ngx-markdown";
 const INPUT_RECORDS = 3;
 const OUTPUT_RECORDS = 5;
 
+/** The panel's width: enough for four columns; each further column widens it, as a chart does, up to a bound. */
+const PANEL_WIDTH = 480;
+const COLUMN_WIDTH = 96;
+const CHART_WIDTH = 760;
+const MAX_PANEL_WIDTH = 920;
+
 /** One table an operator reads, from the operator that produces it. */
 export interface OperatorInput {
   operatorId: string;
@@ -77,8 +83,8 @@ export interface OperatorInput {
   running: boolean;
 }
 
-/** The agent's summary of an operator: what it does and how its result comes from its inputs. */
-export interface OperatorSummary {
+/** The agent's explanation of an operator: what it does, how its result comes from its inputs, and what it holds. */
+export interface OperatorExplanation {
   /** The message that asked for it; the reply is the agent's first answer after it. */
   request: string;
   agentName: string;
@@ -86,19 +92,20 @@ export interface OperatorSummary {
   pending: boolean;
 }
 
-/** Summaries by `${agentId}:${operatorId}`, kept while the workspace is open so reopening a panel shows them. */
-const SUMMARIES = new Map<string, OperatorSummary>();
+/** Explanations by `${agentId}:${operatorId}`, kept while the workspace is open so reopening a panel shows them. */
+const EXPLANATIONS = new Map<string, OperatorExplanation>();
 
-/** The message that asks an agent to summarize an operator; the chat shows it as the user's. */
-export function summaryRequest(operatorId: string, inputIds: readonly string[]): string {
+/** The message that asks an agent to explain an operator, with its result; the chat shows it as the user's. */
+export function explainRequest(operatorId: string, inputIds: readonly string[]): string {
   const from =
     inputIds.length > 0
       ? `its input${inputIds.length > 1 ? "s" : ""} ${inputIds.map(id => `\`${id}\``).join(", ")}`
       : "what it reads";
   return (
-    `Summarize \`${operatorId}\`: in a few sentences, say what this operator does and how its result is computed from ${from}: ` +
-    "what it reads, what it keeps, changes or combines, and what its output holds (rows and key columns). " +
-    "Use the results already in the dataflow; do not change any operator."
+    `Explain \`${operatorId}\`. First see whether it has a result: look at it, and if it has none yet, run it. ` +
+    `Then, in a few sentences, say what this operator does and how its result is computed from ${from}, ` +
+    "and use the result in the explanation: how many rows it has, its key columns, and the values that matter. " +
+    "Do not change any operator."
   );
 }
 
@@ -107,7 +114,7 @@ export function summaryRequest(operatorId: string, inputIds: readonly string[]):
  * the request's own step. `done` without text means no answer is coming (the
  * conversation moved on).
  */
-export function summaryReply(steps: readonly ReActStep[], request: string): { done: boolean; text?: string } {
+export function explanationReply(steps: readonly ReActStep[], request: string): { done: boolean; text?: string } {
   let asked = -1;
   steps.forEach((step, index) => {
     if (step.role === "user" && step.content.trim() === request.trim()) asked = index;
@@ -178,9 +185,9 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public availableAgents: Array<{ id: string; name: string; isConnected: boolean }> = [];
   public selectedAgentId: string | null = null;
   public feedbackMessage: string = "";
-  /** The agent's summary of this operator, asked for with the Summary action. */
-  public summary?: OperatorSummary;
-  private summarySubscription?: Subscription;
+  /** The agent's explanation of this operator, asked for with the Explain action. */
+  public explanation?: OperatorExplanation;
+  private explanationSubscription?: Subscription;
 
   /** The operator's settings, as its edit form names them when the agent can split its statement. */
   public properties: OperatorProperty[] = [];
@@ -212,7 +219,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     // The connected agent is known at once; the full list arrives over HTTP.
     this.selectedAgentId = this.agentService.getActivelyConnectedAgentIds()[0] ?? this.selectedAgentId;
     this.watchAgentState();
-    this.loadSummary();
+    this.loadExplanation();
     this.loadAvailableAgents();
     this.agentService.agentChange$.pipe(untilDestroyed(this)).subscribe(() => {
       this.loadAvailableAgents();
@@ -248,7 +255,7 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
       this.notice = undefined;
       if (changes["operatorId"]) this.dataExpanded = true;
       this.refreshOperator();
-      this.loadSummary();
+      this.loadExplanation();
     }
   }
 
@@ -443,6 +450,19 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     return this.chartHtml?.safe ?? null;
   }
 
+  /**
+   * The panel's width: a wide table or a chart widens it so more of it
+   * shows, up to a bound that leaves the canvas around it in view.
+   */
+  public get panelWidth(): number {
+    const columns = Math.max(
+      0,
+      ...[this.output, ...this.inputs.map(input => input.outcome)].map(outcome => outcome.table?.columns.length ?? 0)
+    );
+    const natural = this.chart ? CHART_WIDTH : PANEL_WIDTH + Math.max(0, columns - 4) * COLUMN_WIDTH;
+    return Math.max(PANEL_WIDTH, Math.min(natural, MAX_PANEL_WIDTH, Math.round(window.innerWidth * 0.6)));
+  }
+
   /** "2 rows · 3 columns" for the output and each input; what the data section's title says when hidden. */
   public shape(table: OperatorTable | undefined): string {
     return table ? tableShape(table) : "";
@@ -508,18 +528,19 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   public onAgentSelected(): void {
     this.watchAgentState();
     this.loadProperties();
-    this.loadSummary();
+    this.loadExplanation();
   }
 
   /**
-   * Ask the agent what the operator does and how its result is computed from
-   * its inputs. The request and the reply are ordinary chat messages; the
-   * reply also shows here, under the actions.
+   * Ask the agent to explain the operator: what it does, how its result is
+   * computed from its inputs, and what the result holds, which it looks at
+   * (or computes) first. The request and the reply are ordinary chat
+   * messages; the reply also shows here, under the actions.
    */
-  public summarize(): void {
+  public explain(): void {
     const agentId = this.actionAgentId;
     if (!agentId || !this.canAct) return;
-    const request = summaryRequest(
+    const request = explainRequest(
       this.operatorId,
       this.inputs.map(input => input.operatorId)
     );
@@ -527,43 +548,43 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
     this.notice = undefined;
     this.actionError = undefined;
     this.agentService.sendMessage(agentId, request, "feedback");
-    this.summary = { request, agentName: this.agentName, pending: true };
-    SUMMARIES.set(this.summaryKey(agentId), this.summary);
-    this.watchSummary(agentId);
+    this.explanation = { request, agentName: this.agentName, pending: true };
+    EXPLANATIONS.set(this.explanationKey(agentId), this.explanation);
+    this.watchExplanation(agentId);
     this.changeDetectorRef.detectChanges();
   }
 
-  public dismissSummary(): void {
-    if (this.selectedAgentId) SUMMARIES.delete(this.summaryKey(this.selectedAgentId));
-    this.summary = undefined;
-    this.summarySubscription?.unsubscribe();
+  public dismissExplanation(): void {
+    if (this.selectedAgentId) EXPLANATIONS.delete(this.explanationKey(this.selectedAgentId));
+    this.explanation = undefined;
+    this.explanationSubscription?.unsubscribe();
   }
 
-  private summaryKey(agentId: string): string {
+  private explanationKey(agentId: string): string {
     return `${agentId}:${this.operatorId}`;
   }
 
-  /** The summary this agent gave of this operator, if it was asked. */
-  private loadSummary(): void {
-    this.summarySubscription?.unsubscribe();
-    this.summary = this.selectedAgentId ? SUMMARIES.get(this.summaryKey(this.selectedAgentId)) : undefined;
-    if (this.summary?.pending && this.selectedAgentId) this.watchSummary(this.selectedAgentId);
+  /** The explanation this agent gave of this operator, if it was asked. */
+  private loadExplanation(): void {
+    this.explanationSubscription?.unsubscribe();
+    this.explanation = this.selectedAgentId ? EXPLANATIONS.get(this.explanationKey(this.selectedAgentId)) : undefined;
+    if (this.explanation?.pending && this.selectedAgentId) this.watchExplanation(this.selectedAgentId);
   }
 
-  /** Fill the pending summary from the agent's reply when it arrives. */
-  private watchSummary(agentId: string): void {
-    this.summarySubscription?.unsubscribe();
-    const summary = this.summary;
-    if (!summary?.pending) return;
-    this.summarySubscription = this.agentService
+  /** Fill the pending explanation from the agent's reply when it arrives. */
+  private watchExplanation(agentId: string): void {
+    this.explanationSubscription?.unsubscribe();
+    const explanation = this.explanation;
+    if (!explanation?.pending) return;
+    this.explanationSubscription = this.agentService
       .getReActStepsObservable(agentId)
       .pipe(untilDestroyed(this))
       .subscribe(steps => {
-        const reply = summaryReply(steps, summary.request);
+        const reply = explanationReply(steps, explanation.request);
         if (!reply.done) return;
-        summary.text = reply.text;
-        summary.pending = false;
-        this.summarySubscription?.unsubscribe();
+        explanation.text = reply.text;
+        explanation.pending = false;
+        this.explanationSubscription?.unsubscribe();
         this.changeDetectorRef.detectChanges();
       });
   }

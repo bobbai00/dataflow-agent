@@ -20,7 +20,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
-import { buildApp, _resetAgentStoreForTests } from "./server";
+import { buildApp, _dropLiveAgentForTests, _resetAgentStoreForTests } from "./server";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { TexeraAgent } from "./agent/texera-agent";
@@ -329,4 +329,58 @@ test("the version tree lists each action; a version can be previewed and checked
   expect((await call("POST", `/${id}/checkout-version`, { snapshotId: "S999" })).status).toBe(404);
   (agent as any).state = AgentState.GENERATING;
   expect((await call("POST", `/${id}/checkout-version`, { snapshotId: versions[2].id })).status).toBe(409);
+  // A step can't be checked out under a running turn either.
+  expect((await call("POST", `/${id}/checkout`, { stepId: head })).status).toBe(409);
+});
+
+test("a restart brings the version tree back as it was: every version with its results, HEAD where it was left", async () => {
+  const id = await created();
+  expect((await call("POST", `/${id}/operators/kept/run`)).status).toBe(200);
+  const tree = async () =>
+    (await (await call("GET", `/${id}/snapshot-tree`)).json()) as { headSnapshotId: string; nodes: any[] };
+  const versions = (nodes: any[]) =>
+    nodes.filter(node => node.version !== undefined).sort((a, b) => a.version - b.version);
+  // Back to v1, from the middle of the agent's call: a restore step shows it.
+  const v1 = versions((await tree()).nodes)[1];
+  const back = (await (await call("POST", `/${id}/checkout-version`, { snapshotId: v1.id })).json()) as {
+    headId: string;
+  };
+  const before = await tree();
+  // A version's dataflow and results; positions aside, which a restore lays out anew.
+  const preview = async (node: any) => {
+    const version = (await (await call("GET", `/${id}/versions/${node.id}`)).json()) as any;
+    return { ...version, workflow: { ...version.workflow, operatorPositions: undefined } };
+  };
+  const previews = await Promise.all(versions(before.nodes).map(preview));
+  expect(previews.map((p: any) => [p.version, Object.keys(p.operatorResults).sort()])).toEqual([
+    [0, []],
+    [1, []],
+    [2, []],
+    // The canvas run: the run, then the result shown.
+    [3, ["kept", "records"]],
+    [4, ["kept", "records"]],
+  ]);
+  const results = await (await call("GET", `/${id}/operator-results`)).json();
+
+  _dropLiveAgentForTests(id); // the service restarted
+  expect((await call("POST", `/${id}/restore`)).status).toBe(200);
+
+  const after = await tree();
+  const shape = (node: any) => [node.id, node.parentId, node.reactStepId, node.version, node.action, node.owned];
+  const byId = (a: any, b: any) => a.id.localeCompare(b.id);
+  expect(after.nodes.sort(byId).map(shape)).toEqual(before.nodes.sort(byId).map(shape));
+  expect(after.headSnapshotId).toBe(before.headSnapshotId);
+  expect(agent.getHead()).toBe(back.headId);
+  expect(await Promise.all(versions(after.nodes).map(preview))).toEqual(previews);
+  expect(await (await call("GET", `/${id}/operator-results`)).json()).toEqual(results);
+
+  // What comes next continues from v1's restore (only `records` is defined there), under ids and
+  // version numbers the trace never held.
+  expect((await call("POST", `/${id}/operators/kept/run`)).status).toBe(404);
+  expect((await call("POST", `/${id}/operators/records/run`)).status).toBe(200);
+  const next = versions((await tree()).nodes).filter(node => node.reactStepId !== back.headId);
+  const restored = before.nodes.find((node: any) => node.reactStepId === back.headId);
+  expect(next.at(-2).version).toBe(5);
+  expect(next.at(-2).parentId).toBe(restored.id);
+  expect(before.nodes.map((node: any) => node.id)).not.toContain(next.at(-2).id);
 });

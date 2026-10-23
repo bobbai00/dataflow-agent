@@ -94,25 +94,32 @@
   z-index: 10;
 }
 
-// Chat popover container for operator chat button
+// The operator's panel, placed by the component (left/top); `--caret-x` is
+// where the operator is along its edge.
 .chat-popover-container {
   position: absolute;
   pointer-events: auto;
   z-index: 20;
-  transform: translateX(-50%);
 
-  // Caret pointing up at the operator the popover belongs to.
+  // Caret pointing up at the operator the panel belongs to.
   &::before {
     content: "";
     position: absolute;
     top: -6px;
-    left: 50%;
+    left: var(--caret-x, 50%);
     width: 12px;
     height: 12px;
     background: white;
     transform: translateX(-50%) rotate(45deg);
     box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.06);
     z-index: 1;
+  }
+
+  // Over the operator: the caret points down at it.
+  &.above::before {
+    top: auto;
+    bottom: -6px;
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -126,7 +133,7 @@
   flex-direction: column;
 }
 
+// Its height is bound by the room around the operator (placeOperatorPanel).
 .chat-popover-content {
   overflow-y: auto;
-  max-height: min(600px, 70vh);
 }

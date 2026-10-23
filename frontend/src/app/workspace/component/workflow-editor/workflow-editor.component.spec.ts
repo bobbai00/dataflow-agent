@@ -1424,7 +1424,7 @@ describe("WorkflowEditorComponent", () => {
       });
 
       it("closes the chat popover", () => {
-        component.chatPopoverOperator = { operatorId: "x", displayName: "X", position: { x: 1, y: 2 } };
+        component.chatPopoverOperator = { operatorId: "x", displayName: "X", position: { x: 1, y: 2, top: 0 } };
 
         component.closeChatPopover();
 

@@ -118,6 +118,26 @@ export interface SnapshotData {
   action?: VersionAction;
 }
 
+/** A snapshot as a trace keeps it (TraceStore.snapshotsOf): its place in the
+ * tree, its version, and the dataflow it held. */
+export interface RestoredSnapshot {
+  id: string;
+  parentId?: string;
+  stepId: string;
+  version?: number;
+  action?: VersionAction;
+  createdAt: number;
+  workflow: WorkflowContent;
+}
+
+/** A result as a trace keeps it (TraceStore.snapshotResultsOf): on the snapshot it was written to. */
+export interface RestoredResult {
+  snapshotId: string;
+  stepId?: string;
+  operatorId: string;
+  info: OperatorInfo;
+}
+
 function createEmptyWorkflow(): WorkflowContent {
   return {
     operators: [],
@@ -172,6 +192,8 @@ export class WorkflowSnapshotStorage {
   private snapshotCounter = 0;
   /** Next version number; the dataflow the agent starts from is v0. */
   private versionCounter = 0;
+  /** The version numbers given so far: an import keeps those its session gave. */
+  private versionsInUse = new Set<number>();
   /** Told of every snapshot made or changed and every result stored; the trace store listens. */
   listener?: SnapshotListener;
   private rootSnapshotId: string;
@@ -201,8 +223,7 @@ export class WorkflowSnapshotStorage {
     return this.rootSnapshotId;
   }
 
-  private allocateRoot(): string {
-    const id = this.generateSnapshotId();
+  private allocateRoot(id = this.generateSnapshotId()): string {
     this.snapshots.set(id, {
       id,
       parentId: undefined,
@@ -291,7 +312,7 @@ export class WorkflowSnapshotStorage {
     if (!parentSnap) throw new Error(`No snapshot ${parentSnapshotId}`);
     const snapshot = this.childSnapshot(parentSnap, reactStepId, workflow, options.createdAt);
     const action = options.action === undefined ? describeChange(parentSnap.workflow, workflow) : options.action;
-    if (action) Object.assign(snapshot, { version: this.versionCounter++, action });
+    if (action) Object.assign(snapshot, { version: this.takeVersion(), action });
     this.snapshots.set(snapshot.id, snapshot);
     this.snapshotByReactStepId.set(reactStepId, snapshot.id);
     this.listener?.onSnapshot(snapshot);
@@ -324,7 +345,13 @@ export class WorkflowSnapshotStorage {
    */
   recordVersions(
     reactStepId: string,
-    versions: ReadonlyArray<{ action: VersionAction; workflow?: WorkflowContent; createdAt?: number }>
+    versions: ReadonlyArray<{
+      action: VersionAction;
+      workflow?: WorkflowContent;
+      createdAt?: number;
+      /** The number to give it (an imported version keeps its session's), when still free. */
+      number?: number;
+    }>
   ): SnapshotData[] {
     if (!versions.length) return [];
     const id = this.snapshotByReactStepId.get(reactStepId);
@@ -333,7 +360,7 @@ export class WorkflowSnapshotStorage {
     if (latest.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
       throw new Error("Cannot change a completed snapshot");
     const recorded: SnapshotData[] = [];
-    for (const { action, workflow = latest.workflow, createdAt = Date.now() } of versions) {
+    for (const { action, workflow = latest.workflow, createdAt = Date.now(), number } of versions) {
       if (latest.version === undefined) {
         // The step's snapshot is no version yet: it becomes this one.
         const next = inheritFrom(this.snapshots.get(latest.parentId!)!, workflow);
@@ -341,14 +368,14 @@ export class WorkflowSnapshotStorage {
         const stale = computeStaleResultOps(latest.workflow, workflow);
         for (const [operatorId, entry] of latest.results)
           if (entry.sourceStepId === reactStepId && !stale.has(operatorId)) next.results.set(operatorId, entry);
-        Object.assign(latest, next, { createdAt, version: this.versionCounter++, action });
+        Object.assign(latest, next, { createdAt, version: this.takeVersion(number), action });
       } else {
         // A version stays as it was; the step moves on to a new one, which
         // keeps the step's diagnostics (they are the step's, not the version's).
         const snapshot: SnapshotData = {
           ...this.childSnapshot(latest, reactStepId, workflow, createdAt),
           ...(latest.nativeDiagnostics ? { nativeDiagnostics: latest.nativeDiagnostics } : {}),
-          version: this.versionCounter++,
+          version: this.takeVersion(number),
           action,
         };
         this.snapshots.set(snapshot.id, snapshot);
@@ -651,6 +678,120 @@ export class WorkflowSnapshotStorage {
     return versions;
   }
 
+  /**
+   * Put back the tree a trace recorded, in place of what the storage holds:
+   * every snapshot under its own id, parent, step, version and action, with
+   * the dataflow it held. Each inherits its parent's results as a live run
+   * leaves them, then takes the results written to it, in the order they were
+   * written. A snapshot whose step is not in `stepIds` is left out; one whose
+   * parent is missing (the old root) hangs under the new root. Each step owns
+   * the end of its chain of snapshots, its newest version.
+   */
+  restoreTree(
+    records: readonly RestoredSnapshot[],
+    results: readonly RestoredResult[],
+    stepIds: ReadonlySet<string>
+  ): void {
+    const kept = records.filter(record => stepIds.has(record.stepId));
+    const ids = new Set(kept.map(record => record.id));
+    this.snapshots.clear();
+    this.snapshotByReactStepId.clear();
+    // New snapshots and versions continue after the restored ones.
+    this.skipIdsThrough(kept.map(record => record.id));
+    this.versionCounter = Math.max(0, ...kept.map(record => (record.version ?? -1) + 1));
+    this.versionsInUse = new Set(kept.flatMap(record => (record.version === undefined ? [] : [record.version])));
+    // The root keeps its id when the tree hangs under one.
+    const roots = new Set(kept.filter(r => r.parentId === undefined || !ids.has(r.parentId)).map(r => r.parentId));
+    const root = roots.size === 1 ? [...roots][0] : undefined;
+    this.rootSnapshotId = this.allocateRoot(root);
+    const children = new Map<string, RestoredSnapshot[]>();
+    for (const record of kept) {
+      const parent = record.parentId !== undefined && ids.has(record.parentId) ? record.parentId : this.rootSnapshotId;
+      children.set(parent, [...(children.get(parent) ?? []), record]);
+    }
+    const written = new Map<string, RestoredResult[]>();
+    for (const result of results) written.set(result.snapshotId, [...(written.get(result.snapshotId) ?? []), result]);
+    const queue = [this.rootSnapshotId];
+    for (let index = 0; index < queue.length; index++) {
+      const parent = this.snapshots.get(queue[index])!;
+      for (const record of children.get(parent.id) ?? []) {
+        const snapshot: SnapshotData = {
+          id: record.id,
+          parentId: parent.id,
+          reactStepId: record.stepId,
+          ...inheritFrom(parent, record.workflow),
+          createdAt: record.createdAt,
+          ...(record.version !== undefined && record.action ? { version: record.version, action: record.action } : {}),
+        };
+        for (const result of written.get(record.id) ?? [])
+          restoreResult(snapshot, result.operatorId, result.info, result.stepId ?? record.stepId);
+        this.snapshots.set(snapshot.id, snapshot);
+        queue.push(snapshot.id);
+      }
+    }
+    for (const snapshot of this.snapshots.values()) {
+      const step = snapshot.reactStepId;
+      if (
+        step &&
+        ![...this.snapshots.values()].some(other => other.parentId === snapshot.id && other.reactStepId === step)
+      )
+        this.snapshotByReactStepId.set(step, snapshot.id);
+    }
+  }
+
+  /**
+   * Give a step's earlier versions the results its runs computed, as a live
+   * run leaves them: an import knows only the results the step ended with.
+   * A run version, and every version after it in the step, takes the result
+   * of each operator the run computed (its targets and what they read),
+   * when that operator is defined then as the step ended.
+   */
+  spreadStepResults(reactStepId: string): void {
+    const owned = this.getOwnedSnapshot(reactStepId);
+    const versions = this.getStepVersions(reactStepId).filter(version => version !== owned);
+    if (!owned || !versions.length) return;
+    const ended = [...owned.results].filter(([, entry]) => entry.sourceStepId === reactStepId);
+    const computed = new Set<string>();
+    for (const version of versions) {
+      if (version.action?.kind === "run") {
+        const targets = version.action.operatorIds ?? version.workflow.operators.map(op => op.operatorID);
+        for (const id of targets) for (const ran of [id, ...upstreamOf(version.workflow, id)]) computed.add(ran);
+      }
+      const stale = computeStaleResultOps(version.workflow, owned.workflow);
+      for (const [operatorId, entry] of ended) {
+        if (!computed.has(operatorId) || stale.has(operatorId) || version.results.get(operatorId) === entry) continue;
+        if (!version.workflow.operators.some(op => op.operatorID === operatorId)) continue;
+        version.results.set(operatorId, entry);
+        this.listener?.onResult(version, operatorId, entry.info);
+      }
+    }
+  }
+
+  /** A version number: `preferred` when no version has it yet, else the next free one. */
+  private takeVersion(preferred?: number): number {
+    if (
+      preferred !== undefined &&
+      Number.isInteger(preferred) &&
+      preferred >= 0 &&
+      !this.versionsInUse.has(preferred)
+    ) {
+      this.versionCounter = Math.max(this.versionCounter, preferred + 1);
+    } else {
+      while (this.versionsInUse.has(this.versionCounter)) this.versionCounter++;
+      preferred = this.versionCounter++;
+    }
+    this.versionsInUse.add(preferred);
+    return preferred;
+  }
+
+  /** Make the next snapshot ids follow `ids` (S<n>), so new snapshots never reuse one a trace holds. */
+  skipIdsThrough(ids: Iterable<string>): void {
+    for (const id of ids) {
+      const number = /^S(\d+)$/.exec(id)?.[1];
+      if (number !== undefined) this.snapshotCounter = Math.max(this.snapshotCounter, Number(number) + 1);
+    }
+  }
+
   // ── housekeeping ─────────────────────────────────────────────────────
 
   /** Drop every step-owned snapshot and re-allocate the empty root. The
@@ -659,6 +800,7 @@ export class WorkflowSnapshotStorage {
     this.snapshots.clear();
     this.snapshotByReactStepId.clear();
     this.versionCounter = 0;
+    this.versionsInUse.clear();
     this.rootSnapshotId = this.allocateRoot();
   }
 
@@ -754,6 +896,30 @@ function inheritFrom(
   const owned = copyWorkflow(workflow, parent.workflow);
   if (owned.operators.some(op => op.nativeOp)) freezeSnapshotValue(owned);
   return { workflow: owned, results };
+}
+
+/** Put a stored result back on `snapshot` as `setOperatorResult` left it: a
+ * fresh result drops what its downstream operators held, which the run that
+ * follows writes again. */
+function restoreResult(snapshot: SnapshotData, operatorId: string, info: OperatorInfo, sourceStepId: string): void {
+  const previous = snapshot.results.get(operatorId)?.info;
+  const native = snapshot.workflow.operators.some(op => op.operatorID === operatorId && op.nativeOp);
+  if ((info.resultVersion || native) && (info.error || previous?.resultVersion?.id !== info.resultVersion?.id))
+    for (const id of downstreamOf(snapshot.workflow, operatorId)) snapshot.results.delete(id);
+  snapshot.results.set(operatorId, { info: freezeSnapshotValue(info), sourceStepId });
+}
+
+/** Every operator that reads, directly or not, from `operatorId`. */
+function downstreamOf(workflow: WorkflowContent, operatorId: string): Set<string> {
+  const found = new Set<string>();
+  const pending = [operatorId];
+  for (let index = 0; index < pending.length; index++)
+    for (const link of workflow.links)
+      if (link.source.operatorID === pending[index] && !found.has(link.target.operatorID)) {
+        found.add(link.target.operatorID);
+        pending.push(link.target.operatorID);
+      }
+  return found;
 }
 
 /** Native snapshots freeze definitions. Share an unchanged frozen operator

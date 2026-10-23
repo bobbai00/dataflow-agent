@@ -61,9 +61,11 @@ import {
   ActionChip,
   dataflowChips,
   dataflowFailure,
-  shownVersion,
+  headNode,
+  HistoryNode,
+  historyNodes,
+  messageLabel,
   versionLabel,
-  versionNodes,
 } from "./dataflow-versions";
 
 /**
@@ -79,6 +81,10 @@ export interface SnapshotNode {
   /** Pill text ("v3 add kept") and tooltip ("v3: add kept (filter)"). */
   label: string;
   title: string;
+  /** Who made it: the user (a message, a canvas edit or run) or the agent. */
+  icon: "user" | "robot";
+  /** A message the user sent: the step that holds it. */
+  messageStepId?: string;
   /** A version the user made on the canvas. */
   byUser: boolean;
   /** A run or a show, which leave the dataflow as it was. */
@@ -380,6 +386,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.agentResponses = steps;
         this.updateVisibleSteps();
         this.buildChatItems();
+        // A new message is a node of the tree as soon as it is sent.
+        this.buildSnapshotTree();
         this.shouldScrollToBottom = true;
 
         // The canvas highlight follows the pointer only — new steps never grab
@@ -1299,11 +1307,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public buildSnapshotTree(): void {
     const tree = this.snapshotTree;
-    // Versions only: a snapshot that is no version (a restore's) folds into
-    // the version it shows. During playback only the versions revealed so far
-    // are shown, so they appear progressively; while the agent's progress
-    // plays, the versions the canvas has not shown yet wait.
-    const allNodes = (tree ? versionNodes(tree.nodes) : []).filter(
+    // Versions and the user's messages: a snapshot that is no version (a
+    // restore's) folds into the version it shows. During playback only the
+    // nodes revealed so far are shown, so they appear progressively; while
+    // the agent's progress plays, the versions the canvas has not shown yet wait.
+    const allNodes = (tree ? historyNodes(tree.nodes, this.agentResponses) : []).filter(
       n => this.liveVersion === null || n.version === undefined || n.version <= this.liveVersion
     );
     const nodes = this.playbackRevealedIds ? allNodes.filter(n => this.playbackRevealedIds!.has(n.id)) : allNodes;
@@ -1319,7 +1327,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const activeId =
       this.playbackActiveId ??
       (this.liveVersion !== null ? nodes.find(n => n.version === this.liveVersion)?.id : undefined) ??
-      shownVersion(tree.nodes, tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes)) ??
+      this.headHistoryNode(tree) ??
       "";
 
     // Snapshots on the path from root to the active node (brighter edges/nodes).
@@ -1331,12 +1339,12 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       cursor = byId.get(cursor)?.parentId;
     }
 
-    // Compact pills: one line (the snapshot id). The timestamp lives on the
-    // time axis to the left, one label per row, so rows stay short.
+    // Compact pills: one line, after an icon saying who made the node. The
+    // timestamp lives on the time axis to the left, one label per row.
     const minNodeWidth = 40;
-    const maxNodeWidth = 160;
+    const maxNodeWidth = 176;
     const charWidth = 7;
-    const horizontalPadding = 14;
+    const horizontalPadding = 14 + 16;
     const nodeHeight = 22;
     const rowPitch = nodeHeight + 8;
     // Wide enough that a lane's pills clear the vertical edge line of the lane
@@ -1345,7 +1353,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     const marginX = 10;
     const marginY = 10;
 
-    const labels = new Map(nodes.map(n => [n.id, versionLabel(n)]));
+    const labels = new Map(
+      nodes.map(n => [
+        n.id,
+        n.message
+          ? { label: messageLabel(n.message.text), title: `You: ${AgentChatComponent.clip(n.message.text, 280)}` }
+          : versionLabel(n),
+      ])
+    );
     const nodeWidths = new Map<string, number>();
     for (const n of nodes) {
       const width = Math.max(
@@ -1363,6 +1378,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       version: n.version,
       label: labels.get(n.id)!.label,
       title: labels.get(n.id)!.title,
+      icon: n.message || n.action?.author === "user" ? "user" : "robot",
+      messageStepId: n.message?.stepId,
       byUser: n.action?.author === "user",
       request: n.action?.kind === "run" || n.action?.kind === "show",
       failed: n.failed === true,
@@ -1455,11 +1472,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * owning ReAct step and can tie or be missing). Snapshots with no timestamp
    * sort last among the currently placeable ones; the input order breaks ties.
    */
-  public static orderSnapshotsByTime(nodes: SnapshotTreeResponse["nodes"]): SnapshotTreeResponse["nodes"] {
+  public static orderSnapshotsByTime<T extends SnapshotTreeResponse["nodes"][number]>(nodes: readonly T[]): T[] {
     const ids = new Set(nodes.map(n => n.id));
     const remaining = nodes.map((node, inputIndex) => ({ node, inputIndex }));
     const placed = new Set<string>();
-    const ordered: SnapshotTreeResponse["nodes"] = [];
+    const ordered: T[] = [];
 
     while (remaining.length > 0) {
       const ready = remaining.filter(
@@ -1500,7 +1517,7 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    * untouched and moves only the highlight. Layout therefore grows
    * append-only — an existing node never changes column or row.
    */
-  public static assignSnapshotLanes(ordered: SnapshotTreeResponse["nodes"]): Map<string, number> {
+  public static assignSnapshotLanes(ordered: ReadonlyArray<{ id: string; parentId?: string }>): Map<string, number> {
     const firstChild = new Map<string, string>();
     for (const node of ordered) {
       if (node.parentId !== undefined && !firstChild.has(node.parentId)) {
@@ -1516,6 +1533,22 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       lanes.set(node.id, parentLane !== undefined && continuesParent ? parentLane : nextFreeLane++);
     }
     return lanes;
+  }
+
+  /** The history node HEAD is at: a message it is on, else the version it shows. */
+  private headHistoryNode(tree: SnapshotTreeResponse): string | undefined {
+    return headNode(
+      tree.nodes,
+      this.agentResponses,
+      this.currentHeadId,
+      tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes)
+    );
+  }
+
+  /** `text` cut to `limit` characters, with an ellipsis when it was longer. */
+  private static clip(text: string, limit: number): string {
+    const flat = text.replace(/\s+/g, " ").trim();
+    return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
   }
 
   /**
@@ -1570,6 +1603,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public onSnapshotNodeClick(node: SnapshotNode): void {
     this.stopSnapshotPlayback();
+    if (node.messageStepId) {
+      this.checkoutMessage(node.messageStepId);
+      return;
+    }
     if (node.version === undefined) {
       this.checkoutSnapshot(node.reactStepId, node.id);
       return;
@@ -1581,11 +1618,32 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => {},
-        error: () => {
+        error: (error: unknown) => {
           this.pendingScrollStepId = null;
-          this.notificationService.error(`Checkout to v${node.version} failed`);
+          this.notificationService.error(this.checkoutError(error, `v${node.version}`));
         },
       });
+  }
+
+  /** Back to right after the user sent a message: the chat up to it, and the dataflow it was sent at. */
+  private checkoutMessage(stepId: string): void {
+    this.pendingScrollStepId = stepId;
+    this.agentService
+      .checkoutStep(this.agentInfo.id, stepId)
+      .pipe(untilDestroyed(this))
+      .subscribe({
+        next: () => {},
+        error: (error: unknown) => {
+          this.pendingScrollStepId = null;
+          this.notificationService.error(this.checkoutError(error, "your message"));
+        },
+      });
+  }
+
+  /** Why going back to `what` failed, in the service's words when it gave some. */
+  private checkoutError(error: unknown, what: string): string {
+    const reason = (error as { error?: { error?: unknown } } | null)?.error?.error;
+    return typeof reason === "string" ? `Can't go back to ${what}: ${reason}` : `Going back to ${what} failed.`;
   }
 
   /**
@@ -1605,9 +1663,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     this.pendingScrollStepId = group.length > 0 ? group[0].id : null;
     this.agentService.checkoutStep(this.agentInfo.id, targetStepId).subscribe({
       next: () => {},
-      error: () => {
+      error: (error: unknown) => {
         this.pendingScrollStepId = null;
-        this.notificationService.error(`Checkout to snapshot ${label} failed`);
+        this.notificationService.error(this.checkoutError(error, `snapshot ${label}`));
       },
     });
   }
@@ -1663,14 +1721,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       return;
     }
     const tree = this.snapshotTree;
-    const nodes = tree ? versionNodes(tree.nodes) : [];
+    const nodes = tree ? historyNodes(tree.nodes, this.agentResponses) : [];
     if (!tree || nodes.length === 0) {
       return;
     }
-    // The root→shown path of versions, via parentId.
+    // The root→HEAD path of versions and messages, via parentId.
     const byId = new Map(nodes.map(n => [n.id, n]));
-    const path: SnapshotTreeResponse["nodes"] = [];
-    let cursor = shownVersion(tree.nodes, tree.headSnapshotId ?? this.computeActiveSnapshotId(tree.nodes));
+    const path: HistoryNode[] = [];
+    let cursor = this.headHistoryNode(tree);
     while (cursor) {
       const node = byId.get(cursor);
       if (!node) break;
@@ -1696,7 +1754,8 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       this.playbackRevealedIds!.add(node.id);
       this.playbackActiveId = node.id;
       this.buildSnapshotTree();
-      this.previewVersion(node.id);
+      // A message changes nothing on the canvas: it keeps the version before it.
+      if (!node.message) this.previewVersion(node.id);
       this.cdr.detectChanges();
       this.snapshotPlaybackTimer = setTimeout(advance, this.snapshotPlaybackIntervalMs);
     };

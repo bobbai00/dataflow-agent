@@ -18,11 +18,15 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SnapshotData } from "../agent/workflow-snapshot-storage";
 import type { ReActStep } from "../types/agent";
 import type { OperatorInfo } from "../types/execution";
 import type { WorkflowContent } from "../types/workflow";
-import { TraceStore, defaultTracePath, openTraceStore } from "./trace-store";
+import { TraceStore, defaultTracePath, openTraceStore, storedTreeComplete } from "./trace-store";
 
 const step = (overrides: Partial<ReActStep> & Pick<ReActStep, "id" | "messageId">): ReActStep => ({
   stepId: 0,
@@ -207,11 +211,17 @@ describe("TraceStore", () => {
       ["v2", "s2", 2, "add", "filter", 2],
       ["v3", "s2", 3, "add", "filter", 2],
     ]);
-    const workflows = store.snapshotWorkflows("a1");
-    expect(Object.keys(workflows).sort()).toEqual(["s1", "s2"]);
-    expect(workflows.s2.operators.map(o => o.operatorID)).toEqual(["scan", "filter"]);
-    expect((workflows.s2.operators[1] as any).operatorProperties.code).toBe("z");
-    expect(workflows.s1.operatorPositions).toEqual({ scan: { x: 1, y: 2 } });
+    // Every version comes back with its place in the tree and the dataflow it held.
+    const stored = store.snapshotsOf("a1");
+    expect(stored.map(s => [s.id, s.parentId, s.stepId, s.version, s.action?.operatorId])).toEqual([
+      ["v1", "root", "s1", 1, "scan"],
+      ["v2", "root", "s2", 2, "filter"],
+      ["v3", "root", "s2", 3, "filter"],
+    ]);
+    expect(stored[2].workflow.operators.map(o => o.operatorID)).toEqual(["scan", "filter"]);
+    expect((stored[1].workflow.operators[1] as any).operatorProperties.code).toBe("y");
+    expect((stored[2].workflow.operators[1] as any).operatorProperties.code).toBe("z");
+    expect(stored[0].workflow.operatorPositions).toEqual({ scan: { x: 1, y: 2 } });
     store.close();
   });
 
@@ -248,7 +258,7 @@ describe("TraceStore", () => {
     store.agentSettings("a1", { maxSteps: 5 }, { maxSteps: 5 });
     store.agentEnded("a1", "deleted", 99);
 
-    // The same operator again, for the same step: the newest result is the one a restore takes.
+    // The same operator again, on the step's next version: a restore puts each back where it was written.
     store.operatorResult({
       agentId: "a1",
       snapshotId: "v2",
@@ -272,8 +282,9 @@ describe("TraceStore", () => {
     expect(result.sample[0].a).toHaveLength(201);
     expect(result.info.result).toHaveLength(7); // the whole result travels with the row
     expect(newer.rows).toBe(4);
-    expect(store.operatorResultsOf("a1")).toEqual([
-      { stepId: "s1", operatorId: "scan", info: expect.objectContaining({ totalRowCount: 4 }) },
+    expect(store.snapshotResultsOf("a1")).toEqual([
+      { snapshotId: "v1", stepId: "s1", operatorId: "scan", info: expect.objectContaining({ totalRowCount: 3 }) },
+      { snapshotId: "v2", stepId: "s1", operatorId: "scan", info: expect.objectContaining({ totalRowCount: 4 }) },
     ]);
     expect(trace.executions).toEqual([
       expect.objectContaining({
@@ -297,6 +308,196 @@ describe("TraceStore", () => {
     // A write that fails is logged, never thrown.
     store.close();
     expect(() => store.event({ agentId: "a1", kind: "after close" })).not.toThrow();
+  });
+
+  test("keeps each agent's rows apart: agents number snapshots alike, and seeded agents share step ids", () => {
+    const store = new TraceStore(":memory:");
+    const workflow = (code: string): WorkflowContent => ({
+      operators: [{ operatorID: "x", operatorType: "PythonUDFV2", operatorProperties: { code } } as any],
+      operatorPositions: {},
+      links: [],
+      commentBoxes: [],
+      settings: { dataTransferBatchSize: 400 },
+    });
+    const snapshot = (code: string): SnapshotData => ({
+      id: "S1",
+      parentId: "S0",
+      reactStepId: "imported-step",
+      workflow: workflow(code),
+      results: new Map(),
+      createdAt: 1,
+      version: 0,
+      action: { kind: "add", author: "agent", operatorId: "x" },
+    });
+    for (const [id, code] of [
+      ["a1", "first"],
+      ["a2", "second"],
+    ]) {
+      agent(store, id);
+      store.turnStarted({ agentId: id, messageId: "imported-msg", channel: "message", text: code, startedAt: 1 });
+      store.turnEnded({ agentId: id, messageId: "imported-msg", endedAt: 2, status: "ok", reply: code });
+      store.step(id, step({ id: "imported-step", messageId: "imported-msg", content: code }));
+      store.snapshot(id, snapshot(code));
+    }
+    for (const [id, code] of [
+      ["a1", "first"],
+      ["a2", "second"],
+    ]) {
+      expect(store.stepsOf(id).map(s => s.content)).toEqual([code]);
+      expect(store.snapshotsOf(id).map(s => (s.workflow.operators[0] as any).operatorProperties.code)).toEqual([code]);
+      expect((store.exportAgent(id)!.turns as any[]).map(t => t.reply)).toEqual([code]);
+    }
+    store.close();
+  });
+
+  test("a cleared history stays in the trace, and a restore leaves it out", () => {
+    const store = new TraceStore(":memory:");
+    agent(store);
+    const snapshot = (id: string, stepId: string): SnapshotData => ({
+      id,
+      parentId: "S0",
+      reactStepId: stepId,
+      workflow: { operators: [], operatorPositions: {}, links: [], commentBoxes: [], settings: {} } as any,
+      results: new Map(),
+      createdAt: 1,
+    });
+    store.step("a1", step({ id: "init", messageId: "m0" }));
+    store.snapshot("a1", snapshot("S1", "init"));
+    // An import replaces the history: what came before is no longer the agent's.
+    store.historyCleared("a1");
+    store.step("a1", step({ id: "imported", messageId: "m1" }));
+    store.snapshot("a1", snapshot("S3", "imported"));
+    expect(store.stepsOf("a1").map(s => s.id)).toEqual(["imported"]);
+    expect(store.snapshotsOf("a1").map(s => s.id)).toEqual(["S3"]);
+    const trace = store.exportAgent("a1")!;
+    expect((trace.steps as any[]).map(s => [s.id, s.cleared])).toEqual([
+      ["init", 1],
+      ["imported", 0],
+    ]);
+    // Imported again under the same ids, a step is the agent's once more.
+    store.historyCleared("a1");
+    store.step("a1", step({ id: "imported", messageId: "m1" }));
+    expect(store.stepsOf("a1").map(s => s.id)).toEqual(["imported"]);
+    store.close();
+  });
+
+  test("keys a database made before by agent, keeping the rows it holds", () => {
+    const dir = mkdtempSync(join(tmpdir(), "trace-store-"));
+    const path = join(dir, "traces.db");
+    // The earlier schema: these tables keyed by their own ids alone.
+    const legacy = new Database(path, { create: true });
+    legacy.exec(`
+      CREATE TABLE turns (message_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel TEXT NOT NULL, source TEXT,
+        text TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, status TEXT, reply TEXT, error TEXT);
+      CREATE TABLE steps (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, message_id TEXT NOT NULL, parent_id TEXT,
+        step_number INTEGER NOT NULL, role TEXT NOT NULL, source TEXT, correction TEXT, at INTEGER NOT NULL,
+        is_begin INTEGER NOT NULL, is_end INTEGER NOT NULL, end_reason TEXT, content TEXT, reasoning TEXT,
+        tool_calls INTEGER NOT NULL, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER,
+        cached_input_tokens INTEGER, reasoning_tokens INTEGER, input_messages INTEGER, input_chars INTEGER,
+        compile_ms INTEGER, context_ms INTEGER, model_ms INTEGER, post_step_ms INTEGER, step TEXT NOT NULL);
+      CREATE TABLE snapshots (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, parent_id TEXT, step_id TEXT,
+        version INTEGER, kind TEXT, author TEXT, operator_id TEXT, action TEXT, created_at INTEGER NOT NULL,
+        operators INTEGER NOT NULL, links TEXT NOT NULL, positions TEXT NOT NULL, settings TEXT, namespace TEXT);
+      CREATE TABLE snapshot_operators (snapshot_id TEXT NOT NULL, position INTEGER NOT NULL,
+        operator_id TEXT NOT NULL, blob TEXT NOT NULL, PRIMARY KEY (snapshot_id, position));
+      CREATE TABLE blobs (hash TEXT PRIMARY KEY, json TEXT NOT NULL);
+      CREATE INDEX snapshots_by_agent ON snapshots (agent_id, created_at);
+      INSERT INTO turns (message_id, agent_id, channel, started_at, reply) VALUES ('m1', 'a1', 'message', 1, 'kept');
+      INSERT INTO steps (id, agent_id, message_id, step_number, role, at, is_begin, is_end, tool_calls, step)
+        VALUES ('s1', 'a1', 'm1', 0, 'user', 1, 1, 1, 0, '{"id":"s1","messageId":"m1","content":"kept"}');
+      INSERT INTO snapshots (id, agent_id, parent_id, step_id, version, kind, author, action, created_at, operators,
+        links, positions) VALUES ('S1', 'a1', 'S0', 's1', 0, 'add', 'agent',
+        '{"kind":"add","author":"agent","operatorId":"x"}', 1, 1, '[]', '{}');
+      INSERT INTO snapshot_operators VALUES ('S1', 0, 'x', 'h1');
+      INSERT INTO blobs VALUES ('h1', '{"operatorID":"x","operatorType":"PythonUDFV2"}');
+    `);
+    legacy.close();
+
+    const keyOf = (store: TraceStore, table: string) =>
+      ((store as any).db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number }>)
+        .filter(column => column.pk)
+        .sort((a, b) => a.pk - b.pk)
+        .map(column => column.name);
+    for (let open = 0; open < 2; open++) {
+      // Opened twice: the second time finds the tables keyed already.
+      const store = new TraceStore(path);
+      expect(keyOf(store, "turns")).toEqual(["agent_id", "message_id"]);
+      expect(keyOf(store, "steps")).toEqual(["agent_id", "id"]);
+      expect(keyOf(store, "snapshots")).toEqual(["agent_id", "id"]);
+      expect(keyOf(store, "snapshot_operators")).toEqual(["agent_id", "snapshot_id", "position"]);
+      expect(store.stepsOf("a1").map(s => s.content)).toEqual(["kept"]);
+      const [stored] = store.snapshotsOf("a1");
+      expect([stored.id, stored.parentId, stored.stepId, stored.version]).toEqual(["S1", "S0", "s1", 0]);
+      expect(stored.workflow.operators.map(op => op.operatorID)).toEqual(["x"]);
+      expect(rowsOf(store, "turns")).toBe(1);
+      store.close();
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a stored tree is whole when every step's snapshots and their parents are there, roots aside", () => {
+    // A step whose dataflow call recorded these versions.
+    const made = (id: string, parentId: string | undefined, ...versions: number[]) =>
+      step({
+        id,
+        messageId: "m",
+        parentId,
+        role: "agent",
+        toolCalls: [{ toolName: "dataflow", toolCallId: "c" }] as any,
+        toolResults: [
+          {
+            toolCallId: "c",
+            output: {
+              kind: "dataflow-actions",
+              actions: [{ output: { versions: versions.map(version => ({ version })) } }],
+            },
+          },
+        ] as any,
+      });
+    const kept = (id: string, stepId: string, parentId: string, version?: number, createdAt = 1) => ({
+      id,
+      parentId,
+      stepId,
+      version,
+      createdAt,
+      workflow: {} as WorkflowContent,
+    });
+    // A seeded agent: its own initialize under S0, then the import under a root of its own (S2).
+    const steps = [
+      { ...made("init", undefined), toolCalls: [{ toolName: "initialize" }] as any, toolResults: [] },
+      step({ id: "ask", messageId: "m", parentId: "archive-init" }),
+      made("build", "ask", 0, 1),
+      made("more", "build", 2),
+    ];
+    const tree = [
+      kept("S1", "init", "S0"),
+      kept("S3", "build", "S2", 0),
+      kept("S4", "build", "S3", 1, 2),
+      kept("S5", "more", "S4", 2, 3),
+    ];
+    expect(storedTreeComplete(steps, tree)).toBe(true);
+    // Another agent overwrote a step's first version: its next one lost its parent.
+    expect(
+      storedTreeComplete(
+        steps,
+        tree.filter(s => s.id !== "S3")
+      )
+    ).toBe(false);
+    // ... or the first version of a later step.
+    expect(
+      storedTreeComplete(
+        steps,
+        tree.filter(s => s.id !== "S4")
+      )
+    ).toBe(false);
+    // ... or every snapshot of a step that made some.
+    expect(
+      storedTreeComplete(
+        steps,
+        tree.filter(s => s.id !== "S5")
+      )
+    ).toBe(false);
+    expect(storedTreeComplete(steps, [])).toBe(false);
   });
 
   test("openTraceStore: 'off' is no store; unset under a test run is a database in memory", () => {

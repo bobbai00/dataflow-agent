@@ -17,8 +17,9 @@ The chat shows each part of a run once (see render.py). Below it, the user can r
 their own code, typed in or loaded from their files, in the chat's Python session;
 the agent then sees that run. An uploaded notebook is imported into the chat: its
 cells run in that session and the agent takes them as its own steps. The sidebar
-lists the user's chats: a tab opens on the latest, can move to any other (its
-session then continues that chat from the trace), or start a new one. Every
+lists the user's chats: a tab opens on a new one (or, after a reload, on the chat
+in its address), can move to any other (its session then continues that chat from
+the trace), or start a new one. Every
 handler resolves the signed-in user from the request and reads or writes only that
 user's records and files.
 """
@@ -43,7 +44,7 @@ from .render import (FOOTNOTE, answer_messages, escape_tags, import_footnote, im
 from .sessions import SessionLimit, Sessions, UserCodeStep, restored_runs, user_files
 from .store import Store
 
-SEED_WAIT_SECONDS = 180.0  # a page load waits this long for the user's seed before showing the chat
+SEED_WAIT_SECONDS = 180.0  # a page load waits this long for the user's seed, so that the chat list shows it
 
 STREAM_SECONDS = 0.15  # a streaming step is redrawn at most this often, not on every token
 DATA_SUFFIXES = [".csv", ".tsv", ".json", ".jsonl", ".parquet", ".xlsx", ".xls", ".txt"]
@@ -68,6 +69,12 @@ CSS = """
 #chat-list .wrap input[type=radio] { display: none; }  /* the selected chat is highlighted instead */
 #chat-list .wrap label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 """
+# The tab's chat goes in the page address (?chat=), so that a reload opens it again; a new chat has none.
+KEEP_CHAT_IN_ADDRESS = """(chat) => {
+  const address = new URL(window.location.href);
+  if (chat) address.searchParams.set("chat", chat); else address.searchParams.delete("chat");
+  window.history.replaceState(window.history.state, "", address);
+}"""
 
 
 def clock(timestamp: float | None) -> str:
@@ -176,7 +183,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         return gr.Radio(choices=choices, value=current if current in {c[1] for c in choices} else None)
 
     def history_of(user: dict, chat_id: str) -> list[gr.ChatMessage]:
-        """The chat's runs as the chat showed them, from the trace: what a tab opens on."""
+        """The chat's runs as the chat showed them, from the trace: what a tab shows on moving to it."""
         history: list[gr.ChatMessage] = []
         if not chat_id:
             return history
@@ -218,16 +225,16 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         return history
 
     def on_load(request: gr.Request):
-        """The page, opened on the user's latest chat."""
+        """The page, on a new chat; or on the chat in its address, so that a reload stays where it was."""
         user = user_of(request)
         who = (f"Signed in as <b>{html.escape(user['username'])}</b> · "
                '<a href="/logout" target="_self">Log out</a>')
-        # A just-created account's seed may still be importing: the chat should open on it.
+        # A just-created account's seed may still be importing: the chat list should show it.
         if sessions.seeder.enabled():
             sessions.seeder.start(user)
             sessions.seeder.wait(user["id"], SEED_WAIT_SECONDS)
-        latest = store.list_chats(user["id"], 1)
-        current = latest[0]["id"] if latest else ""
+        asked = request.query_params.get("chat", "")
+        current = asked if asked and store.get_chat(user["id"], asked) else ""
         return (who, files_markdown(user), runs_table(user), gr.Dropdown(choices=scripts_of(user)),
                 history_of(user, current), chat_picker(user, current), current)
 
@@ -507,6 +514,7 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         demo.load(on_load, outputs=[who, files, runs, script_picker, chatbot, chat_list, current_chat])
         new_chat_button.click(new_chat, [current_chat], [chatbot, chat_list, current_chat])
         chat_list.input(switch_chat, [chat_list, current_chat], [chatbot, chat_list, current_chat])
+        chat_list.change(None, [chat_list], None, js=KEEP_CHAT_IN_ADDRESS)
         for trigger in (prompt.submit, submit.click):
             trigger(lock_inputs, [prompt], [sent, prompt, submit]).then(
                 chat, [sent, chatbot, current_chat], [chatbot], concurrency_limit=config.concurrency,

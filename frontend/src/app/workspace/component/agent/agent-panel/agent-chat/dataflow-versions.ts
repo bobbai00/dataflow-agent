@@ -190,3 +190,109 @@ export function versionLabel(node: SnapshotTreeNode): { label: string; title: st
   const title = versionTitle(node.version, node.action);
   return { label: `v${node.version} ${actionLabel(node.action)}`, title: node.failed ? `${title} · failed` : title };
 }
+
+/** A node of the history tree: a version, or a message the user sent. */
+export interface HistoryNode extends SnapshotTreeNode {
+  /** Set on a user's message: the step that holds it and its text. */
+  message?: { stepId: string; text: string };
+}
+
+type HistoryStep = Pick<
+  ReActStep,
+  "id" | "parentId" | "role" | "isBegin" | "messageSource" | "userAction" | "content"
+> & {
+  timestamp: Date | string | number;
+};
+
+/** A message the user wrote, in the chat or an operator's panel: not a canvas action or the service's note. */
+export function isUserMessage(step: Pick<ReActStep, "role" | "isBegin" | "messageSource" | "userAction">): boolean {
+  return (
+    step.role === "user" &&
+    step.isBegin &&
+    !step.userAction &&
+    step.messageSource !== "action" &&
+    step.messageSource !== "correction"
+  );
+}
+
+/** The history tree's id for the node of the message `stepId` holds. */
+export const messageNodeId = (stepId: string): string => `message:${stepId}`;
+
+/** Each step's own snapshot (its newest version, or a restore's), by step id. */
+function ownedSnapshots(nodes: readonly SnapshotTreeNode[]): Map<string, string> {
+  const owned = new Map<string, string>();
+  for (const node of nodes) if (node.reactStepId && node.owned !== false) owned.set(node.reactStepId, node.id);
+  return owned;
+}
+
+/**
+ * The history tree: the versions (`versionNodes`) and the user's messages, so
+ * it reads as the session went: a version, what the user asked, the versions
+ * that answered it. A message hangs under the version it was sent at, or under
+ * the message before it when nothing changed in between; the first version its
+ * turn made hangs under it.
+ */
+export function historyNodes(nodes: readonly SnapshotTreeNode[], steps: readonly HistoryStep[]): HistoryNode[] {
+  const versions: HistoryNode[] = versionNodes(nodes);
+  const messages = steps.filter(isUserMessage);
+  if (!messages.length) return versions;
+  const stepById = new Map(steps.map(step => [step.id, step]));
+  const owned = ownedSnapshots(nodes);
+  // What a step's children follow: the nearest message, or the version shown, at or above it.
+  const anchor = (stepId: string | undefined): string | undefined => {
+    for (let cursor = stepId; cursor; cursor = stepById.get(cursor)?.parentId) {
+      const step = stepById.get(cursor);
+      if (step && isUserMessage(step)) return messageNodeId(step.id);
+      const snapshot = owned.get(cursor);
+      if (snapshot) return shownVersion(nodes, snapshot);
+    }
+    return undefined;
+  };
+  const stepOf = new Map(nodes.map(node => [node.id, node.reactStepId]));
+  return [
+    ...versions.map(version => {
+      // A step's first version: the message its turn answers, when one came after the version before it.
+      const step = version.reactStepId ? stepById.get(version.reactStepId) : undefined;
+      const raw = nodes.find(node => node.id === version.id)?.parentId;
+      if (!step || (raw !== undefined && stepOf.get(raw) === step.id)) return version;
+      const parent = anchor(step.parentId);
+      return parent?.startsWith("message:") ? { ...version, parentId: parent } : version;
+    }),
+    ...messages.map(
+      (step): HistoryNode => ({
+        id: messageNodeId(step.id),
+        parentId: anchor(step.parentId),
+        reactStepId: step.id,
+        operatorCount: 0,
+        resultCount: 0,
+        timestamp: new Date(step.timestamp).getTime(),
+        message: { stepId: step.id, text: step.content },
+      })
+    ),
+  ];
+}
+
+/**
+ * The history node HEAD is at: the message HEAD is on, or answers before its
+ * turn made a version, else the version HEAD's snapshot shows.
+ */
+export function headNode(
+  nodes: readonly SnapshotTreeNode[],
+  steps: readonly HistoryStep[],
+  headStepId: string | null | undefined,
+  headSnapshotId: string | undefined
+): string | undefined {
+  const stepById = new Map(steps.map(step => [step.id, step]));
+  const owned = ownedSnapshots(nodes);
+  for (let cursor = headStepId ?? undefined; cursor; cursor = stepById.get(cursor)?.parentId) {
+    const step = stepById.get(cursor);
+    if (step && isUserMessage(step)) return messageNodeId(step.id);
+    if (owned.has(cursor)) break;
+  }
+  return shownVersion(nodes, headSnapshotId);
+}
+
+/** A message's pill text: its first line, without markdown's backticks. */
+export function messageLabel(text: string): string {
+  return (text.split("\n").find(line => line.trim()) ?? "").replace(/`/g, "").trim();
+}

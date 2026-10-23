@@ -11,9 +11,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// What a seeded participant sees on the script agent: sign in, and the chat opens
-// on the imported notebook; ask the scenario's question; reload, and the whole
-// conversation is still there. Prints what it finds and saves screenshots.
+// What a seeded participant sees on the script agent: sign in to a new chat, with
+// the imported notebook's chat in the list; open it; ask the scenario's question;
+// reload, and the whole conversation is still there. Prints what it finds and
+// saves screenshots.
 //
 //   node study/seeded_login.mjs BASE_URL USERNAME PASSWORD OUT_DIR [QUESTION]
 import { mkdirSync } from "node:fs";
@@ -45,7 +46,8 @@ const page = await (
 ).newPage();
 try {
   await login(page);
-  // The chat shows the seeded notebook without any upload or import.
+  // The page opens on a new chat; the seeded notebook's chat is in the list, without any upload or import.
+  await page.locator("#chat-list label", { hasText: "📓" }).first().click({ timeout: 240_000 });
   await page.waitForSelector("text=from your trace", { timeout: 240_000 });
   let text = await chatText(page);
   console.log(
@@ -60,7 +62,7 @@ try {
     `question (${turn.seconds.toFixed(0)} s): ${turn.answer.replace(/\s+/g, " ").slice(0, 500)}`,
   );
   await page.screenshot({ path: `${out}/answered.png`, fullPage: true });
-  // A reload continues from the trace: the notebook, the question and the answer are all back.
+  // A reload stays on the chat and continues it from the trace: the notebook, the question and the answer are back.
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("text=from your trace", { timeout: 120_000 });
   text = await chatText(page);
