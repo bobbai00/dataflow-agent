@@ -112,6 +112,36 @@ def keep(row):
   expect(resent.operators).toEqual(rescaled.operators);
 });
 
+test("is_visualization marks a registered function's operator and never reaches the function", async () => {
+  const staged = await stageRegisteredEdit({
+    operators: {},
+    python: "def chart(table, *, bins=10):\n    return '<svg></svg>'",
+    changes:
+      "set raw: scan(files='data.csv')\nset drawn: chart(raw, bins=5, is_visualization=True, doc='Price histogram')",
+  });
+  const registered = staged.operators.drawn.properties.registered as {
+    settings: Record<string, unknown>;
+    visualization?: boolean;
+  };
+  expect(registered.visualization).toBe(true);
+  expect(registered.settings).toEqual({ bins: 5 });
+  expect(staged.operators.drawn.doc).toBe("Price histogram");
+  // The flag is part of the operator's identity: turning it off re-runs the operator.
+  const plain = await stageRegisteredEdit({
+    ...staged,
+    python: "",
+    changes: "set drawn: chart(raw, bins=5, is_visualization=False, doc='Price histogram')",
+  });
+  expect((plain.operators.drawn.properties.registered as { visualization?: boolean }).visualization).toBeUndefined();
+  expect(plain.operators.drawn.revision).not.toBe(staged.operators.drawn.revision);
+  for (const [changes, cause] of [
+    ["set bad: limit(raw, n=1, is_visualization=True)", "applies to a registered Python function"],
+    ["set bad: chart(raw, is_visualization='yes')", "is_visualization must be True or False"],
+  ]) {
+    await expect(stageRegisteredEdit({ ...staged, python: "", changes })).rejects.toThrow(cause);
+  }
+});
+
 test("edit rejection is atomic and validates the final graph against function signatures", async () => {
   const before = await stageRegisteredEdit({
     operators: {},

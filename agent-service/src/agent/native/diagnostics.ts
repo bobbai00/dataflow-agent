@@ -92,7 +92,8 @@ export const REPAIR_HINTS: Record<string, string> = {
   PROJECT_OPTIONS: "Use keep OR drop (not both) and/or rename; each names existing columns.",
   CAST_OPTIONS: 'format and timezone apply to datetime only; errors is "raise" or "null".',
   AGGREGATE_ARGUMENT: "Every output is name=reducer(col); only count() may omit the column.",
-  JOIN_ARGUMENT: "how is inner/left/right/full/cross/semi/anti; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
+  JOIN_ARGUMENT:
+    "how is inner/left/right/full/cross/semi/anti; validate is many_to_many/many_to_one/one_to_many/one_to_one.",
   JOIN_KEYS: "Name the keys explicitly with on=; a cross join takes none. Keys are never inferred.",
   UNION_ARGUMENT: 'schema is "strict" (identical columns) or "align" (absent columns become null).',
   DISTINCT_ARGUMENT: 'keep is "first" or "last"; columns lists the key columns, or omit it for whole-row distinct.',
@@ -110,6 +111,10 @@ export const REPAIR_HINTS: Record<string, string> = {
   CALLBACK_RETURN_TYPE: "Return the declared scalar type or None, not a table or truthy substitute.",
   PYTHON_IMPORT: "Check package availability or import names; changing a predicate will not install a package.",
   PROCESS_RETURN_TYPE: "Return one pandas DataFrame from the process function.",
+  VISUALIZATION_TYPE:
+    "Return the chart's HTML as a str from the visualization function, or a table whose first cell holds it.",
+  VISUALIZATION_EMPTY:
+    "Return the chart's HTML from the visualization function, or a table with at least one row and column whose first cell holds it.",
   MAP_SCHEMA:
     'Return the same keys from every row; use {**row, "column": value} to keep the input columns and add one.',
   OUTPUT_SCHEMA: "Return unique string column names.",
@@ -374,9 +379,17 @@ export function nativeDiagnosticIssue(diagnostic: NativeDiagnostic): string {
   const source = diagnostic.source;
   return [
     `- error ${diagnostic.code}: ${clipped(sanitizeDiagnosticText(diagnostic.message), 400)}`,
-    ...(source ? [`  - at: ${source.entry} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${inlineCode(clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180))}`] : []),
+    ...(source
+      ? [
+          `  - at: ${source.entry} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${inlineCode(clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180))}`,
+        ]
+      : []),
     ...(diagnostic.field && !source ? [`  - at: ${clipped(sanitizeDiagnosticText(diagnostic.field), 100)}`] : []),
     ...(hint ? [`  - fix: ${clipped(sanitizeDiagnosticText(hint), 220)}`] : []),
-    ...(diagnostic.retryable !== undefined ? [`  - note: ${diagnostic.stage === "infrastructure" ? "infrastructure retryable" : "retryable unchanged"}: ${diagnostic.retryable}`] : []),
+    ...(diagnostic.retryable !== undefined
+      ? [
+          `  - note: ${diagnostic.stage === "infrastructure" ? "infrastructure retryable" : "retryable unchanged"}: ${diagnostic.retryable}`,
+        ]
+      : []),
   ].join("\n");
 }

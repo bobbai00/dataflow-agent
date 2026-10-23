@@ -404,6 +404,21 @@ export function restrictRecords(
   };
 }
 
+/**
+ * A visualization operator's record (`is_visualization=True`) carries a chart's
+ * HTML in `html-content`. The chart is for the user's panel; the model reads
+ * what it is, not the markup.
+ */
+function visualizationRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  if (rows[0]?.["__is_visualization__"] !== true || typeof rows[0]["html-content"] !== "string") return rows;
+  return rows.map(row => {
+    const html = row["html-content"];
+    return typeof html === "string"
+      ? { ...row, "html-content": `<chart: ${formatCount(html.length)} chars of HTML, rendered in the user's panel>` }
+      : row;
+  });
+}
+
 export function renderRecords(
   info: OperatorInfo,
   options: ObservationFormatOptions & {
@@ -417,7 +432,7 @@ export function renderRecords(
   }
 ): RenderedRecords {
   const config = observationFormat(options);
-  const rows = info.result ?? [];
+  const rows = visualizationRows(info.result ?? []);
   const declared =
     info.resultSchema ?? [...new Set(rows.flatMap(row => Object.keys(row)))].map(name => ({ name, type: "unknown" }));
   const totalRows =

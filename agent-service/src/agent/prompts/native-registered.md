@@ -81,6 +81,8 @@ def load_records(*, path, field='records'):
 {{LOADER_EXAMPLE}}
 ```
 
+A function that draws a chart returns the chart's HTML as a string (or a one-cell table holding it). Set its operator with `is_visualization=True`, and its result is the rendered page in the user's panel instead of a table: `set price_chart: price_histogram(priced, is_visualization=True, doc='Nightly prices, one bar per $50')`. `show result` reports such a result as a visualization without its HTML, so compute the chart's numbers in operators you can read first, and draw only when the user asks for a chart.
+
 Definitions are shared and persist; each execution runs in isolation, so tables pass between operators only through edges. Keep data loading and computation inside functions, with no top-level calls. Return unique string column names and scalar cells. Send source only when defining or changing it. Give registered functions and predicates concise docstrings. {{OPERATOR_DOC}} An explicit operator doc overrides the current function docstring, then the built-in summary.
 
 ### Reading results

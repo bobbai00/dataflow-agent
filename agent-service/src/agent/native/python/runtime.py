@@ -437,6 +437,34 @@ def _columns(spec, frame, names, field):
         )
 
 
+def _visualization_frame(spec, value):
+    """A visualization operator's result: one row holding the chart's HTML.
+
+    The function returns the HTML itself, or a table whose first cell is the
+    HTML (a one-cell DataFrame from a plotting helper, for instance). The result
+    takes the shape the frontend already renders as a page -- `html-content`,
+    with `__is_visualization__` marking the record -- and the agent's tool
+    result reports it as a visualization without the markup.
+    """
+    if isinstance(value, pd.DataFrame):
+        if value.shape[0] < 1 or value.shape[1] < 1:
+            raise _error(
+                spec,
+                "VISUALIZATION_EMPTY",
+                "A visualization function returned an empty table; return the chart's HTML, or a table whose first cell holds it.",
+                stage="contract",
+            )
+        value = value.iat[0, 0]
+    if not isinstance(value, str):
+        raise _error(
+            spec,
+            "VISUALIZATION_TYPE",
+            f"A visualization function must return HTML text, not {type(value).__name__}; return a str, or a table whose first cell is the HTML.",
+            stage="contract",
+        )
+    return pd.DataFrame({"html-content": [value], "__is_visualization__": [True]})
+
+
 def _frame(spec, value):
     if not isinstance(value, pd.DataFrame):
         raise _error(
@@ -3576,12 +3604,10 @@ def execute_native(spec, inputs):
                 with _ProcessTrace(
                     {f"<definitions:{i + 1}>": i + 1 for i in range(len(props["registered"]["cells"]))}
                 ) as trace:
-                    output = _frame(
-                        spec,
-                        _normalize_output(
-                            execute_registered(spec, [_process_input(frame) for frame in inputs]), operations
-                        ),
-                    )
+                    returned = execute_registered(spec, [_process_input(frame) for frame in inputs])
+                    if props["registered"].get("visualization") is True:
+                        returned = _visualization_frame(spec, returned)
+                    output = _frame(spec, _normalize_output(returned, operations))
                 if spec.get("profileCollection") is True:
                     _finish_trace(trace)
                 if trace.reads or trace.events:
