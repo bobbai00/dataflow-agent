@@ -106,6 +106,22 @@ export const operatorFileKindClass = "texera-operator-file-kind";
 export const operatorSubtitleClass = "texera-operator-subtitle";
 
 /**
+ * A link view whose arrowheads follow the curve: each turns along the stretch
+ * of path it sits on. JointJS's legacy markers point along the straight line
+ * between the link's ends, which on a curve that loops round (a box under or
+ * behind the one feeding it) turns the arrowhead away from the input port.
+ */
+export const CurveLinkView = joint.dia.LinkView.extend({
+  _translateAndAutoOrientArrows(this: any, sourceArrow?: joint.V, targetArrow?: joint.V): void {
+    const length: number = this.getConnectionLength();
+    const near = (at: number): joint.g.Point | null =>
+      length > 2 ? this.getPointAtLength(Math.max(0, Math.min(length, at))) : null;
+    sourceArrow?.translateAndAutoOrient(this.sourcePoint, near(1) ?? this.targetPoint, this.paper.cells);
+    targetArrow?.translateAndAutoOrient(this.targetPoint, near(length - 1) ?? this.sourcePoint, this.paper.cells);
+  },
+});
+
+/**
  * Extends a basic Joint operator element and adds our own HTML markup.
  * Our own HTML markup includes the SVG element for the delete button,
  *   which will show a red delete button on the top right corner
@@ -891,13 +907,20 @@ export class JointUIService {
    */
   public static getJointLinkCell(link: OperatorLink): joint.dia.Link {
     const jointLinkCell = JointUIService.getDefaultLinkCell();
+    // The edge starts on the outer side of the output port and ends on the outer
+    // side of the input port, wherever the two boxes are: not where the straight
+    // line between the ports happens to cross them.
     jointLinkCell.set("source", {
       id: link.source.operatorID,
       port: link.source.portID,
+      anchor: { name: "right" },
+      connectionPoint: { name: "anchor" },
     });
     jointLinkCell.set("target", {
       id: link.target.operatorID,
       port: link.target.portID,
+      anchor: { name: "left" },
+      connectionPoint: { name: "anchor" },
     });
     jointLinkCell.set("id", link.linkID);
     jointLinkCell.set("z", 0);
@@ -924,15 +947,20 @@ export class JointUIService {
    */
   public static getDefaultLinkCell(): joint.dia.Link {
     return new joint.dia.Link({
-      // A smooth curve from the output port to the input port, leaving and
-      // arriving horizontally, so a dataflow reads left to right and the
-      // edges into a join fan in instead of stacking as right-angled runs.
+      // A smooth curve from the output port to the input port, so a dataflow
+      // reads left to right and the edges into a join fan in instead of
+      // stacking as right-angled runs. It always leaves rightwards and arrives
+      // from the left, so the arrowhead points into the input port even when
+      // the box sits under or behind the one feeding it (the curve then loops
+      // round). The connector's own "horizontal" direction picks the port side
+      // the straight line between the ports meets, which turned such arrows
+      // around; vectors, since this JointJS reads the "right" keyword as down.
       router: {
         name: "normal",
       },
       connector: {
         name: "curve",
-        args: { direction: "horizontal" },
+        args: { sourceDirection: { x: 1, y: 0 }, targetDirection: { x: -1, y: 0 } },
       },
       toolMarkup: `<g class="link-tool">
           <g class="tool-remove" event="tool:remove">

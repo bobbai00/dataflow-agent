@@ -339,8 +339,19 @@ describe("JointUIService", () => {
         target: { operatorID: "op-B", portID: "in-0" },
       });
       expect(link.id).toBe("link-1");
-      expect(link.get("source")).toEqual({ id: "op-A", port: "out-0" });
-      expect(link.get("target")).toEqual({ id: "op-B", port: "in-0" });
+      // Each end sits on the port's outer side: rightmost on the output port, leftmost on the input port.
+      expect(link.get("source")).toEqual({
+        id: "op-A",
+        port: "out-0",
+        anchor: { name: "right" },
+        connectionPoint: { name: "anchor" },
+      });
+      expect(link.get("target")).toEqual({
+        id: "op-B",
+        port: "in-0",
+        anchor: { name: "left" },
+        connectionPoint: { name: "anchor" },
+      });
       // z=0 keeps links rendered under operator elements (z=1 in
       // getJointOperatorElement).
       expect(link.get("z")).toBe(0);
@@ -348,11 +359,14 @@ describe("JointUIService", () => {
   });
 
   describe("getDefaultLinkCell (static)", () => {
-    it("builds a link drawn as a horizontal curve, with no router bending it into right angles", () => {
+    it("builds a link drawn as a curve that leaves rightwards and arrives from the left, with no router bending it into right angles", () => {
       const link = JointUIService.getDefaultLinkCell();
       expect(link).toBeInstanceOf(joint.dia.Link);
       expect(link.get("router")).toEqual({ name: "normal" });
-      expect(link.get("connector")).toEqual({ name: "curve", args: { direction: "horizontal" } });
+      expect(link.get("connector")).toEqual({
+        name: "curve",
+        args: { sourceDirection: { x: 1, y: 0 }, targetDirection: { x: -1, y: 0 } },
+      });
     });
 
     it("styles the connection stroke and hides the remove tool by default", () => {
