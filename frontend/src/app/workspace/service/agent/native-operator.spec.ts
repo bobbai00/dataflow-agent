@@ -21,12 +21,16 @@ import { NativeOperatorDefinition, OperatorPredicate } from "../../types/workflo
 import {
   assembleNativeStatement,
   isNativeOperator,
+  isVisualizationOperator,
   nativeArgumentLabel,
   nativeFieldSource,
   nativeOperatorIcon,
   nativeOperatorSummary,
   nativeOperatorTypeName,
   nativePositionalLabel,
+  nativeScanFileKind,
+  nativeScanFileLabel,
+  nativeScanFiles,
   nativeStatementBody,
   pythonString,
 } from "./native-operator";
@@ -85,6 +89,30 @@ describe("native operator presentation", () => {
     expect(nativeOperatorIcon({ ...aggregate, type: "SomethingNew" })).toBe("assets/operator_images/PythonUDFV2.png");
   });
 
+  it("names a scan's file and kind for its box, and marks a function that draws", () => {
+    const scan: NativeOperatorDefinition = {
+      type: "Scan",
+      inputs: [],
+      properties: { files: "/texera/sf-airbnb/v1/listings.csv" },
+    };
+    expect(nativeScanFiles(scan)).toEqual(["listings.csv"]);
+    expect(nativeScanFileLabel(scan)).toBe("listings.csv");
+    expect(nativeScanFileKind(scan)).toBe("CSV");
+    const many = { ...scan, properties: { files: ["data/2024.parquet", "data/2025.parquet", "data/2026.parquet"] } };
+    expect(nativeScanFileLabel(many)).toBe("2024.parquet +2 more");
+    expect(nativeScanFileKind(many)).toBe("PARQUET");
+    expect(nativeScanFileKind({ ...scan, properties: { files: "export/2024-dump.csv.gz" } })).toBe("CSV");
+    expect(nativeScanFileKind({ ...scan, properties: { files: "README" } })).toBe("FILE");
+    expect(nativeScanFileLabel({ ...scan, properties: {} })).toBe("");
+    const drawing = {
+      ...registered,
+      properties: { registered: { ...registered.properties["registered"], visualization: true } },
+    };
+    expect(isVisualizationOperator(drawing)).toBe(true);
+    expect(isVisualizationOperator(registered)).toBe(false);
+    expect(nativeOperatorIcon(drawing)).toBe("assets/operator_images/BarChart.png");
+  });
+
   it("names the native type, or the registered function an operator calls", () => {
     expect(nativeOperatorTypeName(aggregate)).toBe("Aggregate");
     expect(nativeOperatorTypeName(registered)).toBe("widen");
@@ -111,7 +139,7 @@ describe("native operator presentation", () => {
 
   it("writes Python string literals the way repr does", () => {
     expect(pythonString("inner")).toBe("'inner'");
-    expect(pythonString("it's")).toBe("\"it's\"");
+    expect(pythonString("it's")).toBe('"it\'s"');
     expect(pythonString("both ' and \"")).toBe("'both \\' and \"'");
     expect(pythonString("a\\b\nc")).toBe("'a\\\\b\\nc'");
   });

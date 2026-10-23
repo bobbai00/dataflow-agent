@@ -87,6 +87,18 @@
         nzType="message"></i>
       <span>Feedback</span>
     </button>
+    <button
+      type="button"
+      class="op-action summary-action"
+      [disabled]="!canAct"
+      nz-tooltip
+      [nzTooltipTitle]="'Ask ' + agentName + ' what this operator does and how its result is computed from its inputs'"
+      (click)="summarize()">
+      <i
+        nz-icon
+        nzType="file-text"></i>
+      <span>Summary</span>
+    </button>
   </div>
 
   <div
@@ -98,6 +110,48 @@
     *ngIf="actionError"
     class="op-error">
     {{ actionError }}
+  </div>
+
+  <!-- The agent's summary of the operator; the same reply is in the chat. -->
+  <div
+    *ngIf="summary"
+    class="op-summary-card">
+    <div class="op-summary-head">
+      <i
+        nz-icon
+        nzType="file-text"></i>
+      <span class="op-summary-title">Summary</span>
+      <span class="op-summary-by">{{ summary.agentName }}</span>
+      <button
+        nz-button
+        nzType="text"
+        nzSize="small"
+        class="op-summary-close"
+        nz-tooltip
+        nzTooltipTitle="Hide"
+        (click)="dismissSummary()">
+        <i
+          nz-icon
+          nzType="close"></i>
+      </button>
+    </div>
+    <div
+      *ngIf="summary.pending"
+      class="op-summary-pending">
+      <i
+        nz-icon
+        nzType="loading"></i>
+      <span>{{ summary.agentName }} is summarizing…</span>
+    </div>
+    <markdown
+      *ngIf="!summary.pending && summary.text"
+      class="op-summary-text"
+      [data]="summary.text"></markdown>
+    <div
+      *ngIf="!summary.pending && !summary.text"
+      class="op-summary-pending">
+      No summary came back; the chat has {{ summary.agentName }}'s reply.
+    </div>
   </div>
 
   <texera-native-operator-editor

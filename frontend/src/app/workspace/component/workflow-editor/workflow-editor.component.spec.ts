@@ -27,7 +27,12 @@ import { WorkflowEditorComponent } from "./workflow-editor.component";
 import { workflowEditorTestImports, workflowEditorTestProviders } from "./workflow-editor.test-utils";
 import { OperatorMetadataService } from "../../service/operator-metadata/operator-metadata.service";
 import { StubOperatorMetadataService } from "../../service/operator-metadata/stub-operator-metadata.service";
-import { JointUIService, operatorAgentActionProgressClass } from "../../service/joint-ui/joint-ui.service";
+import {
+  JointUIService,
+  operatorAgentActionProgressClass,
+  operatorBorderColor,
+  operatorInvalidBorderColor,
+} from "../../service/joint-ui/joint-ui.service";
 import { AgentService, OperatorResultSummary } from "../../service/agent/agent.service";
 import { NzModalModule, NzModalService } from "ng-zorro-antd/modal";
 import { Overlay } from "@angular/cdk/overlay";
@@ -473,8 +478,8 @@ describe("WorkflowEditorComponent", () => {
       workflowActionService.setOperatorProperty(mockScanPredicate.operatorID, newProperty);
       const operator1 = component.paper.getModelById(mockScanPredicate.operatorID);
       const operator2 = component.paper.getModelById(mockResultPredicate.operatorID);
-      expect(operator1.attr("rect/stroke")).not.toEqual("red");
-      expect(operator2.attr("rect/stroke")).not.toEqual("red");
+      expect(operator1.attr("rect/stroke")).not.toEqual(operatorInvalidBorderColor);
+      expect(operator2.attr("rect/stroke")).not.toEqual(operatorInvalidBorderColor);
     });
 
     it("should validate operator connections correctly", () => {
@@ -1051,27 +1056,27 @@ describe("WorkflowEditorComponent", () => {
         expect(getStroke(mockScanPredicate.operatorID)).toBe("green");
       });
 
-      it("falls back to the default valid stroke (#CFCFCF) when no cached status exists", () => {
+      it("falls back to the default valid stroke when no cached status exists", () => {
         vi.spyOn(workflowStatusService, "getCurrentStatus").mockReturnValue({});
         vi.spyOn(validationWorkflowService, "validateOperator").mockReturnValue({ isValid: true });
 
         workflowActionService.addOperator(mockScanPredicate, mockPoint);
         fixture.detectChanges();
 
-        expect(getStroke(mockScanPredicate.operatorID)).toBe("#CFCFCF");
+        expect(getStroke(mockScanPredicate.operatorID)).toBe(operatorBorderColor);
       });
 
-      it("paints the invalid stroke (red) for an invalid operator with no cached status", () => {
+      it("paints the invalid stroke for an invalid operator with no cached status", () => {
         vi.spyOn(workflowStatusService, "getCurrentStatus").mockReturnValue({});
         vi.spyOn(validationWorkflowService, "validateOperator").mockReturnValue({ isValid: false, messages: {} });
 
         workflowActionService.addOperator(mockScanPredicate, mockPoint);
         fixture.detectChanges();
 
-        expect(getStroke(mockScanPredicate.operatorID)).toBe("red");
+        expect(getStroke(mockScanPredicate.operatorID)).toBe(operatorInvalidBorderColor);
       });
 
-      it("prioritizes invalid (red) over cached Completed status", () => {
+      it("prioritizes invalid over cached Completed status", () => {
         // Regression case: operator is both invalid AND has a cached Completed
         // status. applyOperatorBorder must pick red regardless of the order in
         // which the operator-add and validation streams fire.
@@ -1081,7 +1086,7 @@ describe("WorkflowEditorComponent", () => {
         workflowActionService.addOperator(mockScanPredicate, mockPoint);
         fixture.detectChanges();
 
-        expect(getStroke(mockScanPredicate.operatorID)).toBe("red");
+        expect(getStroke(mockScanPredicate.operatorID)).toBe(operatorInvalidBorderColor);
       });
 
       it("relies solely on the passed-in Validation (never recomputes inside the helper)", () => {
@@ -1099,7 +1104,7 @@ describe("WorkflowEditorComponent", () => {
         expect(validateSpy).not.toHaveBeenCalled();
       });
 
-      it("honors the passed-in Validation result (paints red when it is invalid)", () => {
+      it("honors the passed-in Validation result (paints the invalid stroke when it is invalid)", () => {
         // Proves the passed-in value actually drives the border: an invalid
         // result must paint red.
         vi.spyOn(workflowStatusService, "getCurrentStatus").mockReturnValue({});
@@ -1108,7 +1113,7 @@ describe("WorkflowEditorComponent", () => {
 
         (component as any).applyOperatorBorder(mockScanPredicate.operatorID, { isValid: false, messages: {} });
 
-        expect(getStroke(mockScanPredicate.operatorID)).toBe("red");
+        expect(getStroke(mockScanPredicate.operatorID)).toBe(operatorInvalidBorderColor);
       });
 
       it("always supplies a Validation to applyOperatorBorder when an operator is added", () => {

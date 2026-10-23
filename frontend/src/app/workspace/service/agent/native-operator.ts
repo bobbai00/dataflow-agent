@@ -69,8 +69,48 @@ export function isNativeOperator(
 }
 
 export function nativeOperatorIcon(definition: NativeOperatorDefinition): string {
-  const icon = definition.registeredName && definition.type === "Process" ? "PythonUDFV2" : ICONS[definition.type];
+  const icon =
+    definition.registeredName && definition.type === "Process"
+      ? isVisualizationOperator(definition)
+        ? "BarChart"
+        : "PythonUDFV2"
+      : ICONS[definition.type];
   return `assets/operator_images/${icon ?? "PythonUDFV2"}.png`;
+}
+
+/** A registered function's operator set with `is_visualization=True`: its result is a chart's HTML. */
+export function isVisualizationOperator(definition: NativeOperatorDefinition): boolean {
+  const registered = definition.properties?.["registered"] as { visualization?: unknown } | undefined;
+  return registered?.visualization === true;
+}
+
+/** The names of the files a scan reads, without their directories: `listings.csv`. */
+export function nativeScanFiles(definition: NativeOperatorDefinition): string[] {
+  const files = definition.properties?.["files"];
+  const paths = typeof files === "string" ? [files] : Array.isArray(files) ? files : [];
+  return paths
+    .filter((path): path is string => typeof path === "string" && path.trim().length > 0)
+    .map(
+      path =>
+        path
+          .replace(/[\\/]+$/, "")
+          .split(/[\\/]/)
+          .pop() ?? path
+    );
+}
+
+/** What a scan's box says: its file, or its first file and how many more. */
+export function nativeScanFileLabel(definition: NativeOperatorDefinition): string {
+  const names = nativeScanFiles(definition);
+  if (names.length === 0) return "";
+  return names.length === 1 ? names[0] : `${names[0]} +${names.length - 1} more`;
+}
+
+/** The kind of file a scan reads, for its glyph: `CSV`, `JSON`, `XLSX`…; `FILE` when the name has no extension. */
+export function nativeScanFileKind(definition: NativeOperatorDefinition): string {
+  const first = nativeScanFiles(definition)[0] ?? "";
+  const match = /\.([A-Za-z0-9]{1,8})$/.exec(first.replace(/\.(gz|bz2|zip)$/i, ""));
+  return match ? match[1].toUpperCase() : "FILE";
 }
 
 /** The type a box and the panel name: the registered function, else the native type. */

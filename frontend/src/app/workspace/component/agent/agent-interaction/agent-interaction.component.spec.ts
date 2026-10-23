@@ -328,13 +328,18 @@ describe("AgentInteractionComponent", () => {
       Array.from(element.querySelectorAll<HTMLButtonElement>(".op-action")).find(b => b.textContent?.trim() === name)!;
     const text = (element: Element | null) => element?.textContent?.replace(/\s+/g, " ").trim();
 
-    it("names the operator, its doc, and offers Run, Edit and Feedback", () => {
+    it("names the operator, its doc, and offers Run, Edit, Feedback and Summary", () => {
       const element = createNative();
       expect(text(element.querySelector(".op-id"))).toBe("kept");
       expect(text(element.querySelector(".op-type"))).toBe("Filter");
       expect(text(element.querySelector(".op-summary"))).toBe("Keep the records over 15.");
       expect(element.querySelector(".op-icon")?.getAttribute("src")).toBe("assets/operator_images/Filter.png");
-      expect(Array.from(element.querySelectorAll(".op-action")).map(text)).toEqual(["Run", "Edit", "Feedback"]);
+      expect(Array.from(element.querySelectorAll(".op-action")).map(text)).toEqual([
+        "Run",
+        "Edit",
+        "Feedback",
+        "Summary",
+      ]);
       // One agent needs no picker, and the feedback box waits for Feedback.
       expect(element.querySelector(".header-row")).toBeNull();
       expect(element.querySelector(".op-feedback")).toBeNull();
