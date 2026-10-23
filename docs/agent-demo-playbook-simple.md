@@ -37,7 +37,7 @@ bin/local-dev.sh up --skip-build    # expect "14 of 14 services running"
   **`agent-demo-cu`**.
 - Datasets already uploaded: `/agent-demo@texera.dev/northwind/v1/*.csv` and
   `/agent-demo@texera.dev/titanic/v1/titanic.csv`.
-- Open a fresh workflow → robot button → **+ Agent** → **Claude Haiku 4.5** → **Create Agent**
+- Open a fresh workflow → robot button → **Claude Haiku 4.5** → **Create Agent** (a workflow without an agent opens on the model list)
   (name defaults to **Bob**; mode is already **General** with parallel tool calls on).
 - Demo B only: **Operators** tab → also enable `Split`,
   `SklearnTrainingLogisticRegression`, `SklearnPrediction`, `Scorer`.

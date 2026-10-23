@@ -110,9 +110,8 @@ async function operatorsOf(agentId) {
 function chat(page) {
   return page.locator("texera-agent-chat").last();
 }
-// Any agent of another workflow shows as a tab, and under headless Chromium a
-// tab pane can linger in its `ant-tabs-switch-leave` state over the panel and
-// swallow real clicks; dispatch clicks inside the panel on the element itself.
+// Under headless Chromium an overlay can linger over the panel and swallow real
+// clicks; dispatch clicks inside the panel on the element itself.
 async function domClick(locator) {
   await locator.waitFor({ state: "visible", timeout: 30000 });
   await locator.evaluate(el => el.click());
@@ -131,9 +130,10 @@ async function selectComputingUnit(page, name) {
   await option.click();
   await sleep(1500);
 }
+// The panel shows one chat, the workflow's newest agent's; a workflow without an
+// agent opens on the registration. To make a second agent, remove the first.
 async function createAgentViaUI(page, modelId, name) {
-  // With several agent tabs the strip overflows and "+ Agent" scrolls out under the canvas.
-  await domClick(page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }));
+  if (await page.locator("#return-button .remove-agent").count()) await removeAgentViaUI(page);
   const reg = page.locator("texera-agent-registration");
   await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
   const label = modelId
@@ -150,8 +150,13 @@ async function createAgentViaUI(page, modelId, name) {
   await btn.waitFor({ state: "visible" });
   await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
   await domClick(btn);
-  await page.locator(".agent-tab-name", { hasText: name }).waitFor({ timeout: 30000 });
+  await page.locator("#agent-container #title", { hasText: name }).waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
+}
+// The panel's remove button (confirm is auto-accepted); the registration follows.
+async function removeAgentViaUI(page) {
+  await domClick(page.locator("#return-button .remove-agent"));
+  await page.locator("texera-agent-registration").waitFor({ timeout: 30000 });
 }
 async function sendAndWait(page, text, { timeout = TURN_TIMEOUT } = {}) {
   const c = chat(page);
@@ -649,9 +654,20 @@ async function main() {
     check("chat empty after clear", (await chat(page).locator("[data-step-id]").count()) === 0);
 
     // ===== 3. Code mode, switched from the settings modal =====
+    // The panel holds one chat per workflow: a second agent needs the first removed.
+    await removeAgentViaUI(page);
+    check(
+      "removing the agent deletes it on the server",
+      !(await agentsForWorkflow(wid)).some(a => a.name === "e2e-native"),
+      (await agentsForWorkflow(wid)).map(a => a.name).join(",")
+    );
     await createAgentViaUI(page, MODEL, "e2e-code");
     const codeAgent = (await agentsForWorkflow(wid)).find(a => a.name === "e2e-code");
     check("second agent created from the UI", !!codeAgent);
+    check(
+      "the panel title names the workflow's agent",
+      (await page.locator("#agent-container #title").innerText()).includes("e2e-code")
+    );
     modal = await openSettingsModal(page);
     await setSelectParam(page, modal, "Agent Mode", "Code");
     await sleep(1000);
@@ -681,20 +697,19 @@ async function main() {
     check("code turn: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
     await shot("09-code-mode");
 
-    // switching tabs back to first agent keeps it usable
-    await domClick(page.locator(".agent-tab-name", { hasText: "e2e-native" }));
-    await chat(page).locator("textarea").waitFor({ timeout: 10000 });
-    check("tab switch back to first agent", true);
-
-    // delete agent from tab close
-    const closeBtn = page.locator(".agent-tab-title", { hasText: "e2e-code" }).locator(".agent-tab-close");
-    await closeBtn.click({ timeout: 5000 }).catch(() => closeBtn.evaluate(el => el.click()));
-    await sleep(2000);
+    // the panel's remove button deletes the agent and offers a new one
+    await removeAgentViaUI(page);
+    await sleep(1000);
     agents = await agentsForWorkflow(wid);
     check(
-      "closing tab deletes agent on server",
+      "remove button deletes the agent on the server",
       !agents.some(a => a.name === "e2e-code"),
       agents.map(a => a.name).join(",")
+    );
+    check(
+      "the panel offers the registration once the workflow has no agent",
+      (await page.locator("texera-agent-registration").count()) === 1 &&
+        (await page.locator("#agent-container #title").innerText()).includes("AI Agent")
     );
     await shot("10-final");
   } catch (e) {

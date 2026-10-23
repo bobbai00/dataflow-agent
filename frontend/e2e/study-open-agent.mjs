@@ -55,19 +55,13 @@ try {
   await unit.waitFor({ timeout: 15_000 });
   await unit.click();
   await page.waitForTimeout(3000);
-  const tabs = await page
-    .locator(".agent-tab-title")
-    .evaluateAll(titles =>
-      titles.map(
-        t =>
-          `${t.querySelector(".agent-tab-name")?.textContent?.trim()}${t.querySelector(".workflow-lock-icon") ? " (locked)" : ""}`
-      )
-    );
-  console.log(`agent tabs: ${tabs.join(", ") || "none"}`);
-  const usable = page.locator(".agent-tab-title:not(:has(.workflow-lock-icon)) .agent-tab-name").first();
-  if (await usable.count()) {
-    await usable.click();
-    await page.waitForTimeout(4000);
+  // The panel shows the workflow's agent (its name in the title) or the registration.
+  await page.waitForTimeout(4000);
+  const title = (await page.locator("#agent-container #title").innerText()).trim();
+  console.log(
+    `panel: ${title}${(await page.locator("texera-agent-registration").count()) ? " (no agent: registration)" : ""}`
+  );
+  if (await page.locator("texera-agent-chat").count()) {
     const steps = await page.locator("texera-agent-chat .message").count();
     const text = await page
       .locator("texera-agent-chat")

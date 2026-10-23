@@ -113,7 +113,7 @@ bin/local-dev.sh up --skip-build     # expect "14 of 14 services running"
 
 - UI <http://localhost:4200>, login **`agent-demo` / `agent-demo-2026`**, computing unit
   **`agent-demo-cu`**.
-- Open a new workflow → robot button (bottom-right) → **+ Agent** → **Claude Haiku 4.5** →
+- Open a new workflow → robot button (bottom-right) → **Claude Haiku 4.5** →
   **Create Agent** (name defaults to **Bob**; mode is already **General**, parallel tool calls on).
 - **No operator setup needed.** The default allowlist is exactly what this demo uses: basic
   relational operators (`CSVFileScan`, `Filter`, `Projection`, `HashJoin`, `Aggregate`, `Sort`,

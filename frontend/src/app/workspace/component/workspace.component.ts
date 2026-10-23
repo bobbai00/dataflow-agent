@@ -23,7 +23,6 @@ import {
   ChangeDetectorRef,
   Component,
   HostListener,
-  Input,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -96,13 +95,6 @@ export class WorkspaceComponent implements AfterViewInit, OnInit, OnDestroy {
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private startTime: number | null = null;
   @ViewChild("codeEditor", { read: ViewContainerRef }) codeEditorViewRef!: ViewContainerRef;
-
-  /**
-   * Optional agent ID to activate when the workspace loads.
-   * When provided (from agent dashboard), the agent panel will open
-   * and connect to this agent automatically.
-   */
-  @Input() agentIdToActivate?: string;
 
   /**
    * Flag to ensure auto persist is registered only once.  This prevents multiple

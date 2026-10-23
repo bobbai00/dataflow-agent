@@ -171,8 +171,8 @@ async function selectComputingUnit(page, name) {
   await option.click();
   await sleep(1500);
 }
+// A workflow without an agent opens the panel on the registration.
 async function createAgentViaUI(page, modelId, name) {
-  await domClick(page.locator(".agent-tabs .ant-tabs-tab", { hasText: "+ Agent" }));
   const reg = page.locator("texera-agent-registration");
   await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
   const label = modelId
@@ -188,7 +188,7 @@ async function createAgentViaUI(page, modelId, name) {
   await btn.waitFor({ state: "visible" });
   await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
   await domClick(btn);
-  await page.locator(".agent-tab-name", { hasText: name }).waitFor({ timeout: 30000 });
+  await page.locator("#agent-container #title", { hasText: name }).waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
 }
 /** Type a message into the chat and send it. */

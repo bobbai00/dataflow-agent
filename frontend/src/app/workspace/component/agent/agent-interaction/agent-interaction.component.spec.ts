@@ -109,7 +109,10 @@ describe("AgentInteractionComponent", () => {
     getNativeStatementForm: ReturnType<typeof vi.fn>;
     getNativeCatalog: ReturnType<typeof vi.fn>;
   };
-  let workflowActionService: { getTexeraGraph: ReturnType<typeof vi.fn> };
+  let workflowActionService: {
+    getTexeraGraph: ReturnType<typeof vi.fn>;
+    getWorkflowMetadata: ReturnType<typeof vi.fn>;
+  };
   let workflowResultService: {
     getResultUpdateStream: () => typeof EMPTY;
     getPaginatedResultService: ReturnType<typeof vi.fn>;
@@ -137,6 +140,8 @@ describe("AgentInteractionComponent", () => {
     };
     workflowActionService = {
       getTexeraGraph: vi.fn().mockReturnValue(graphWith()),
+      // An unsaved workflow: the agents made without a workflow id are its.
+      getWorkflowMetadata: vi.fn().mockReturnValue({ name: "untitled" }),
     };
     workflowResultService = {
       getResultUpdateStream: () => EMPTY,
@@ -180,9 +185,10 @@ describe("AgentInteractionComponent", () => {
 
       createComponent();
 
+      // Newest first; made at the same time, the one listed later counts as newer.
       expect(component.availableAgents).toEqual([
-        { id: "a1", name: "a1", isConnected: false },
         { id: "a2", name: "a2", isConnected: true },
+        { id: "a1", name: "a1", isConnected: false },
       ]);
     });
 
@@ -205,6 +211,24 @@ describe("AgentInteractionComponent", () => {
       agentService.getActivelyConnectedAgentIds.mockReturnValue([]);
       createComponent();
       expect(component.selectedAgentId).toBeNull();
+    });
+
+    it("lists only the open workflow's agents, newest first", () => {
+      const user = { uid: 1, name: "user", email: "user@example.com", role: "REGULAR" };
+      workflowActionService.getWorkflowMetadata.mockReturnValue({ wid: 7 });
+      const older = { ...makeAgent("older"), delegate: { userInfo: user, workflowId: 7 } };
+      const newer = {
+        ...makeAgent("newer"),
+        createdAt: new Date("2026-02-01T00:00:00Z"),
+        delegate: { userInfo: user, workflowId: 7 },
+      };
+      const elsewhere = { ...makeAgent("elsewhere"), delegate: { userInfo: user, workflowId: 8 } };
+      agentService.getAllAgents.mockReturnValue(of([older, elsewhere, makeAgent("unbound"), newer]));
+
+      createComponent();
+
+      expect(agentService.getAllAgents).toHaveBeenCalledWith(7);
+      expect(component.availableAgents.map(a => a.id)).toEqual(["newer", "older"]);
     });
 
     it("reloads the agent list when agentChange$ emits", () => {

@@ -46,6 +46,7 @@ import {
   OperatorTable,
 } from "../../../service/agent/operator-data";
 import { NativeOperatorDefinition, OperatorPredicate } from "../../../types/workflow-common.interface";
+import { agentsOf } from "../../../service/agent/workflow-agent";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
 import { WorkflowResultService } from "../../../service/workflow-result/workflow-result.service";
 import { NotificationService } from "../../../../common/service/notification/notification.service";
@@ -252,13 +253,15 @@ export class AgentInteractionComponent implements OnInit, OnChanges {
   }
 
   private loadAvailableAgents(): void {
+    // Only this workflow's agents: the agent panel chats with one of them, never with another workflow's.
+    const workflowId = this.workflowActionService.getWorkflowMetadata().wid ?? undefined;
     this.agentService
-      .getAllAgents()
+      .getAllAgents(workflowId)
       .pipe(untilDestroyed(this))
       .subscribe(agents => {
         const connectedAgentIds = new Set(this.agentService.getActivelyConnectedAgentIds());
 
-        this.availableAgents = agents.map(agent => ({
+        this.availableAgents = agentsOf(agents, workflowId).map(agent => ({
           id: agent.id,
           name: agent.name,
           isConnected: connectedAgentIds.has(agent.id),
