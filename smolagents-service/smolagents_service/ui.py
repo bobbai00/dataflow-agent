@@ -34,8 +34,8 @@ from smolagents.models import ChatMessageStreamDelta
 from smolagents.utils import AgentMaxStepsError
 
 from .config import Config
-from .notebook import read_notebook
-from .render import (answer_messages, escape_tags, import_footnote, script_messages, step_messages,
+from .notebook import missing_files, read_notebook
+from .render import (answer_messages, escape_tags, import_footnote, import_stopped, script_messages, step_messages,
                      streaming_message)
 from .sessions import SessionLimit, Sessions, user_files
 from .store import Store
@@ -226,6 +226,13 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
         except ValueError as bad:
             yield outputs(f"Added `{name}`, but it was not imported: {bad}.")
             return
+        missing = missing_files(notebook, path.parent)
+        if missing:
+            one = len(missing) == 1
+            yield outputs(f"Added `{name}`, but did not import it: it reads {', '.join(f'`{m}`' for m in missing)}, "
+                          f"which {'is' if one else 'are'} not in your files. Upload {'it' if one else 'them'}, then "
+                          "upload the notebook again.")
+            return
         session = open_session(request, user, history)
         if session is None:
             yield outputs(f"Added `{name}`; it was not imported.")
@@ -235,17 +242,21 @@ def build_ui(store: Store, sessions: Sessions, config: Config) -> gr.Blocks:
             history.append(gr.ChatMessage(role="user", content=f"📓 `{name}`" + (f"\n\n{notebook.task}"
                                                                                  if notebook.task else "")))
             yield outputs(f"Importing `{name}`: its {cells} cells run in this chat's Python, as the agent's own steps.")
-            started, failed = time.monotonic(), 0
+            started, failed = time.monotonic(), None
             for step in session.import_notebook(notebook, name):
                 if step.is_final_answer:
                     history.append(gr.ChatMessage(role="assistant", content=str(step.action_output)))
                 else:
                     history.extend(step_messages(step))
-                    failed += step.error is not None
+                    failed = step if step.error is not None else None
                 yield outputs(f"Importing `{name}`: cell {min(step.step_number, cells)} of {cells} ran.")
+            if failed is not None:
+                history.append(import_stopped(failed.step_number, cells, failed.error))
             history.append(import_footnote(name, cells, time.monotonic() - started, session.trace.totals()["python"],
-                                           failed))
-            yield outputs(f"Imported `{name}`" + (f"; {failed} of its {cells} cells failed." if failed else "."))
+                                           failed and failed.step_number))
+            yield outputs(f"Imported `{name}`." if failed is None else
+                          f"Cell {failed.step_number} of `{name}` failed, so the import stopped there. Fix what it "
+                          "needs, such as a data file to upload, then upload the notebook again.")
         finally:
             session.last_active = time.monotonic()
             session.busy.release()

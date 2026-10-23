@@ -112,13 +112,24 @@ def answer_messages(answer, steps: int, seconds: float, totals: dict) -> list[gr
             gr.ChatMessage(role="assistant", content=FOOTNOTE.format(summary))]
 
 
-def import_footnote(name: str, cells: int, seconds: float, python_seconds: float, failed: int) -> gr.ChatMessage:
-    """What importing a notebook took, after its cells."""
-    facts = [f"✓ imported {cells} cell{'s' if cells != 1 else ''} from `{name}`", f"{seconds:.1f} s",
-             f"Python {python_seconds:.1f} s"]
-    if failed:
-        facts.append(f"{failed} failed")
-    facts.append("the agent remembers them as its own steps")
+def import_stopped(cell: int, cells: int, error) -> gr.ChatMessage:
+    """Why a notebook import ended early: the cell that failed and the last line of its error."""
+    after = cells - cell
+    text = f"**Cell {cell} failed, so the import stopped there**" + (
+        f": the {after} cell{'s' if after != 1 else ''} after it did not run." if after else ".")
+    reason = str(error).strip().splitlines()[-1:] if error is not None else []
+    if reason:
+        text += f"\n```text\n{reason[0]}\n```"
+    return gr.ChatMessage(role="assistant", content=text)
+
+
+def import_footnote(name: str, cells: int, seconds: float, python_seconds: float,
+                    stopped_at: int | None = None) -> gr.ChatMessage:
+    """What importing a notebook took, after its cells; `stopped_at` is the cell that failed, if one did."""
+    ran = cells if stopped_at is None else stopped_at
+    facts = [(f"✓ imported {cells} cell{'s' if cells != 1 else ''}" if stopped_at is None
+              else f"⚠️ ran {ran} of {cells} cells") + f" from `{name}`", f"{seconds:.1f} s",
+             f"Python {python_seconds:.1f} s", "the agent remembers them as its own steps"]
     return gr.ChatMessage(role="assistant", content=FOOTNOTE.format(escape_tags(" · ".join(facts))))
 
 

@@ -141,6 +141,45 @@ class AppTest(unittest.TestCase):
         self.assertEqual(texts[-2], "6")
         client.close()
 
+    def test_a_notebook_import_stops_where_it_cannot_go_on(self):
+        """A notebook whose data is missing is not imported; one with a failing cell stops at that cell."""
+        cookie = register(self.base, f"stopper{int(time.time())}").cookies[COOKIE]
+        client = Client(f"{self.base}/app/", headers={"Cookie": f"{COOKIE}={cookie}"}, verbose=False)
+        folder = Path(tempfile.mkdtemp(dir=self.folder.name))
+        unread = folder / "prices.ipynb"
+        unread.write_text(json.dumps({"cells": [
+            {"cell_type": "code", "source": ["import pandas as pd\n", "listings = pd.read_csv('listings.csv')"]},
+            {"cell_type": "code", "source": ["len(listings)"]},
+        ]}))
+        status, *_, chat = client.predict(handle_file(str(unread)), [], api_name="/upload")
+        self.assertIn("did not import it: it reads `listings.csv`, which is not in your files", status)
+        self.assertEqual(chat, [])
+        self.assertNotIn(client.session_hash, self.app.state.sessions._sessions)  # nothing ran
+
+        broken = folder / "broken.ipynb"
+        broken.write_text(json.dumps({"cells": [
+            {"cell_type": "markdown", "source": ["What is the total?"]},
+            {"cell_type": "code", "source": ["%matplotlib inline\n", "rows = [1, 2]"]},
+            {"cell_type": "code", "source": ["total = sum(rows) / 0"]},
+            {"cell_type": "code", "source": ["print(total)"]},
+            {"cell_type": "markdown", "source": ["The total is 3."]},
+        ]}))
+        status, *_, chat = client.predict(handle_file(str(broken)), [], api_name="/upload")
+        self.assertIn("Cell 2 of `broken.ipynb` failed, so the import stopped there", status)
+        shown = str(chat)
+        for text in ("the 1 cell after it did not run", "ZeroDivisionError: division by zero", "ran 2 of 3 cells"):
+            self.assertIn(text, shown)
+        for text in ("NameError", "The total is 3."):  # neither the next cell nor the answer
+            self.assertNotIn(text, shown)
+        session = self.app.state.sessions._sessions[client.session_hash]
+        memory = session.agent.memory.steps
+        self.assertEqual([type(step).__name__ for step in memory], ["TaskStep", "ActionStep", "ActionStep", "NoteStep"])
+        self.assertIn("The import stopped at cell 2 of 3", memory[-1].text)
+        self.assertIn("→ `[1, 2]`", str(client.predict("rows", [], api_name="/run_code")))  # cell 1 ran
+        runs = httpx.get(f"{self.base}/api/runs", cookies={COOKIE: cookie}).json()
+        self.assertEqual([(r["status"], r["steps"]) for r in runs if r["kind"] == "notebook"], [("error", 2)])
+        client.close()
+
     def test_a_closed_tab_ends_its_session(self):
         cookie = register(self.base, f"closer{int(time.time())}").cookies[COOKIE]
         # Like a browser tab, the client holds a heartbeat stream for its session.

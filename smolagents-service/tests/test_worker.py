@@ -100,6 +100,26 @@ class WorkerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Forbidden access to module: os"):
             worker("os.listdir('.')")  # ...but not the modules the agent itself may not import
 
+    def test_users_own_runs_share_one_namespace_like_notebook_cells(self):
+        worker = self.worker()
+        worker.run_python("def scaled(x):\n    return x * factor\n\nclass Box:\n    def size(self):\n"
+                          "        return width * 2\n\ndef bump():\n    global count\n    count += 1\n", "cell 1")
+        worker.run_python("factor, width, count, scratch = 2, 7, 0, 'gone soon'", "cell 2")
+        reply, _ = worker.run_python("bump()\nbump()\ndel scratch\n(scaled(10), Box().size(), count)", "cell 3")
+        self.assertEqual(reply["value"], "(20, 14, 2)")  # functions see the variables later cells set
+        self.assertEqual(reply["variables"], {"count": "int"})
+        worker("factor = 5")  # the agent's variable, seen by the user's function
+        self.assertEqual(worker.run_python("scaled(10)", "cell 4")[0]["value"], "50")
+        self.assertEqual(worker("final_answer(scaled(1) + count)").output, 7)  # and the agent calls it
+        with self.assertRaisesRegex(RuntimeError, "scratch"):
+            worker("print(scratch)")  # deleted for the agent too
+        # Jupyter's display() works in the user's code; the agent has neither it nor the builtins module.
+        reply, _ = worker.run_python("display(count, 'shown')", "cell 5")
+        self.assertEqual(reply["output"], "2\nshown\n")
+        for name in ("display", "builtins"):
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, f"`{name}` is not defined"):
+                worker(f"print({name})")
+
     def test_users_own_code_failing(self):
         worker = self.worker()
         reply, _ = worker.run_python("kept = 1\nraise ValueError('bad input')", "broken.py")

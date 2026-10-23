@@ -167,11 +167,15 @@ class NoteStep(MemoryStep):
         return [ChatMessage(role=MessageRole.USER, content=[{"type": "text", "text": self.text}])]
 
 
-def import_note(name: str, instructions: str) -> str:
-    """What the agent is told once a notebook's steps are in its memory."""
+def import_note(name: str, instructions: str, stopped_at: int | None = None, cells: int = 0) -> str:
+    """What the agent is told once a notebook's steps are in its memory; `stopped_at` is the cell
+    that failed, when the import stopped there."""
     text = (f"The steps above are your earlier work on this task, brought into this chat from the notebook "
             f"{name}; their variables are in your interpreter. The user may now ask about the work or ask "
             "for changes.")
+    if stopped_at is not None:
+        text += (f" The import stopped at cell {stopped_at} of {cells}, which failed: the cells after it did not "
+                 "run, so whatever they define is missing.")
     return text + ("\n\n" + instructions.strip() if instructions.strip() else "")
 
 
@@ -219,12 +223,14 @@ class ChatSession:
         """Run a notebook's cells in this session's interpreter, in order, and add them to the
         agent's memory as its own steps: the task, one step per cell (its reasoning the markdown
         above the cell, its observation what the cell printed and returned), the answer as the
-        final step, and a note on what follows (with the server's notebook instructions). Traced
-        as a 'notebook' run. The caller holds `busy`. Yields each step once it has run."""
+        final step, and a note on what follows (with the server's notebook instructions). Like
+        Jupyter's Run All, a failing cell ends the import: the cells after it would only fail on
+        what it did not define. Traced as a 'notebook' run. The caller holds `busy`. Yields each
+        step once it has run."""
         self.trace.start_run(f"Imported {name}", kind="notebook")
         steps = self.agent.memory.steps
         steps.append(TaskStep(task=notebook.task or f"Continue the analysis in {name}."))
-        status = "ok"
+        failed = None
         for cell in notebook.cells:
             self.trace.cell_number = cell.number
             started = time.time()
@@ -238,9 +244,11 @@ class ChatSession:
                 error=AgentExecutionError(error, self.agent.logger) if error else None)
             steps.append(step)
             self.trace.on_step(step)  # attaches the cell's figures, then records the step
-            status = "error" if error else status
             yield step
-        if notebook.answer:
+            if error:
+                failed = cell
+                break
+        if notebook.answer and failed is None:
             now, code = time.time(), f"final_answer({notebook.answer!r})"
             final = ActionStep(
                 step_number=len(notebook.cells) + 1, timing=Timing(now, now),
@@ -251,9 +259,13 @@ class ChatSession:
             steps.append(final)
             self.trace.on_step(final)
             yield final
-        steps.append(NoteStep(import_note(name, self.config.notebook_instructions)))
+        steps.append(NoteStep(import_note(name, self.config.notebook_instructions,
+                                          failed and failed.number, len(notebook.cells))))
         self.trace.cell_number = None
-        self.trace.finish_run(status, notebook.answer or None)
+        if failed is None:
+            self.trace.finish_run("ok", notebook.answer or None)
+        else:
+            self.trace.finish_run("error", None, f"cell {failed.number} failed; the import stopped there")
 
     def close(self) -> None:
         self.agent.cleanup()

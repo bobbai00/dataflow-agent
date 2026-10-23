@@ -100,21 +100,34 @@ def user_traceback(error: BaseException, name: str) -> str:
     return "".join(report.format())
 
 
+def display(*values):
+    """Jupyter's display(), for notebook code: each value printed, as the cell's output."""
+    for value in values:
+        print(value)
+
+
+# The user's code sees Python's builtins and Jupyter's display(); the agent's interpreter does not.
+USER_BUILTINS = {**vars(builtins), "display": display}
+
+
 def run_python(state: dict, code: str, name: str) -> dict:
     """Run the user's code as plain Python in the session's namespace, notebook-style:
-    prints are captured, a trailing expression is shown, and variables persist."""
+    prints are captured, a trailing expression is shown, and variables persist.
+
+    The code runs in `state` itself, as a notebook cell runs in its kernel's globals, so a
+    function or class it defines sees the variables later code sets, the agent's included,
+    and `del` and `global` act on the session. What ran before an error is kept."""
     linecache.cache[name] = (len(code), None, code.splitlines(True), name)  # source lines in tracebacks
-    namespace = {key: value for key, value in state.items() if not key.startswith("__")}
-    namespace.update(__name__="__main__", __file__=name, __builtins__=builtins)
-    before = {key: id(value) for key, value in namespace.items()}
+    before = dict(state)  # holds the old values, so that a rebound name is told apart by identity
+    state.update(__name__="__main__", __file__=name, __builtins__=USER_BUILTINS)
     printed, answer = io.StringIO(), {}
     try:
         tree = ast.parse(code, filename=name)
         last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
         with contextlib.redirect_stdout(printed), contextlib.redirect_stderr(printed):
-            exec(compile(tree, name, "exec"), namespace)
+            exec(compile(tree, name, "exec"), state)
             if last is not None:
-                value = eval(compile(ast.Expression(last.value), name, "eval"), namespace)
+                value = eval(compile(ast.Expression(last.value), name, "eval"), state)
                 if value is not None:
                     answer["value"] = repr(value)
     except BaseException as error:  # noqa: BLE001 - SystemExit too: the session goes on
@@ -122,9 +135,10 @@ def run_python(state: dict, code: str, name: str) -> dict:
             raise
         answer["error"] = user_traceback(error, name)
     finally:
-        changed = {key: value for key, value in namespace.items()
-                   if not key.startswith("__") and before.get(key) != id(value)}
-        state.update(changed)  # even after an error, as a notebook keeps what ran
+        # Functions keep the builtins they were defined with; the agent's interpreter never saw any.
+        state.pop("__builtins__", None)
+    changed = {key: value for key, value in state.items()
+               if not key.startswith("__") and (key not in before or before[key] is not value)}
     answer["output"] = printed.getvalue()
     answer["variables"] = {key: describe(value) for key, value in changed.items()
                            if not isinstance(value, types.ModuleType)}
