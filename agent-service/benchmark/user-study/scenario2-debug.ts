@@ -90,7 +90,10 @@ async function state(): Promise<State> {
   const operators: any[] = workflow.workflow?.operators ?? [];
   const rows = (id: string) => results[id]?.totalRowCount ?? results[id]?.outputTuples;
   const top = results[answerOperator]?.sampleRecords?.[0] ?? {};
-  const faulty = sourceOf(workflow.workflow?.nativeNamespace, spec.bug.operator);
+  // The faulty step as it now reads: its registered Python, or its statement when it is a built-in.
+  const faulty =
+    sourceOf(workflow.workflow?.nativeNamespace, spec.bug.operator) ||
+    (operators.find(op => op.operatorID === spec.bug.operator)?.nativeOp?.source ?? "");
   return {
     operators: operators.map(op => {
       const r = results[op.operatorID];
@@ -113,7 +116,8 @@ const check = (name: string, ok: boolean, detail: string) => {
 };
 const matches = (s: State, numbers: ReturnType<typeof numbersOf>) =>
   numbers.rows.every(([key, expected]) => s.rows(key.replace(/_rows$/, "")) === expected) &&
-  (!numbers.top || (s.top.text === numbers.top[0] && s.top.number === numbers.top[1]));
+  (!numbers.top ||
+    (s.top.text === numbers.top[0] && s.top.number !== undefined && Math.round(s.top.number) === numbers.top[1]));
 const describe = (s: State) =>
   `${planted.rows.map(([key]) => `${key.replace(/_rows$/, "")}=${s.rows(key.replace(/_rows$/, ""))}`).join(", ")}; ${answerOperator} starts ${s.top.text} ${s.top.number}`;
 

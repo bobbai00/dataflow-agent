@@ -12,57 +12,170 @@
 // limitations under the License.
 
 // Scenario 1 of the user study on the script agent, as a participant would do it:
-// a fresh account, the three Olympic files, the task card's question, then two
-// follow-ups probing what the task left unsaid. Prints what the agent answered and
-// how long each turn took; exits 1 when the findings are not the key's.
+// a fresh account, the three Olympic files, then the task card's two questions one
+// after the other (the top gold winners per season, then location against golds).
+// Prints what the agent answered and how long each turn took, checks both answers
+// against the key in scenario-1/scenario1_plan.md, and exits 1 when one misses it.
 //
 //   node study/scenario1_smolagents.mjs BASE_URL STUDY_DIR OUT_DIR
 import { mkdirSync, writeFileSync } from "node:fs";
 
-import { ask, chromium, lastAnswer, lastMessages, register, upload } from "../tests/e2e/browser.mjs";
+import {
+  ask,
+  chromium,
+  lastAnswer,
+  lastMessages,
+  register,
+  upload,
+} from "../tests/e2e/browser.mjs";
 
 const [base, studyDir, out] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
-const files = ["athlete_events_2006_2016.csv", "noc_regions.csv", "country_geo.csv"];
-const TASK = [
-  "You have three files: every athlete entry at the six Olympic Games from 2006 to 2016 (three Summer, three Winter), a lookup from country codes to country names, and each country's location (latitude, longitude, continent, average elevation).",
-  "Question: How is a country's location related to the gold medals it wins, and is the relationship different for the Winter Games than for the Summer Games?",
-  "Your report should include:",
-  "- For each season, the share of gold medals won by countries in three zones: tropical (within 25° of the equator), temperate (25° to 45°), and cold (45° or more).",
-  "- For each season, the share of gold medals won by each continent.",
-  "- Whether average elevation shows a similar pattern.",
-  "- Your conclusion in 2–3 sentences: does location matter, for which Games does it matter more, and how strongly?",
-].join("\n");
-// Two probes of what the task leaves unsaid: team medals counted once (911 and 269 golds), and the
-// golds that found no location (2 with the name fixes, 237 without them).
-const FOLLOW_UPS = [
-  "How did you count a gold medal for a team event, and how many gold medals did you count in total for the Summer Games and for the Winter Games?",
-  "Were there any gold medals you could not place in a zone or continent? Which countries, and how many medals?",
+const files = [
+  "athlete_events_2006_2016.csv",
+  "noc_regions.csv",
+  "country_geo.csv",
 ];
+const INTRO =
+  "You have three files: every athlete entry at the six Olympic Games from 2006 to 2016, a lookup from country codes to country names, and each country's location (latitude, longitude, continent, elevation).";
+const QUESTIONS = [
+  "Which five countries won the most gold medals at the Winter Games, and which five at the Summer Games? Say which years each answer covers.",
+  "Does where a country sits on the map, its latitude and longitude, relate to how many gold medals it wins? Look at the Winter and the Summer Games separately.",
+];
+// The facilitator's follow-up when the second answer looked only at gold-winning countries (both agents did on 2026-10-22).
+const PROBE =
+  "Your correlations use only the countries that won a gold. Include every country that competed in that season, with zero golds where it won none, and tell me again whether latitude and longitude relate to golds.";
+
+// The key: the ten countries and the span of years, team golds counted once (Sweden only enters when athletes are counted).
+function checkTopFive(answer) {
+  const expected = [
+    ["Canada", /canada/i],
+    ["Germany", /germany/i],
+    ["United States", /\b(usa|u\.s\.a?\.?|united states|america)\b/i],
+    ["Russia", /russia/i],
+    ["Norway", /norway/i],
+    ["China", /china/i],
+    ["Great Britain", /\b(great britain|united kingdom|uk|britain|gbr)\b/i],
+    ["2006", /\b2006\b/],
+    ["2016", /\b2016\b/],
+  ];
+  const missing = expected
+    .filter(([, pattern]) => !pattern.test(answer))
+    .map(([name]) => name);
+  if (/sweden/i.test(answer))
+    missing.push("no Sweden (team golds counted once)");
+  return { pass: missing.length === 0, missing };
+}
+// The key: latitude discussed for both seasons with numbers, and longitude addressed. The note flags
+// the winners-only artifact (a −0.4 Winter correlation with longitude, "western countries win more"),
+// which the facilitator's probe about the countries that won nothing resolves.
+function checkLocation(answer) {
+  const expected = [
+    ["latitude", /latitude|\blat\b|_lat\b/i],
+    ["longitude", /longitude|\blon\b|_lon\b/i],
+    ["Winter", /winter/i],
+    ["Summer", /summer/i],
+    ["a number", /\d/],
+  ];
+  const missing = expected
+    .filter(([, pattern]) => !pattern.test(answer))
+    .map(([name]) => name);
+  const artifact =
+    /-\s?0\.[3-5]\d?\b/.test(answer) ||
+    /(further|farther|more)\s+west/i.test(answer);
+  return {
+    pass: missing.length === 0,
+    missing,
+    ...(artifact
+      ? {
+          note: "the answer reads longitude off the gold winners alone (the −0.4 Winter artifact); probe with the countries that won nothing",
+        }
+      : {}),
+  };
+}
+
+// The key after the probe: with every competing country, golds rise with distance from the equator
+// (Spearman 0.48 Winter, 0.46 Summer; Pearson 0.35 / 0.28) and longitude shows nothing (≈ 0).
+function checkCorrected(answer) {
+  const expected = [
+    ["latitude", /latitude|equator|\blat\b|_lat\b/i],
+    ["longitude", /longitude|\blon\b|_lon\b/i],
+    [
+      "a latitude correlation between 0.25 and 0.55",
+      /(?<!-\s?)\b0\.(2[5-9]|[34]\d|5[0-5])\b/,
+    ],
+  ];
+  const missing = expected
+    .filter(([, pattern]) => !pattern.test(answer))
+    .map(([name]) => name);
+  return { pass: missing.length === 0, missing };
+}
 
 const turns = [];
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 1100 } })).newPage();
+const page = await (
+  await browser.newContext({ viewport: { width: 1440, height: 1100 } })
+).newPage();
 try {
   await register(page, base, `study_s1_${Date.now().toString(36)}`);
-  for (const name of files) await upload(page, `${studyDir}/scenario-1/${name}`, "the agent hears about it with your next message");
-  turns.push({ ...(await ask(page, TASK)), answer: await lastAnswer(page) });
-  await page.screenshot({ path: `${out}/turn1.png`, fullPage: true });
-  for (const question of FOLLOW_UPS) turns.push(await ask(page, question));
-  await page.screenshot({ path: `${out}/final.png`, fullPage: true });
+  for (const name of files)
+    await upload(
+      page,
+      `${studyDir}/scenario-1/${name}`,
+      "the agent hears about it with your next message",
+    );
+  for (const [i, question] of [...QUESTIONS, PROBE].entries()) {
+    const content = i === 0 ? `${INTRO}\nQuestion: ${question}` : question;
+    turns.push({
+      ...(await ask(page, content)),
+      answer: await lastAnswer(page),
+    });
+    await page.screenshot({ path: `${out}/turn${i + 1}.png`, fullPage: true });
+  }
   const transcript = await lastMessages(page);
   const runs = await (await page.request.get(`${base}/api/runs`)).json();
-  const details = await Promise.all(runs.map(async run => (await page.request.get(`${base}/api/runs/${run.id}`)).json()));
-  writeFileSync(`${out}/result.json`, JSON.stringify({ turns, transcript, runs: details }, null, 2));
-  for (const [i, turn] of turns.entries()) console.log(`turn ${i + 1} (${turn.seconds.toFixed(0)} s): ${turn.final.replace(/\s+/g, " ")}`);
-  const steps = details.map(run => `${run.steps?.length ?? "?"} steps, ${run.python_execs?.length ?? "?"} code runs`);
+  const details = await Promise.all(
+    runs.map(async (run) =>
+      (await page.request.get(`${base}/api/runs/${run.id}`)).json(),
+    ),
+  );
+  writeFileSync(
+    `${out}/result.json`,
+    JSON.stringify({ turns, transcript, runs: details }, null, 2),
+  );
+  for (const [i, turn] of turns.entries())
+    console.log(
+      `turn ${i + 1} (${turn.seconds.toFixed(0)} s): ${turn.answer.replace(/\s+/g, " ").slice(0, 900)}`,
+    );
+  const steps = details.map(
+    (run) =>
+      `${run.steps?.length ?? "?"} steps, ${run.python_execs?.length ?? "?"} code runs`,
+  );
   console.log("runs:", steps.join(" | "));
-  // The key: cold countries took 76.6% of Winter golds and 40.2% of Summer golds; Europe leads both seasons.
-  const correct = /\b7[5-8](\.\d)?\s?%/.test(turns[0].answer) && /\b(39|4[01])(\.\d)?\s?%/.test(turns[0].answer) && /europe/i.test(turns[0].answer);
-  console.log(correct ? "PASS turn 1 matches the answer key" : "FAIL turn 1 does not match the answer key (cold: Winter 77%, Summer 40%; Europe leads both)");
-  process.exit(correct ? 0 : 1);
+  const top = checkTopFive(turns[0].answer);
+  const location = checkLocation(turns[1]?.answer ?? "");
+  console.log(
+    top.pass
+      ? "PASS turn 1 names the ten countries and the years, with team golds counted once"
+      : `FAIL turn 1 misses: ${top.missing.join(", ")}`,
+  );
+  console.log(
+    location.pass
+      ? "PASS turn 2 speaks of latitude and longitude for both seasons, with numbers"
+      : `FAIL turn 2 misses: ${location.missing.join(", ")}`,
+  );
+  if (location.note) console.log(`NOTE turn 2: ${location.note}`);
+  const corrected = checkCorrected(turns[2]?.answer ?? "");
+  console.log(
+    corrected.pass
+      ? "PASS turn 3 finds the latitude relation once every competing country counts"
+      : `FAIL turn 3 misses: ${corrected.missing.join(", ")}`,
+  );
+  process.exit(top.pass && location.pass && corrected.pass ? 0 : 1);
 } catch (error) {
-  await page.screenshot({ path: `${out}/failed.png`, fullPage: true }).catch(() => {});
+  await page
+    .screenshot({ path: `${out}/failed.png`, fullPage: true })
+    .catch(() => {});
   console.error("failed:", error);
   process.exit(2);
 } finally {

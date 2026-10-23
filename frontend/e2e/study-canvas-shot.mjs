@@ -46,9 +46,13 @@ try {
   if (!loaded) console.log(`no operators appeared; at ${page.url()}, title "${await page.title()}"`);
   await page.waitForTimeout(3000); // results and docs arrive after the canvas
   const operators = await page.locator(".texera-operator-icon").count();
-  const docs = await page.evaluate(() => document.body.innerText.match(/Load listings|Keep entire homes|Turn the price text/g)?.length ?? 0);
+  const docs = await page.evaluate(
+    () => document.body.innerText.match(/Load listings|Keep entire homes|Turn the price text/g)?.length ?? 0
+  );
   await page.screenshot({ path: out, fullPage: false });
-  console.log(`workflow ${wid}: ${operators} operators on the canvas, ${docs} of the expected docs visible; saved ${out}`);
+  console.log(
+    `workflow ${wid}: ${operators} operators on the canvas, ${docs} of the expected docs visible; saved ${out}`
+  );
 } finally {
   await browser.close();
 }

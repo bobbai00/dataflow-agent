@@ -25,20 +25,20 @@
  * executed for real and the chat shows the question, the agent's steps and
  * its reply. The agent gets the study's instructions for this scenario.
  *
- *   AGENT_BASE=http://localhost:3002 PROBE_MODEL=claude-sonnet-5.5 \
+ *   AGENT_BASE=http://localhost:3002 PROBE_MODEL=claude-haiku-5.5 \
  *     bun run benchmark/user-study/scenario2-bobflow.ts "P03"
  *
  * Prints the workflow to open for the participant, and checks the planted
  * numbers the JSON's `bug` block names (the rows of one operator, and the first
  * row of the answer).
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { login } from "../../src/api";
 import { STUDY, studyLogin } from "./study";
 import { createStudyAgent, studyWorkflowUrl } from "./bobflow";
 
-const MODEL = process.env.PROBE_MODEL ?? "claude-sonnet-5.5";
+const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-5.5";
 const label = process.argv[2] ?? `test ${new Date().toISOString().slice(0, 16)}`;
 
 /** The doc's instruction for both agents in this scenario. */
@@ -140,7 +140,7 @@ for (const [key, expected] of Object.entries(spec.bug.planted_numbers)) {
     const [text, number] = expected;
     checks.push([
       `${answerOperator} starts with ${text} ${number} (the bug)`,
-      topText === text && topNumber === number,
+      topText === text && typeof topNumber === "number" && Math.round(topNumber) === number,
       `${String(topText)} ${String(topNumber)}`,
     ]);
   } else {
@@ -153,5 +153,12 @@ for (const [key, expected] of Object.entries(spec.bug.planted_numbers)) {
   }
 }
 for (const [name, ok, detail] of checks) console.log(`${ok ? "PASS" : "FAIL"} ${name} — ${detail}`);
+// With ARCHIVE_OUT, the analysis also goes to a file the chat's Import button takes into a fresh agent.
+if (process.env.ARCHIVE_OUT) {
+  const archive = await api.get(`/${agent.id}/archive`);
+  const text = JSON.stringify(archive);
+  writeFileSync(process.env.ARCHIVE_OUT, text);
+  console.log(`archive: ${process.env.ARCHIVE_OUT} (${(text.length / 1e6).toFixed(1)} MB, ${archive.stepCount} steps)`);
+}
 console.log(`\nOpen for the participant: ${studyWorkflowUrl(wid)}`);
 process.exit(checks.every(([, ok]) => ok) ? 0 : 1);
