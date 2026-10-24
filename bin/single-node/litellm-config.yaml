@@ -157,6 +157,19 @@ model_list:
       cache_control_injection_points:
         - location: message
           role: system
+  # The same model through OpenRouter on Vertex, the route of the 2026-10-13/14 KramaBench and PrepBench runs (its
+  # smolagents cells too): standard tier, no fallback to other providers. Temperature and top_p are dropped as on
+  # the direct route; caching is implicit only, as it was then.
+  - model_name: gemini-3.8-flash-vertex
+    litellm_params:
+      model: openrouter/google/gemini-3.8-flash
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-vertex/global"]
+          allow_fallbacks: false
   - model_name: gpt-5.2
     litellm_params:
       model: openai/gpt-5.2

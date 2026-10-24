@@ -48,6 +48,9 @@ def current_price_schedule(model):
         # Standard paid tier through 2026-12-31 (output includes thinking); explicit cache storage is billed per
         # token-hour on top and is not counted here.
         "gemini-3.8-flash": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-02"),
+        # The same model through OpenRouter on Vertex (gemini-3.8-flash-vertex route); OpenRouter reports each
+        # response's charge, so these rates only price a response without one.
+        "gemini-3.8-flash-vertex": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
     }
     if model not in providers:
         return None
