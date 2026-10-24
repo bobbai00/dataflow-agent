@@ -64,6 +64,13 @@ def campaign_arms():
                                             "pandasRound": True, "compactRecords": True}
     # The same for models whose strict tool mode requires every field (OpenAI): python stays required.
     arms["evidence_data1_flow0_hygiene_strict"] = {**arms["evidence_data1_flow0_hygiene"], "optionalPython": False}
+    # The hygiene arm whose final reply holds only the requested answer (2026-10-24 cost study: Opus wrote
+    # 750-1,200 characters of report around the answer), with the strict variant for non-Claude models.
+    arms["evidence_data1_flow0_opt"] = {**arms["evidence_data1_flow0_hygiene"], "answerOnlyReply": True}
+    arms["evidence_data1_flow0_opt_strict"] = {**arms["evidence_data1_flow0_opt"], "optionalPython": False}
+    # The same with one sentence of visible plan before each call (DeepSeek replays: a quarter less reasoning).
+    arms["evidence_data1_flow0_optplan"] = {**arms["evidence_data1_flow0_opt"], "planLine": True}
+    arms["evidence_data1_flow0_optplan_strict"] = {**arms["evidence_data1_flow0_optplan"], "optionalPython": False}
     return arms
 
 

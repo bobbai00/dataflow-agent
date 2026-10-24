@@ -232,6 +232,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
           ? `\`show result <id>\` gives ${lower(sampleText)}.`
           : `\`show result <id> full\` gives ${lower(full)}${larger} Check the completeness of every result.`,
     "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
+    "Tool results put a text value or column name in double quotes, JSON-escaped, when it is empty, has spaces at either end, holds a tab, line break, backslash or the layout's separator, or would read as a number, true, false or null; the quotes are not part of the text.",
   ].join(" ");
 }
 
@@ -252,6 +253,9 @@ export function buildRegisteredNativeSystemPrompt(
       ? "`python` (definitions, left out when there are none)"
       : '`python` (definitions, or `""`)',
     FINAL_ANSWER: finalAnswerText(options.answerStatement),
+    REPLY_CONTENT: format.answerOnlyReply
+      ? "it holds only what that format asks for, with no account of the steps or checks behind it."
+      : "it may span lines and contain Markdown.",
     CONTEXT_LAYOUT:
       contextMode === ContextMode.LATEST
         ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
@@ -266,6 +270,9 @@ export function buildRegisteredNativeSystemPrompt(
           : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
+    PLAN_LINE: format.planLine
+      ? "Before each dataflow call, write one short sentence of plain text saying what the call will do and why."
+      : "",
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
     GRAPH_EXAMPLE: (["records", "totals", "report"] as const)
       .map(name => exampleStatement(name, options.operatorDoc))

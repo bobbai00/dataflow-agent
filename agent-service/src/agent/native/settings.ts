@@ -128,6 +128,8 @@ export function validateEvidenceSettings(settings: object): void {
     "dataHygiene",
     "pandasRound",
     "compactRecords",
+    "answerOnlyReply",
+    "planLine",
     "dataEvidence",
     "flowEvidence",
     "operatorDoc",

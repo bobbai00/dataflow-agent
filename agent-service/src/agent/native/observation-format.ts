@@ -49,6 +49,12 @@ export interface ObservationFormatSettings {
   /** Leave out the `columns:` line where the statistics rows already list
    * every column with its type. */
   compactRecords: boolean;
+  /** The final reply holds only what the requested answer format asks for,
+   * with no account of the steps behind it. */
+  answerOnlyReply: boolean;
+  /** Each dataflow call comes with one sentence of visible plan: replays of
+   * recorded DeepSeek calls reasoned about a quarter less with it. */
+  planLine: boolean;
 }
 export type ObservationFormatOptions = Partial<ObservationFormatSettings>;
 export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
@@ -65,6 +71,8 @@ export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   dataHygiene: false,
   pandasRound: false,
   compactRecords: false,
+  answerOnlyReply: false,
+  planLine: false,
 };
 export function observationFormat(options: ObservationFormatOptions = {}): ObservationFormatSettings {
   return Object.fromEntries(

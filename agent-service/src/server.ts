@@ -548,6 +548,8 @@ const OBSERVATION_SETTINGS_SCHEMA = {
   dataHygiene: t.Optional(t.Boolean()),
   pandasRound: t.Optional(t.Boolean()),
   compactRecords: t.Optional(t.Boolean()),
+  answerOnlyReply: t.Optional(t.Boolean()),
+  planLine: t.Optional(t.Boolean()),
 };
 
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {

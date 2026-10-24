@@ -110,7 +110,7 @@ Definitions are shared and persist; each execution runs in isolation, so tables 
 
 ### Reading results
 
-Enabled views: `sample_stats`, `full`. The default is `sample_stats`. `show result <id>` gives the schema, at most 50 example records and column statistics; ask for `show result <id> full`, every record within 5000 characters, only for a small table whose every row you need. Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.
+Enabled views: `sample_stats`, `full`. The default is `sample_stats`. `show result <id>` gives the schema, at most 50 example records and column statistics; ask for `show result <id> full`, every record within 5000 characters, only for a small table whose every row you need. Use `show result <id>[<col>, ...]` when a wide result hides the fields you need. Tool results put a text value or column name in double quotes, JSON-escaped, when it is empty, has spaces at either end, holds a tab, line break, backslash or the layout's separator, or would read as a number, true, false or null; the quotes are not part of the text.
 
 For unfamiliar sources, scan the intended data and `show result` before making decisions about its interpretation: actual values settle headers, units, codes, and missing values. Everything you defined and observed is already in your context; ask only for what it lacks: `show schema records` when a tool result cut a wide table's column list (follow `next_offset` with `show schema records from 200`, substituting the returned offset), `show builtin` for a built-in's full contract. Use `scan(..., preview=...)` only when a scan fails or its columns look wrong.
 

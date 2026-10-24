@@ -110,6 +110,22 @@ test("optional python and first-rows full views are described only when they are
   ).toContain(
     "unexpected parsing failures should not silently become nulls. Before you group or join on a text key, check its values: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Normalize a key only where its values actually differ, leave other text columns as the source has them unless the task asks for cleaning,"
   );
+  // answerOnlyReply asks for the answer alone; by default a reply may carry more.
+  expect(base).toContain("in the user's requested format; it may span lines and contain Markdown. There is no answer statement.");
+  expect(
+    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], answerOnlyReply: true })
+  ).toContain(
+    "in the user's requested format; it holds only what that format asks for, with no account of the steps or checks behind it. There is no answer statement."
+  );
+  // planLine asks for a sentence of visible plan with each call; the default prompt does not.
+  expect(base).not.toContain("Before each dataflow call, write one short sentence");
+  expect(
+    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], planLine: true }).endsWith(
+      "Before each dataflow call, write one short sentence of plain text saying what the call will do and why."
+    )
+  ).toBe(true);
+  // Every prompt says what quotes around a displayed value mean.
+  expect(base).toContain("would read as a number, true, false or null; the quotes are not part of the text.");
   // A live agent takes both settings: its prompt and its tool follow them.
   const live = (modelType: string) =>
     new TexeraAgent({
