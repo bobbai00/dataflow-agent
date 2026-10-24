@@ -68,11 +68,6 @@ export interface DataflowActionsResult {
   answer?: string;
   /** Why the call's answer statement rendered no reply. */
   answerError?: string;
-  /** The final reply the call carried (AgentSettings.callReply). */
-  reply?: string;
-  /** Whether that reply ended the request, and why not when it did not. */
-  replySent?: boolean;
-  replyError?: string;
 }
 
 export const EMPTY_DATAFLOW_ERROR = "The dataflow is empty. Add an operator before execute.";

@@ -25,9 +25,8 @@
  * `python` holds definitions; `statements` holds `set`, `delete`, `execute`
  * and `show` lines (native/turn-syntax.ts). The call becomes an action list
  * (tools/dataflow-actions.ts) and its receipt is rendered by statement
- * (native/turn-receipt.ts). The model answers by replying without a tool
- * call or, with AgentSettings.callReply, in the `reply` field of the call that
- * completes the request.
+ * (native/turn-receipt.ts). There is no answer field: the model answers by
+ * replying without a tool call.
  */
 import { jsonSchema, tool } from "ai";
 import type { RetrievalView } from "../../types/agent";
@@ -38,7 +37,6 @@ import { prepareActions, rejectedActions, type DataflowActionsResult } from "./d
 export interface DataflowToolInput {
   python: string;
   statements: string;
-  reply?: string;
 }
 
 export const DATAFLOW_TOOL_DESCRIPTION =
@@ -77,7 +75,7 @@ function toolFields(input: unknown): Record<string, unknown> | undefined {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["python", "statements", "reply"])
+  for (const key of ["python", "statements"])
     if (record[key] !== undefined && typeof record[key] !== "string") return undefined;
   return record;
 }
@@ -94,14 +92,10 @@ export function prepareDataflowCall(
   // before its arguments were complete; it did not forget its statements. (A
   // provider that skips the schema may still send definitions alone.)
   if (fields.statements === undefined && !fields.python) return rejectedActions(CUT_OFF_CALL);
-  const reply = typeof fields.reply === "string" && fields.reply.trim() ? { reply: fields.reply.trim() } : {};
-  // A call that carries only a reply answers like a reply without the tool.
-  if (reply.reply && !String(fields.python ?? "").trim() && !String(fields.statements ?? "").trim())
-    return { ...prepareActions([], views, { statements: [], ignoredProse: [] }), ...reply };
   const parsed = parseTurn(fields, { views, answer });
-  if (!parsed.ok) return { ...rejectedActions(parsed.error, { statements: [], ignoredProse: [] }), ...reply };
+  if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;
-  return { ...prepareActions(actions, views, { statements, ignoredProse }), ...reply };
+  return prepareActions(actions, views, { statements, ignoredProse });
 }
 
 /** Several calls in one response run as one call: definitions from every call
@@ -114,11 +108,7 @@ export function mergeDataflowCalls(
 ): DataflowActionsResult | undefined {
   const fields = inputs.map(toolFields);
   if (fields.some(field => !field)) return undefined;
-  const merged = prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views, answer);
-  // The last call's reply is the response's reply.
-  const reply = [...fields].reverse().find(field => typeof field?.reply === "string" && field.reply.trim())?.reply;
-  if (typeof reply === "string") merged.reply = reply.trim();
-  return merged;
+  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views, answer);
 }
 
 /** With answer statements, the final answer is a statement of this tool, not a reply without it. */
@@ -128,20 +118,9 @@ export const DATAFLOW_TOOL_DESCRIPTION_ANSWER =
 export function createDataflowTool(
   views: readonly RetrievalView[] = availableRetrievalViews(),
   answer = false,
-  optionalPython = false,
-  reply = false
+  optionalPython = false
 ) {
   const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
-  if (reply) {
-    schema.properties.reply = {
-      type: "string",
-      description: optionalPython
-        ? "Your final reply, when this call completes the request: if every statement succeeds, it is returned verbatim and the request ends without another turn; if one fails, it is dropped and you see the result. Leave it out to see the results first."
-        : 'Your final reply, when this call completes the request: if every statement succeeds, it is returned verbatim and the request ends without another turn; if one fails, it is dropped and you see the result. "" to see the results first.',
-    };
-    // Strict tool modes outside Claude need every field.
-    if (!optionalPython) schema.required = [...schema.required, "reply"];
-  }
   if (answer)
     schema.properties.statements.description =
       'Statements, one per line: set <id>: <op>(...), delete <id>, execute <id>, show result|schema|operator|function|builtin ..., answer <id> | answer <key>=<id>, ...; "" when the call only defines functions.';

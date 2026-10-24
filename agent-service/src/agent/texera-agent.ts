@@ -645,7 +645,6 @@ export class TexeraAgent {
         flowEvidence: this.settings.flowEvidence === true,
         operatorDoc: this.settings.operatorDoc === true,
         answerStatement: this.settings.answerStatement === true,
-        callReply: this.settings.callReply === true,
         retrievalViews: availableRetrievalViews(this.settings),
         fullResultCharLimit: this.settings.fullResultCharLimit,
         maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
@@ -752,8 +751,7 @@ export class TexeraAgent {
       tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
         availableRetrievalViews(this.settings),
         this.settings.answerStatement === true,
-        this.settings.optionalPython === true,
-        this.settings.callReply === true
+        this.settings.optionalPython === true
       );
     }
 
@@ -1101,7 +1099,6 @@ export class TexeraAgent {
       respondToCanvasRuns?: boolean;
       instructions?: string;
       answerStatement?: boolean;
-      callReply?: boolean;
       nativeChecks?: boolean;
       resultSelection?: ResultSelection;
       contextMode?: ContextMode;
@@ -1222,10 +1219,6 @@ export class TexeraAgent {
     }
     if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
       this.settings.answerStatement = updates.answerStatement;
-      promptNeedsRebuild = true;
-    }
-    if (updates.callReply !== undefined && updates.callReply !== this.settings.callReply) {
-      this.settings.callReply = updates.callReply;
       promptNeedsRebuild = true;
     }
 
@@ -1656,9 +1649,7 @@ export class TexeraAgent {
                 // Sent back only while a correction is left; otherwise a reply stands as before.
                 answerByStatement: !answerCorrected && protocolFeedbackSteps < 2,
               }
-            : this.settings.callReply === true
-              ? { answered: () => this.answerByMessage.has(messageId) }
-              : {}),
+            : {}),
           toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -2765,28 +2756,6 @@ export class TexeraAgent {
     } else result.answerError = rendering.error;
   }
 
-  /** A call's `reply` (AgentSettings.callReply) is the request's reply when
-   * every statement of the call succeeded, a result has been shown, and every
-   * table it names has a result; the turn then ends after this step, without
-   * another model call. Otherwise the reply is dropped and the receipt says why. */
-  private async acceptCallReply(result: DataflowActionsResult): Promise<void> {
-    const messageId = this.currentMessageId;
-    if (this.settings.callReply !== true) delete result.reply;
-    if (!result.reply || !messageId) return;
-    if (result.status === "error" || result.actions.some(item => item.status === "error" || item.status === "skipped"))
-      result.replyError = "a statement of this call failed; fix it, then reply.";
-    else if (!this.resultShownFor(messageId))
-      result.replyError = "no result has been shown yet; show what the answer rests on, then reply.";
-    else {
-      const missing = await this.completeNamedResults(result.reply);
-      if (missing) result.replyError = namedResultsFeedback(missing);
-      else {
-        result.replySent = true;
-        this.answerByMessage.set(messageId, result.reply);
-      }
-    }
-  }
-
   private async runPostStepExecution(
     toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
@@ -2823,7 +2792,6 @@ export class TexeraAgent {
           },
         });
         this.renderAnswerStatement(result, stepId);
-        await this.acceptCallReply(result);
       }
       const step = this.stepsById.get(stepId);
       if (step) {

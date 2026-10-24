@@ -307,20 +307,9 @@ function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInf
     );
   if (result.mergedInto)
     return "note: this call ran together with the first dataflow call of the same response; that call's receipt covers its definitions and statements.";
-  // The call's `reply` (AgentSettings.callReply): sent, it ended the request.
-  const reply =
-    result.reply === undefined
-      ? []
-      : [
-          result.replySent
-            ? "## reply\nsent, ending the request"
-            : `## reply\nnot sent: ${result.replyError ?? "not accepted"}`,
-        ];
-  // A call that carried only a reply ran nothing and was not rejected.
-  if (!result.actions.length && reply.length && !result.error) return [...sections, ...reply].join("\n\n");
   if (!result.actions.length) {
     const message = String(result.error ?? "No actions ran.").replace(/\s*No actions ran\.$/, "");
-    return [...sections, "## call rejected", message, ...reply].join("\n");
+    return [...sections, "## call rejected", message].join("\n");
   }
   const byIndex = new Map(result.actions.map(item => [item.index, item]));
   const statements = turn?.statements ?? [];
@@ -393,5 +382,5 @@ function renderTurnSections(result: DataflowActionsResult, turn?: TurnReceiptInf
       sections.push([`## show result`, ...resultLines(item, flowMemo)].join("\n"));
     else sections.push(lookupLines(item, statement).join("\n"));
   }
-  return [...sections, ...reply].join("\n\n");
+  return sections.join("\n\n");
 }

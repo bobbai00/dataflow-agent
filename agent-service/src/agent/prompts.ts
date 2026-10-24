@@ -182,8 +182,6 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   catalogRecent?: number;
   /** The final answer is an `answer` statement (AgentSettings.answerStatement). */
   answerStatement?: boolean;
-  /** A call may carry the final reply in `reply` (AgentSettings.callReply). */
-  callReply?: boolean;
   /** Every operator carries a one-line doc; the examples show one (AgentSettings.operatorDoc). */
   operatorDoc?: boolean;
 }
@@ -254,11 +252,7 @@ export function buildRegisteredNativeSystemPrompt(
     PYTHON_FIELD: format.optionalPython
       ? "`python` (definitions, left out when there are none)"
       : '`python` (definitions, or `""`)',
-    FINAL_ANSWER:
-      finalAnswerText(options.answerStatement) +
-      (options.callReply && !options.answerStatement
-        ? " When a call completes the request, put the final reply in its `reply` field instead: if every statement of the call succeeds, the reply is returned verbatim and the request ends without another turn; if one fails, it is dropped and you see the result. Leave `reply` empty when you need to see the call's results before answering."
-        : ""),
+    FINAL_ANSWER: finalAnswerText(options.answerStatement),
     REPLY_CONTENT: format.answerOnlyReply
       ? "it holds only what that format asks for, with no account of the steps or checks behind it."
       : "it may span lines and contain Markdown.",
