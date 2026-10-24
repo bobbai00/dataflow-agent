@@ -920,6 +920,24 @@ def _groups(frame, columns):
     return list(groups.items())
 
 
+def _pandas_mean(values):
+    """The mean as pandas' groupby computes it: a Kahan-compensated sum in row order, then one division.
+    Series.mean on a nullable column adds left to right, so groups whose pandas means are equal can differ in the
+    last bit and swap places in a later sort (prepbench-hard-137)."""
+    total = compensation = 0.0
+    count = 0
+    for value in values:
+        y = float(value) - compensation
+        t = total + y
+        compensation = t - total - y
+        if compensation != compensation:
+            # An infinite value leaves the compensation NaN; pandas resets it (GH#50367).
+            compensation = 0.0
+        total = t
+        count += 1
+    return total / count
+
+
 def _aggregate(spec, frame, operations):
     props = spec["properties"]
     keys, aggregates = props.get("groupBy", []), props["aggregations"]
@@ -974,6 +992,8 @@ def _aggregate(spec, frame, operations):
             elif fn == "sum":
                 # NumPy's int64 sum wraps on overflow; Python integers do not.
                 value = sum(map(int, present)) if _dtype(column) == "int64" else math.fsum(map(float, present))
+            elif fn == "mean":
+                value = _pandas_mean(present)
             else:
                 value = _scalar(present.std(ddof=1) if fn == "stddev" else getattr(present, fn)())
             values[name].append(value)

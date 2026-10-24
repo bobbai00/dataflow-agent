@@ -56,6 +56,17 @@ def test_aggregate_null_groups_first_seen_order_counts_and_denominators():
     assert result.attrs["native_v2"]["operations"]["aggregateNonNull"]["mean"]["total"] == 3
 
 
+def test_aggregate_mean_is_pandas_groupby_mean():
+    # prepbench-hard-137: both groups average 22.7 / 3. pandas' groupby mean keeps them tied for the sort's
+    # tie-break; Series.mean on the nullable column put the second one a bit higher.
+    frame = pd.DataFrame({"g": ["a"] * 3 + ["b"] * 3, "v": pd.Series([7.6, 7.6, 7.5, 7.7, 7.6, 7.4], dtype="Float64")})
+    assert pd.Series([7.6, 7.6, 7.5], dtype="Float64").mean() != pd.Series([7.7, 7.6, 7.4], dtype="Float64").mean()
+    result = execute("Aggregate", frame, groupBy=["g"], aggregations=[{"fn": "mean", "col": "v", "as": "mean"}])
+    expected = frame.astype({"v": "float64"}).groupby("g")["v"].mean()
+    assert list(result["mean"]) == [expected["a"], expected["b"]]
+    assert result["mean"][0] == result["mean"][1]
+
+
 def test_aggregate_reductions_all_null_and_empty_schemas():
     aggregations = [
         {"fn": fn, "col": "v", "as": fn}
