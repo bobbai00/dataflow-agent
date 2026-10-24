@@ -104,5 +104,3 @@ Keep reusable working tables separate from limited answer tables. Check meaningf
 {{EXAMPLES}}
 
 {{MULTI_REQUEST}}
-
-{{PLAN_LINE}}

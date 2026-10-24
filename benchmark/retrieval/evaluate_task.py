@@ -40,6 +40,13 @@ def save(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str) + "\n")
 
 
+# The task's answer line. With answerOnlyReply the line itself asks for the answer alone: Opus 5.5 kept a report above
+# the line when only the system prompt said so, and dropped it when the line did (10 replayed PrepBench replies: 388 to
+# 157 output tokens, same answers).
+ANSWER_LINE = "Your last line MUST BE: **Final Answer: <value>**"
+ANSWER_ONLY_LINE = "Your reply MUST BE exactly one line, with nothing before or after it: **Final Answer: <value>**"
+
+
 class RetrievalSystem(_NativeExpressionBase):
     _MODEL = manifest["models"][job["model"]]
     _NAME = job["sut"]
@@ -80,6 +87,13 @@ class RetrievalSystem(_NativeExpressionBase):
         # against the recorded settings, which the drift check covers.
         properties = tool["inputSchema"]["properties"]
         assert set(properties) == {"python", "statements"}, sorted(properties)
+
+    def _build_prompt(self, query, file_paths, format_hint=""):
+        prompt = super()._build_prompt(query, file_paths, format_hint)
+        if arm.get("answerOnlyReply"):
+            assert prompt.count(ANSWER_LINE) == 1, "Answer line drift"
+            prompt = prompt.replace(ANSWER_LINE, ANSWER_ONLY_LINE)
+        return prompt
 
     def serve_query(self, query, query_id="default-0", subset_files=None):
         answer = super().serve_query(query, query_id, subset_files)

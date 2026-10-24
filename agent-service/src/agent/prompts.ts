@@ -270,9 +270,6 @@ export function buildRegisteredNativeSystemPrompt(
           : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
-    PLAN_LINE: format.planLine
-      ? "Before each dataflow call, write one short sentence of plain text saying what the call will do and why."
-      : "",
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
     GRAPH_EXAMPLE: (["records", "totals", "report"] as const)
       .map(name => exampleStatement(name, options.operatorDoc))

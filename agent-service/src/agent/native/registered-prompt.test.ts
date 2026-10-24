@@ -117,13 +117,6 @@ test("optional python and first-rows full views are described only when they are
   ).toContain(
     "in the user's requested format; it holds only what that format asks for, with no account of the steps or checks behind it. There is no answer statement."
   );
-  // planLine asks for a sentence of visible plan with each call; the default prompt does not.
-  expect(base).not.toContain("Before each dataflow call, write one short sentence");
-  expect(
-    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], planLine: true }).endsWith(
-      "Before each dataflow call, write one short sentence of plain text saying what the call will do and why."
-    )
-  ).toBe(true);
   // Every prompt says what quotes around a displayed value mean.
   expect(base).toContain("would read as a number, true, false or null; the quotes are not part of the text.");
   // A live agent takes both settings: its prompt and its tool follow them.

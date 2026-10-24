@@ -129,7 +129,6 @@ export function validateEvidenceSettings(settings: object): void {
     "pandasRound",
     "compactRecords",
     "answerOnlyReply",
-    "planLine",
     "dataEvidence",
     "flowEvidence",
     "operatorDoc",
