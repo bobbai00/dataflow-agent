@@ -27,7 +27,12 @@ set -a; . "$S/profile.sh"; set +a
 W="${CHECKOUT:-$TEXERA_HOME}"
 OUT=$1 MODEL=$2 WORKERS=$3; shift 3
 ARMS=${ARMS:-evidence_full_flow0}
-TASKS=${*:-$(python3 -I -c "import json, sys; print(' '.join(t['id'] for t in json.load(open(sys.argv[1]))))" "$W/benchmark/Kramabench/workload/prepbench.json")}
+if [ $# -gt 0 ]; then
+  TASKS="$*"; SEL="PrepBench subset chosen before the run, 1 rep, arms $ARMS: $*"
+else
+  TASKS=$(python3 -I -c "import json, sys; print(' '.join(t['id'] for t in json.load(open(sys.argv[1]))))" "$W/benchmark/Kramabench/workload/prepbench.json")
+  SEL="PrepBench, all 306 cases, 1 rep, arms $ARMS; no outcome-selected retries."
+fi
 if [ -e "$S/runs/$OUT" ]; then echo "refusing: $S/runs/$OUT exists"; exit 1; fi
 mkdir -p "$S/runs" "$S/logs"
 cd "$W"
@@ -38,6 +43,6 @@ setsid -f bash "$S/run-env.sh" env TEXERA_API_ENDPOINT="$TEXERA_DASHBOARD_SERVIC
   --endpoint "$TEXERA_AGENT_SERVICE_ENDPOINT" --agent-revision "$REV" --engine-revision "$REV" \
   --models "$MODEL" --arms $ARMS --repetitions 1 --workers "$WORKERS" --timeout 900 \
   --large-input-bytes 5000000000 --full-result-char-limit 5000 --sample-char-limit 2000 --direct-artifacts \
-  --wire-dir "$S/wire" --selection "PrepBench, all 306 cases, 1 rep, basic setting ($ARMS)" \
+  --wire-dir "$S/wire" --selection "$SEL" \
   --tasks $TASKS > "$S/logs/$OUT.log" 2>&1 < /dev/null
 echo "launched PrepBench dataflow $OUT ($MODEL; $ARMS; $WORKERS workers; checkout $W)"
