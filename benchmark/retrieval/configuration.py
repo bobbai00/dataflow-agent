@@ -69,6 +69,10 @@ def campaign_arms():
     # ask for that line alone. The strict variant is for non-Claude models.
     arms["evidence_data1_flow0_opt"] = {**arms["evidence_data1_flow0_hygiene"], "answerOnlyReply": True}
     arms["evidence_data1_flow0_opt_strict"] = {**arms["evidence_data1_flow0_opt"], "optionalPython": False}
+    # The same with the final reply allowed in the call that completes the request (callReply): Opus's reply turn
+    # was a quarter of its PrepBench cost, and it builds the requested tables in one call in 32 of 40 cases.
+    arms["evidence_data1_flow0_optreply"] = {**arms["evidence_data1_flow0_opt"], "callReply": True}
+    arms["evidence_data1_flow0_optreply_strict"] = {**arms["evidence_data1_flow0_optreply"], "optionalPython": False}
     return arms
 
 

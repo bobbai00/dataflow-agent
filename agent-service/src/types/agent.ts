@@ -351,6 +351,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** Native mode: the final answer is an `answer` statement, which renders
    *  named tables as the reply verbatim and ends the request. */
   answerStatement: boolean;
+  /** Native mode: a dataflow call may carry the final reply in a `reply`
+   *  field; when every statement of the call succeeds, the reply ends the
+   *  request without another model call. */
+  callReply: boolean;
   /** Native mode: `check:` lines under every executed operator whose own
    *  assumptions the engine found violated on the full tables (records
    *  repeated across sources, row effects inside a process function). A
@@ -506,6 +510,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   respondToCanvasRuns: true,
   instructions: "",
   answerStatement: false,
+  callReply: false,
   nativeChecks: false,
   resultSelection: "all",
   // Replay event-owned observations.
@@ -610,6 +615,7 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   respondToCanvasRuns?: boolean;
   instructions?: string;
   answerStatement?: boolean;
+  callReply?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;
@@ -705,6 +711,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   respondToCanvasRuns?: boolean;
   instructions?: string;
   answerStatement?: boolean;
+  callReply?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
   includeOperatorProperties?: boolean;

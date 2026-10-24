@@ -111,11 +111,18 @@ test("optional python and first-rows full views are described only when they are
     "unexpected parsing failures should not silently become nulls. Before you group or join on a text key, check its values: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Normalize a key only where its values actually differ, leave other text columns as the source has them unless the task asks for cleaning,"
   );
   // answerOnlyReply asks for the answer alone; by default a reply may carry more.
-  expect(base).toContain("in the user's requested format; it may span lines and contain Markdown. There is no answer statement.");
+  expect(base).toContain(
+    "in the user's requested format; it may span lines and contain Markdown. There is no answer statement."
+  );
   expect(
     buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], answerOnlyReply: true })
   ).toContain(
     "in the user's requested format; it holds only what that format asks for, with no account of the steps or checks behind it. There is no answer statement."
+  );
+  // callReply describes the reply field; the default prompt does not.
+  expect(base).not.toContain("`reply` field");
+  expect(buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], callReply: true })).toContain(
+    "When a call completes the request, put the final reply in its `reply` field instead: if every statement of the call succeeds, the reply is returned verbatim and the request ends without another turn;"
   );
   // Every prompt says what quotes around a displayed value mean.
   expect(base).toContain("would read as a number, true, false or null; the quotes are not part of the text.");

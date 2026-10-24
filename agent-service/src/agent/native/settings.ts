@@ -134,6 +134,7 @@ export function validateEvidenceSettings(settings: object): void {
     "operatorDoc",
     "respondToCanvasRuns",
     "answerStatement",
+    "callReply",
     "nativeProfileCollection",
     "nativeChecks",
   ] as const) {
