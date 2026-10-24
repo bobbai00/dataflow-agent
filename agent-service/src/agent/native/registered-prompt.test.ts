@@ -95,7 +95,7 @@ test("optional python and first-rows full views are described only when they are
   expect(calls.every(call => !("python" in call) || call.python !== "")).toBe(true);
   for (const call of calls) expect(prepareDataflowCall(call, settings.retrievalViews).status).toBe("pending");
   expect(lean).toContain(
-    "A larger table shows its first 5 rows; to read further rows, `set <new id>: limit(<id>, n=..., offset=...)` and show that."
+    "A larger table shows its first 5 rows (a table read from files shows as many as fit); to read further rows, `set <new id>: limit(<id>, n=..., offset=...)` and show that."
   );
   expect(
     buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
@@ -104,11 +104,11 @@ test("optional python and first-rows full views are described only when they are
     })
   ).toContain("only for a small table whose every row you need. A larger table shows its first 5 rows");
   // dataHygiene adds the rule to normalize keys; the default prompt does not carry it.
-  expect(base).not.toContain("Normalize text keys");
+  expect(base).not.toContain("Before you group or join on a text key");
   expect(
     buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], dataHygiene: true })
   ).toContain(
-    "unexpected parsing failures should not silently become nulls. Normalize text keys before grouping or joining:"
+    "unexpected parsing failures should not silently become nulls. Before you group or join on a text key, check its values: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Normalize a key only where its values actually differ, leave other text columns as the source has them unless the task asks for cleaning,"
   );
   // A live agent takes both settings: its prompt and its tool follow them.
   const live = (modelType: string) =>

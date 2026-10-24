@@ -57,7 +57,7 @@ export function withRequestTimeout(
   return timed as typeof fetch;
 }
 
-/** A failure worth retrying the turn for: the request timed out or the connection dropped.
+/** A failure worth retrying the turn for: the request timed out, the connection dropped, or the provider refused it.
  * A user stop is not transient; the caller checks its own abort signal first. */
 export function isTransientModelError(error: unknown): boolean {
   if (!error) return false;
@@ -66,6 +66,7 @@ export function isTransientModelError(error: unknown): boolean {
   const cause = (error as { cause?: unknown }).cause;
   return (
     name === "TimeoutError" ||
+    name === "ProviderRefusalError" ||
     /timed out|timeout|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up|fetch failed|terminated|Cannot connect to API|network/i.test(
       text
     ) ||

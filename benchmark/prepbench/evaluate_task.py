@@ -21,13 +21,17 @@ from pathlib import Path
 import re
 import runpy
 import subprocess
+import sys
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from handover import files_named_like_operators  # noqa: E402
 REPO = HERE.parents[1]
 BASE = REPO / "benchmark/retrieval/evaluate_task.py"
 ENGINE_PYTHON = os.environ.get("NATIVE_ISOLATED_PYTHON") or str(REPO / ".venv/bin/python")
 AMBER_PYTHON = str(REPO / "amber/src/main/python")
 EXPORTER = str(HERE / "export_result.py")
+INDEX = json.loads((HERE / "task-index.json").read_text())
 
 base = runpy.run_path(str(BASE), run_name="prepbench_attempt")  # defines and registers RetrievalSystem, does not score
 job = base["job"]
@@ -58,8 +62,10 @@ def export(base_dir):
     snapshot = json.loads((base_dir / "snapshot.json").read_text()) if (base_dir / "snapshot.json").exists() else {}
     results = snapshot.get("results") or {}
     mapping = output_map(answer, response)
-    record = {"mapping": mapping, "files": {}}
-    for name, operator in mapping.items():
+    # A file the reply leaves out is exported from the operator named like it, if that one has a result.
+    fallback = files_named_like_operators((INDEX.get(base_dir.name) or {}).get("outputs") or [], mapping, results)
+    record = {"mapping": mapping, "named_like_file": fallback, "files": {}}
+    for name, operator in {**mapping, **fallback}.items():
         file = Path(name).name
         if not re.fullmatch(r"output_\d+\.csv", file):
             record["files"][name] = {"ok": False, "error": "not an output file name"}

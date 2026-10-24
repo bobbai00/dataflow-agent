@@ -20,7 +20,8 @@
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "./vercel-tool-use-driver";
-import type { DriverStepFinish } from "./types";
+import { ProviderRefusalError, type DriverStepFinish } from "./types";
+import { isTransientModelError } from "./request-timeout";
 
 for (const field of ["cache_write_tokens", "cache_creation_tokens"]) {
   test(`records raw ${field} in per-step and total usage`, async () => {
@@ -54,3 +55,32 @@ for (const field of ["cache_write_tokens", "cache_creation_tokens"]) {
     expect(result.usage.inputTokens).toBe(2000);
   });
 }
+
+test("an empty reply ended by the provider's content filter is a provider refusal, retried with the turn", async () => {
+  const model = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [],
+      finishReason: { unified: "content-filter", raw: "content_filter" },
+      usage: {
+        inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+        outputTokens: { total: 0, text: 0, reasoning: 0 },
+      },
+      warnings: [],
+    }),
+  });
+  const error = await new VercelToolUseDriver({ model })
+    .runTurn({
+      initialMessages: [{ role: "user", content: "Hello" }],
+      systemPrompt: undefined,
+      tools: {},
+      maxSteps: 1,
+      parallelToolCalls: false,
+      requireShownResult: true,
+      resultShown: () => true,
+      prepareStep: async ({ messages }) => ({ messages }),
+      onStepFinish: async () => {},
+    })
+    .catch(e => e);
+  expect(error).toBeInstanceOf(ProviderRefusalError);
+  expect(isTransientModelError(error)).toBe(true);
+});

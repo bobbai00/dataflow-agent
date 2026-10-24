@@ -21,6 +21,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { isTransientModelError, LLM_DEADLINE_HEADER, withRequestTimeout } from "./request-timeout";
+import { ProviderRefusalError } from "./types";
 
 /** A provider that accepted the request and never answers; it only honours abort. */
 const neverAnswers = ((_input: unknown, init?: RequestInit) =>
@@ -137,6 +138,17 @@ test("a turn whose model request timed out is retried, and the retry only gets t
   expect(result.response).toBe("Final Answer: 3");
   expect(result.stopped).toBe(false);
   expect(budgets).toEqual([25, 23]);
+});
+
+test("a provider refusal is retried with the turn like a dropped request", async () => {
+  let calls = 0;
+  const agent = agentWith(async () => {
+    if (++calls === 1) throw new ProviderRefusalError();
+    return { text: "Final Answer: 3", messages: [], usage: {} };
+  });
+  const result = await agent.sendMessage("Task.");
+  expect(calls).toBe(2);
+  expect(result.response).toBe("Final Answer: 3");
 });
 
 test("a turn gives up after two retries, and a non-transient failure is not retried", async () => {

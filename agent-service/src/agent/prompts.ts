@@ -220,7 +220,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const previewRows = observationFormat(options).fullPreviewRows;
   const larger =
     previewRows > 0
-      ? ` A larger table shows its first ${previewRows} rows; to read further rows, \`set <new id>: limit(<id>, n=..., offset=...)\` and show that.`
+      ? ` A larger table shows its first ${previewRows} rows (a table read from files shows as many as fit); to read further rows, \`set <new id>: limit(<id>, n=..., offset=...)\` and show that.`
       : "";
   return [
     `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
@@ -246,7 +246,7 @@ export function buildRegisteredNativeSystemPrompt(
   const fields: Record<string, string> = {
     // Field-led: off, the sentence before it ends the paragraph unchanged.
     KEY_NORMALIZATION: format.dataHygiene
-      ? " Normalize text keys before grouping or joining: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Check a key's values before you group or join on it, normalize where needed, and check that matched counts are plausible after a join."
+      ? " Before you group or join on a text key, check its values: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Normalize a key only where its values actually differ, leave other text columns as the source has them unless the task asks for cleaning, and check that matched counts are plausible after a join."
       : "",
     PYTHON_FIELD: format.optionalPython
       ? "`python` (definitions, left out when there are none)"

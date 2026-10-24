@@ -121,6 +121,7 @@ import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR }
 import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 import { renderAnswer } from "./native/answer";
+import { hasCurrentResult, namedOperatorIds, namedResultsFeedback } from "./native/named-results";
 import { createDataflowTool, mergeDataflowCalls, prepareDataflowCall } from "./tools/turn-tool";
 import { nativeAssignmentText } from "./native/catalog";
 import {
@@ -1628,6 +1629,8 @@ export class TexeraAgent {
       let repeatedFailureFeedbackSteps = 0;
       // A text reply where the answer is an answer statement is sent back once.
       let answerCorrected = false;
+      // So is a reply naming tables that still have no result after the agent computed them.
+      let namedResultsCorrected = false;
       let failureStreak = 0;
       let lastFailure: RepeatedFailure | undefined;
       const budgetReminders = new Set<number>();
@@ -1901,6 +1904,41 @@ export class TexeraAgent {
             stepIndex - turnStartStepIndex - protocolFeedbackSteps - budgetFeedbackSteps - repeatedFailureFeedbackSteps;
           try {
             const result = await runDriverOnce(seed, Math.max(1, this.settings.maxSteps - stepsDone));
+            // The reply may hand over tables by naming them; compute the named
+            // ones that have no result, and send the reply back once if one
+            // still has none.
+            const missing =
+              this.settings.agentMode === AgentMode.NATIVE &&
+              !this.answerByMessage.has(messageId) &&
+              !this.abortController?.signal.aborted
+                ? await this.completeNamedResults(result.text)
+                : undefined;
+            if (missing && !namedResultsCorrected && protocolFeedbackSteps < 2) {
+              namedResultsCorrected = true;
+              partials.push(result);
+              const feedback = namedResultsFeedback(missing);
+              const feedbackId = this.generateStepId();
+              this.addStep({
+                id: feedbackId,
+                parentId: this.head,
+                messageId,
+                stepId: ++stepIndex,
+                timestamp: Date.now(),
+                role: "user",
+                content: feedback,
+                isBegin: false,
+                isEnd: true,
+                messageSource: "feedback",
+              });
+              this.head = feedbackId;
+              protocolFeedbackSteps++;
+              seed = [{ role: "user", content: feedback }];
+              this.log.info(
+                { messageId, missing: missing.map(item => item.id) },
+                "sent back a reply naming tables without a result"
+              );
+              continue;
+            }
             if (!partials.length) return result;
             const segments = [...partials, result];
             const keys = new Set(segments.flatMap(segment => Object.keys(segment.usage))) as Set<keyof TokenUsage>;
@@ -2594,6 +2632,33 @@ export class TexeraAgent {
    * path) so a Function(...) tool call has identical post-step behaviour to
    * an LLM-emitted one.
    */
+  /** A final reply can hand over tables by naming their operators in a JSON
+   * object (a file-to-operator mapping). `set` only declares an operator, so a
+   * named table can be one nothing computed; compute those now, on the
+   * snapshot the reply reads, without another model call. Returns the named
+   * operators still without a current result. */
+  private async completeNamedResults(text: string): Promise<Array<{ id: string; error?: string }> | undefined> {
+    const operators = new Map(this.workflowState.getAllOperators().map(op => [op.operatorID, op]));
+    const named = namedOperatorIds(text, new Set(operators.keys()));
+    const owner = this.snapshotStorage.getAssociatedSnapshot(this.head).reactStepId;
+    if (!named.length || !owner) return undefined;
+    const current = (id: string) =>
+      hasCurrentResult(operators.get(id), this.snapshotStorage.getOperatorResult(owner, id));
+    const pending = named.filter(id => !current(id));
+    if (!pending.length) return undefined;
+    let failure: string | undefined;
+    try {
+      await this.executePostStepChanges([], [], true, pending, undefined, owner);
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    this.snapshotCallback?.(owner, this.workflowState.getWorkflowContent());
+    const missing = pending.filter(id => !current(id));
+    this.log.info({ named, computed: pending.filter(id => current(id)), missing }, "computed the tables a reply names");
+    if (!missing.length) return undefined;
+    return missing.map(id => ({ id, error: this.snapshotStorage.getOperatorResult(owner, id)?.error ?? failure }));
+  }
+
   /** Has a result been shown that a reply without a tool call can rest on?
    * Only then is such a reply the answer; before it, nothing was computed. A
    * conversation refines one task over its messages, so any result shown on
@@ -2749,7 +2814,9 @@ export class TexeraAgent {
     toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
     executeAll = false,
     operatorIds?: readonly string[],
-    onExecution?: (run: ExecutionRunMetrics) => void
+    onExecution?: (run: ExecutionRunMetrics) => void,
+    /** Persist the results on this step's snapshot instead of HEAD's (HEAD is then a reply without one). */
+    owner?: string
   ): Promise<void> {
     if (!toolCalls || !toolResults) return;
 
@@ -2807,11 +2874,11 @@ export class TexeraAgent {
     }
     // An aborted request can still finish remotely (or return after checkout).
     // Capture ownership now; never route its data/profiles/errors via a later HEAD.
-    const owningStepId = this.head;
+    const owningStepId = owner ?? this.head;
     const owningSignal = this.abortController?.signal;
     const stillOwned = () =>
       owningStepId !== undefined &&
-      this.head === owningStepId &&
+      (owner !== undefined || this.head === owningStepId) &&
       !owningSignal?.aborted &&
       this.snapshotStorage.hasSnapshotFor(owningStepId);
 
