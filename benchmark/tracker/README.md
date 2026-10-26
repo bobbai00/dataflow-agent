@@ -90,12 +90,25 @@ with `reset=False`, as the smolagents service continues a chat. Its model return
 returns what each step's code printed, returned or raised, so no code runs and the memory is the agent's history,
 without execution variables. After every step the replayer records the Python memory traced after a full collection.
 
+smolagents keeps no snapshot of its Python state, so it cannot jump. To go back to step k, it would have to run the
+code of steps 1 to k again. `restore_smolagents.py` times that for random steps. It uses the baseline's interpreter
+(`benchmark/retrieval/script-agent/setup.sh` builds it) and executor, with the task data mounted where the benchmark
+mounted it. Each step runs in a fresh process; the process start and loading pandas and numpy are not counted, since a
+running session has done both already.
+
+```bash
+benchmark/retrieval/script-agent/.venv/bin/python benchmark/tracker/restore_smolagents.py \
+  conversations-smolagents.jsonl smolagents-restore.jsonl --data benchmark/Kramabench/data \
+  --kramabench benchmark/Kramabench --samples 300
+```
+
 ## The paper's data
 
 ```bash
 python3 -I benchmark/tracker/summarize.py --keep $R/keep --forget $R/forget --jumps $R/jumps \
-  --smolagents smolagents-memory.jsonl --out <paper repo>/scripts/plots/data
+  --smolagents smolagents-memory.jsonl --smolagents-restore smolagents-restore.jsonl \
+  --out <paper repo>/scripts/plots/data
 ```
 
-This writes `memory_growth.csv`, `tracker_heap.csv` and `tracker_jumps.csv`. The paper repository's
+This writes `memory_growth.csv`, `tracker_heap.csv`, `tracker_jumps.csv` and `script_restore.csv`. The paper repository's
 `scripts/plots/fig_memory_growth.py` and `fig_tracker.py` draw them.
