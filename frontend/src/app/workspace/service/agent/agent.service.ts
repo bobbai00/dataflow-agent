@@ -596,11 +596,9 @@ export class AgentService {
         // Handle initial workflow content from agent service (ground truth)
         if (message.workflowContent) {
           tracking.wsWorkflowActive = true;
-          const workflow: Workflow = {
-            ...(message.workflowMetadata || tracking.workflowSubject.getValue() || {}),
-            content: message.workflowContent,
-          };
-          tracking.workflowSubject.next(workflow as Workflow);
+          tracking.workflowSubject.next(
+            this.agentWorkflow(tracking, message.workflowContent, message.workflowMetadata)
+          );
         }
         // Handle initial operator results
         if (message.operatorResults) {
@@ -652,12 +650,7 @@ export class AgentService {
         if (message.workflow) {
           tracking.player.push(() => {
             tracking.wsWorkflowActive = true;
-            const existingWorkflow = tracking.workflowSubject.getValue();
-            const workflow = {
-              ...(existingWorkflow || {}),
-              content: message.workflow,
-            } as Workflow;
-            tracking.workflowSubject.next(workflow);
+            tracking.workflowSubject.next(this.agentWorkflow(tracking, message.workflow));
           }, false);
         }
         break;
@@ -697,11 +690,9 @@ export class AgentService {
         // Update workflow content from agent service (ground truth)
         if (message.workflowContent) {
           tracking.wsWorkflowActive = true;
-          const workflow: Workflow = {
-            ...(message.workflowMetadata || tracking.workflowSubject.getValue() || {}),
-            content: message.workflowContent,
-          };
-          tracking.workflowSubject.next(workflow as Workflow);
+          tracking.workflowSubject.next(
+            this.agentWorkflow(tracking, message.workflowContent, message.workflowMetadata)
+          );
         }
         // Update operator results on HEAD change
         if (message.operatorResults) {
@@ -738,6 +729,21 @@ export class AgentService {
       default:
         console.warn("Unknown agent WebSocket message type:", message.type);
     }
+  }
+
+  /**
+   * The agent's workflow with the content a frame carries, under the metadata
+   * the frame sends or the last known. Before the first poll has brought the
+   * workflow (a checkout right after the page opens), the agent's workflow id
+   * is still known: without it the canvas would take the content for another,
+   * new workflow, load it untitled and save it as one.
+   */
+  private agentWorkflow(tracking: AgentStateTracking, content: any, metadata?: Partial<Workflow>): Workflow {
+    const known =
+      metadata ||
+      tracking.workflowSubject.getValue() ||
+      (tracking.workflowId !== undefined ? { wid: tracking.workflowId } : {});
+    return { ...known, content } as Workflow;
   }
 
   /** Show one version of a running call: the dataflow after an edit, the

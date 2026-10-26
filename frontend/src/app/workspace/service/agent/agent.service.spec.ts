@@ -739,6 +739,42 @@ describe("AgentService", () => {
         expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["x"]);
       });
 
+      it("a checkout without steps keeps the steps it holds; a restore arrives as a step of its own", () => {
+        seedAgent("agent-1");
+        service.activateAgent("agent-1");
+        const ws = FakeWebSocket.latest();
+        let steps: ReActStep[] = [];
+        service.getReActStepsObservable("agent-1").subscribe(s => (steps = s));
+        let workflow: Workflow | null = null;
+        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
+        const step = (id: string, parentId?: string) => ({ id, parentId, messageId: id, stepId: 0, role: "agent" });
+        emit(ws, { type: "init", state: "AVAILABLE", headId: "s2", steps: [step("s1"), step("s2", "s1")] });
+
+        // The server no longer resends the history with a checkout.
+        emit(ws, { type: "headChange", headId: "s1", workflowContent: { operators: [{ operatorID: "a" }] } });
+        expect(steps.map(s => s.id)).toEqual(["s1", "s2"]);
+        expect(service.getHeadId("agent-1")).toBe("s1");
+        expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["a"]);
+
+        // Checking out an earlier version of a step records a restore step: it comes first, then the checkout.
+        emit(ws, { type: "step", step: { ...step("r1", "s1"), role: "user" } });
+        emit(ws, { type: "headChange", headId: "r1", workflowContent: { operators: [] } });
+        expect(steps.map(s => s.id)).toEqual(["s1", "s2", "r1"]);
+        expect(service.getHeadId("agent-1")).toBe("r1");
+      });
+
+      it("a checkout before the workflow was first polled keeps the agent's workflow id", () => {
+        seedAgent("agent-1", 42);
+        service.activateAgent("agent-1");
+        const ws = FakeWebSocket.latest();
+        let workflow: Workflow | null = null;
+        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
+        // No poll has answered yet: the frame alone must not make the canvas load another, untitled workflow.
+        emit(ws, { type: "headChange", headId: "s1", workflowContent: { operators: [{ operatorID: "a" }] } });
+        expect(workflow!.wid).toBe(42);
+        expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["a"]);
+      });
+
       it("cleans up the agent when the backend reports 'Agent not found'", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
