@@ -50,6 +50,30 @@ export interface DataflowProgress {
   operatorResults?: Record<string, OperatorResultSummary>;
 }
 
+/** The Python runtime the agent's native operators name in their code instead of holding it (about 200 KB, the same in
+ * every operator), as the agent sends it once per connection: `exec(<token>,` stands for `exec(<literal>,`. */
+export interface NativeRuntime {
+  token: string;
+  literal: string;
+}
+
+/** `operators` with their code as the engine runs it, the runtime in place of its token. The canvas holds these, so
+ * saving the workflow, or running it from the toolbar rather than through the agent, works as before. */
+export function withNativeRuntime<T extends { operatorProperties?: Record<string, any> }>(
+  operators: T[],
+  runtime: NativeRuntime | undefined
+): T[] {
+  if (!runtime) return operators;
+  const token = `exec(${runtime.token},`;
+  return operators.map(op => {
+    const code = op.operatorProperties?.["code"];
+    if (typeof code !== "string" || !code.includes(token)) return op;
+    // A function, so the "$" sequences the source may hold are not read as replacement patterns.
+    const inline = code.replace(token, () => `exec(${runtime.literal},`);
+    return { ...op, operatorProperties: { ...op.operatorProperties, code: inline } };
+  });
+}
+
 /** `content` after `change`: its operators added or replaced, the removed ones gone, its links and positions. */
 export function applyDataflowChange(content: WorkflowContent, change: DataflowChange): WorkflowContent {
   const changed = new Map(change.operators.map(op => [op.operatorID, op]));

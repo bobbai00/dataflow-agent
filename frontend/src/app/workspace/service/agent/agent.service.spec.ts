@@ -775,6 +775,26 @@ describe("AgentService", () => {
         expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["a"]);
       });
 
+      it("puts the runtime the init frame sends back into the code of every native operator it shows", () => {
+        seedAgent("agent-1", 42);
+        service.activateAgent("agent-1");
+        const ws = FakeWebSocket.latest();
+        let workflow: Workflow | null = null;
+        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
+        const nativeRuntime = { token: "_rt", literal: JSON.stringify("print('$& runtime')") };
+        emit(ws, { type: "init", state: "AVAILABLE", headId: "s1", steps: [], nativeRuntime });
+        const op = (code: string) => ({ operatorID: "a", operatorProperties: { code } });
+        emit(ws, {
+          type: "headChange",
+          headId: "s1",
+          workflowContent: { operators: [op("x\nexec(_rt, _native_scope)")] },
+        });
+        // As the engine runs it: a save or a toolbar run of the workflow works outside the agent.
+        expect((workflow!.content.operators[0] as any).operatorProperties.code).toBe(
+          `x\nexec(${nativeRuntime.literal}, _native_scope)`
+        );
+      });
+
       it("cleans up the agent when the backend reports 'Agent not found'", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");

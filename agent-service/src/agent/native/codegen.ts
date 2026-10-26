@@ -58,6 +58,13 @@ const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", impo
 export const NATIVE_RUNTIME_TOKEN = `_texera_native_runtime_${createHash("sha256").update(runtimeSource).digest("hex").slice(0, 16)}`;
 const runtimeLiteral = JSON.stringify(runtimeSource);
 
+/** What a client needs to put the runtime back into an operator's code itself: `exec(<token>,` becomes
+ * `exec(<literal>,`. The agent sends it once per connection, so the GUI's canvas holds code the engine can run (a save
+ * or a run of the workflow outside the agent) without every frame carrying the runtime. */
+export function nativeRuntimeForClients(): { token: string; literal: string } {
+  return { token: NATIVE_RUNTIME_TOKEN, literal: runtimeLiteral };
+}
+
 /** `code` as the engine runs it: the runtime source in place of NATIVE_RUNTIME_TOKEN. Other code is returned as is. */
 export function inlineNativeRuntime(code: string): string {
   const at = code.lastIndexOf(`exec(${NATIVE_RUNTIME_TOKEN},`);
