@@ -25,6 +25,7 @@ import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { TexeraAgent } from "./agent/texera-agent";
 import { AgentState } from "./types/agent";
+import { NATIVE_RUNTIME_TOKEN, inlineNativeRuntime } from "./agent/native/codegen";
 
 const app = buildApp(),
   originalFetch = globalThis.fetch;
@@ -146,6 +147,22 @@ test("the form splits an operator's statement into its fields", async () => {
   expect(loader.definition.name).toBe("make_table");
   expect(loader.definition.source).toContain("def make_table(*, n=3):");
   expect((await call("GET", `/${id}/operators/nope/form`)).status).toBe(404);
+});
+
+test("the dataflow read over HTTP has its code as the engine runs it", async () => {
+  const id = await created();
+  const held = agent
+    .getWorkflowState()
+    .getWorkflowContent()
+    .operators.find(op => op.operatorID === "kept")!;
+  expect(held.operatorProperties.code).toContain(NATIVE_RUNTIME_TOKEN);
+  const { workflow } = (await (await call("GET", `/${id}/workflow`)).json()) as Record<string, any>;
+  const head = (await (await call("GET", `/${id}/snapshots/head`)).json()) as Record<string, any>;
+  for (const read of [workflow, head.workflow]) {
+    const code = read.operators.find((op: any) => op.operatorID === "kept").operatorProperties.code;
+    expect(code).toBe(inlineNativeRuntime(held.operatorProperties.code));
+    expect(code).not.toContain(NATIVE_RUNTIME_TOKEN);
+  }
 });
 
 test("edit and run record user steps; a rejected edit is a 400 and records nothing", async () => {

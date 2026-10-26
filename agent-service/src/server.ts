@@ -27,7 +27,7 @@ import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/ll
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
-import { nativeRuntimeForClients } from "./agent/native/codegen";
+import { nativeRuntimeForClients, workflowNativeRuntime } from "./agent/native/codegen";
 import { describeNativeStatement } from "./agent/native/statement-form";
 import { UserActionError, type UserActionRequest } from "./agent/user-actions";
 import {
@@ -1368,13 +1368,14 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
    * Return the workflow content the agent is currently editing — i.e., what a
    * client would see if it asked "show me the workflow as it stands right
    * now." Convenient endpoint for batch drivers that just want the final
-   * workflow after a turn without paginating through snapshots.
+   * workflow after a turn without paginating through snapshots. Its code is
+   * as the engine runs it (the runtime inline), so a saved copy runs as is.
    */
   .get("/:id/workflow", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
       headId: agent.getHead(),
-      workflow: agent.getWorkflowState().getWorkflowContent(),
+      workflow: workflowNativeRuntime(agent.getWorkflowState().getWorkflowContent(), "inline"),
     };
   })
 
@@ -1395,7 +1396,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     const results = operatorResultSummaries(storage.getAllVisibleResults(resolvedStepId), workflowEntry.value);
     return {
       stepId: resolvedStepId,
-      workflow: workflowEntry?.value ?? null,
+      workflow: workflowEntry?.value ? workflowNativeRuntime(workflowEntry.value, "inline") : null,
       workflowSourceStepId: workflowEntry?.sourceStepId ?? null,
       results,
       ...(storage.getAssociatedSnapshot(resolvedStepId).nativeObservations !== undefined
