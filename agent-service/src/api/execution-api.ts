@@ -40,6 +40,7 @@ export interface LogicalPlan {
 import { getBackendConfig } from "./backend-api";
 import { env } from "../config/env";
 import type { SyncExecutionResult } from "../types/execution";
+import { withNativeRuntime } from "../agent/native/codegen";
 
 export interface ExecuteWorkflowOptions {
   executionName?: string;
@@ -75,7 +76,7 @@ export async function executeWorkflowSync(
   const request = {
     executionName: options.executionName ?? "e2e-execution",
     logicalPlan: {
-      operators: logicalPlan.operators,
+      operators: withNativeRuntime(logicalPlan.operators),
       links: logicalPlan.links,
       opsToViewResult,
       opsToReuseResult: [],

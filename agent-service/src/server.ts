@@ -59,6 +59,7 @@ import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
 import { readFileSync } from "fs";
+import { heapStats } from "bun:jsc";
 import { assembleContext, type AssembleContextOptions } from "./agent/util/context-utils";
 import {
   applySummarizeParamsPatch,
@@ -1249,21 +1250,22 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         set.status = 409;
         return { error: "The agent is working; try again when it finishes." };
       }
+      const started = performance.now();
+      const stepCount = agent.getStepsById().size;
       const headId = agent.checkoutVersion(body.snapshotId);
+      const restored = performance.now();
       traceStore?.event({ agentId: id, kind: "checkout-version", detail: { snapshotId: body.snapshotId, headId } });
       if (!headId) {
         set.status = 404;
         return { error: `There is no version ${body.snapshotId}.` };
       }
-      broadcastToAgent(id, {
-        type: "headChange",
-        headId,
-        steps: agent.getRenderableReActSteps(),
-        workflowContent: agent.getWorkflowState().getWorkflowContent(),
-        operatorResults: getOperatorResultSummaries(agent),
-      });
-      broadcastNextContext(id, agent);
-      return { status: "checked out", headId };
+      // Clients hold every step already: a restore that made a step sends that one.
+      if (agent.getStepsById().size > stepCount)
+        broadcastToAgent(id, { type: "step", step: agent.getStepsById().get(headId)! });
+      broadcastHeadChange(id, agent, headId);
+      const sent = performance.now();
+      setTimeout(() => broadcastNextContext(id, agent), 0);
+      return { status: "checked out", headId, timing: checkoutTiming(started, restored, sent) };
     },
     { body: t.Object({ snapshotId: t.String() }) }
   )
@@ -1306,6 +1308,59 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       headSnapshotId: storage.getAssociatedSnapshot(agent.getHead()).id,
       nodes: storage.getSnapshotTreeNodes().filter(n => n.id !== rootId),
     };
+  })
+
+  /** The snapshot tree's size, for the overhead experiments (benchmark/tracker). */
+  .get("/:id/debug/tracker", ({ params: { id }, query }) => {
+    const agent = getAgent(id);
+    const sizes = { steps: agent.getAllSteps().length, ...agent.getSnapshotStorage().size() };
+    const storage = agent.getSnapshotStorage();
+    return query.bytes ? { ...sizes, ...storage.residencyStats(), bytes: historyBytes(agent) } : sizes;
+  })
+
+  /** Where the tree's memory goes, for the overhead experiments: the service's memory after a full collection, then
+   * again after each part of every snapshot off HEAD's path is dropped in turn (dataflows, observations and
+   * diagnostics, results, then the snapshots themselves). This destroys the history: use it last. */
+  .post("/:id/debug/attribute", ({ params: { id } }) => {
+    const agent = getAgent(id);
+    const storage = agent.getSnapshotStorage();
+    const keep = new Set<string>();
+    for (let s: SnapshotData | undefined = storage.getAssociatedSnapshot(agent.getHead()); s; )
+      (keep.add(s.id), (s = s.parentId === undefined ? undefined : storage.getSnapshotById(s.parentId)));
+    const off = storage
+      .getSnapshotTreeNodes()
+      .flatMap(node => (keep.has(node.id) ? [] : [storage.getSnapshotById(node.id)!]));
+    const held = () => {
+      const memory = serviceMemory();
+      return (memory.heapUsed + memory.external) / 2 ** 20;
+    };
+    const steps: Array<[string, number]> = [["all", held()]];
+    const empty = storage.getRootSnapshot().workflow;
+    for (const snapshot of off) (snapshot as any).workflow = empty;
+    steps.push(["without dataflows", held()]);
+    for (const snapshot of off) {
+      Object.defineProperty(snapshot, "nativeObservations", { value: undefined, writable: true, configurable: true });
+      (snapshot as any).nativeDiagnostics = undefined;
+    }
+    steps.push(["without observations and diagnostics", held()]);
+    for (const snapshot of off) (snapshot as any).results = new Map();
+    steps.push(["without results", held()]);
+    storage.retainAncestorsOf(storage.getAssociatedSnapshot(agent.getHead()).id);
+    steps.push(["without the snapshots", held()]);
+    return { snapshots: off.length, mib: Object.fromEntries(steps) };
+  })
+
+  /** Keep only the snapshots HEAD's path needs, as an agent without the context
+   * tracker would (the experiments' "without tracker" arm, between conversations). */
+  .post("/:id/debug/forget-history", ({ params: { id }, set }) => {
+    const agent = getAgent(id);
+    if (agent.getState() !== AgentState.AVAILABLE) {
+      set.status = 409;
+      return { error: "The agent is working; try again when it finishes." };
+    }
+    const storage = agent.getSnapshotStorage();
+    storage.retainAncestorsOf(storage.getAssociatedSnapshot(agent.getHead()).id);
+    return storage.size();
   })
 
   /**
@@ -1508,25 +1563,20 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       return { error: "The agent is working; try again when it finishes." };
     }
 
+    const started = performance.now();
     const success = agent.checkout(stepId);
+    const restored = performance.now();
     traceStore?.event({ agentId: id, kind: "checkout", detail: { stepId, success } });
     if (!success) throw new Error(`Step ${stepId} not found or checkout failed`);
 
-    const allSteps = agent.getRenderableReActSteps();
-    const workflowContent = agent.getWorkflowState().getWorkflowContent();
-
-    broadcastToAgent(id, {
-      type: "headChange",
-      headId: stepId,
-      steps: allSteps,
-      workflowContent,
-      operatorResults: getOperatorResultSummaries(agent),
-    });
-    broadcastNextContext(id, agent);
+    broadcastHeadChange(id, agent, stepId);
+    const sent = performance.now();
+    setTimeout(() => broadcastNextContext(id, agent), 0);
 
     return {
       status: "checked out",
       headId: stepId,
+      timing: checkoutTiming(started, restored, sent),
     };
   })
 
@@ -1903,6 +1953,77 @@ async function runUserAction(agentId: string, action: UserActionRequest, set: { 
  * the model would actually receive on the next prepareStep. Safe to call from
  * any handler — failures are logged but don't propagate.
  */
+/** Characters of JSON an agent's history holds in memory, by part, each shared object counted once: the steps (their
+ * model inputs, tool results and the rest), and the snapshots (dataflow parts, operators, results in memory,
+ * observations and diagnostics). */
+function historyBytes(agent: TexeraAgent) {
+  const length = (value: unknown) => (value === undefined ? 0 : JSON.stringify(value).length);
+  const bytes: Record<string, number> = { stepInputs: 0, stepResults: 0, stepOther: 0, operators: 0, results: 0 };
+  const seen = new Set<object>();
+  const once = (value: unknown): number => {
+    if (value === null || typeof value !== "object" || seen.has(value)) return 0;
+    seen.add(value);
+    return length(value);
+  };
+  for (const step of agent.getAllSteps()) {
+    const { inputMessages, toolResults, ...other } = step as any;
+    // Messages shared with an earlier step count once.
+    for (const message of inputMessages ?? []) bytes.stepInputs += once(message);
+    bytes.stepResults += length(toolResults);
+    bytes.stepOther += length(other);
+  }
+  const add = (key: string, count: number) => (bytes[key] = (bytes[key] ?? 0) + count);
+  const storage = agent.getSnapshotStorage();
+  for (const node of storage.getSnapshotTreeNodes()) {
+    const snapshot = storage.getSnapshotById(node.id)!;
+    const { operators, ...dataflow } = snapshot.workflow;
+    for (const [key, value] of Object.entries(dataflow)) add(`dataflow.${key}`, once(value));
+    for (const operator of operators) bytes.operators += once(operator);
+    for (const entry of snapshot.results.values()) if (entry.resident) bytes.results += once(entry.info);
+    add("diagnostics", once(snapshot.nativeDiagnostics));
+  }
+  // Observations on disk would be read back by reading them.
+  for (const observations of storage.observationsInMemory()) add("observations", once(observations));
+  return bytes;
+}
+
+/** HEAD moved: its dataflow and results. Clients hold every step already (each was sent as it was made, and all of
+ * them on connect), so the steps do not travel again: resending them made a jump cost the whole history. */
+function broadcastHeadChange(agentId: string, agent: TexeraAgent, headId: string): void {
+  broadcastToAgent(agentId, {
+    type: "headChange",
+    headId,
+    workflowContent: agent.getWorkflowState().getWorkflowContent(),
+    operatorResults: getOperatorResultSummaries(agent),
+  });
+}
+
+/** Where a checkout's time went (ms): restoring the snapshot, the headChange
+ * frame to the GUI, and the next step's context. */
+function checkoutTiming(started: number, restored: number, sent: number) {
+  const now = performance.now();
+  return {
+    restoreMs: restored - started,
+    headChangeMs: sent - restored,
+    contextMs: now - sent,
+    totalMs: now - started,
+  };
+}
+
+/** Heap and external memory after two full collections (the second frees what the first's finalizers released). */
+function serviceMemory() {
+  Bun.gc(true);
+  Bun.gc(true);
+  const { heapSize, heapCapacity, extraMemorySize, objectCount, objectTypeCounts } = heapStats();
+  // The most numerous kinds of object, to see what a growing heap holds.
+  const types = Object.fromEntries(
+    Object.entries(objectTypeCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 15)
+  );
+  return { ...process.memoryUsage(), jsc: { heapSize, heapCapacity, extraMemorySize, objectCount, types } };
+}
+
 function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
   try {
     const content = agent.getNextStepContext();
@@ -1922,6 +2043,15 @@ export function buildApp() {
           status: "ok",
           timestamp: new Date().toISOString(),
         }))
+        // The service's memory after a full collection, for the overhead experiments
+        // (benchmark/tracker). Off unless AGENT_DEBUG_MEMORY=1: a full collection stalls the service.
+        .get("/debug/memory", ({ set }) => {
+          if (process.env.AGENT_DEBUG_MEMORY !== "1") {
+            set.status = 404;
+            return { error: "Set AGENT_DEBUG_MEMORY=1 to read the service's memory." };
+          }
+          return serviceMemory();
+        })
         // The trace store: every agent it holds, and one agent's whole trace as JSON.
         .get("/traces", ({ query }) => ({
           database: traceStore?.path ?? null,

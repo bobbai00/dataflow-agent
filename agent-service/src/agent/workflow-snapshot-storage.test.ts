@@ -707,3 +707,148 @@ describe("WorkflowSnapshotStorage — housekeeping", () => {
     expect(s.getWorkflow("X")?.operators.length).toBe(1);
   });
 });
+
+describe("WorkflowSnapshotStorage — results off HEAD's path on disk", () => {
+  // init → A → B on one branch, init → C on another.
+  const parents: Record<string, string | undefined> = { init: undefined, A: "init", B: "A", C: "init" };
+  const path = (stepId: string): string[] => {
+    const chain: string[] = [];
+    for (let id: string | undefined = stepId; id; id = parents[id]) chain.push(id);
+    return chain.reverse();
+  };
+  const withRows = (opId: string, rows: number) =>
+    ({
+      ...makeOperatorInfo(opId, rows),
+      result: Array.from({ length: rows }, (_, i) => ({ i, text: `row ${i}` })),
+    }) as OperatorInfo;
+
+  function tree() {
+    const storage = new WorkflowSnapshotStorage(path);
+    storage.createSnapshot("init", emptyWorkflow());
+    storage.createSnapshot("A", makeWorkflow(["a"]));
+    storage.setOperatorResult("A", "a", withRows("a", 3));
+    storage.createSnapshot("B", makeWorkflow(["a", "b"]));
+    storage.setOperatorResult("B", "b", withRows("b", 5));
+    storage.createSnapshot("C", makeWorkflow(["c"]));
+    storage.setOperatorResult("C", "c", withRows("c", 7));
+    return storage;
+  }
+
+  test("compact keeps the path's results in memory and writes the others to disk", () => {
+    const storage = tree();
+    expect(storage.residencyStats()).toEqual({ resident: 3, results: 3, spilledBytes: 0 });
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    const stats = storage.residencyStats();
+    expect(stats.resident).toBe(1);
+    expect(stats.spilledBytes).toBeGreaterThan(0);
+  });
+
+  test("a result on disk reads back as it was, frozen, and its provenance stays", () => {
+    const storage = tree();
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    const back = storage.getOperatorResult("B", "b")!;
+    expect(back.result).toEqual(withRows("b", 5).result);
+    expect(Object.isFrozen(back)).toBe(true);
+    expect(storage.getResolvedOperatorResult("B", "a")?.sourceStepId).toBe("A");
+    // Read back, it stays until the next compact decides.
+    expect(storage.getOperatorResult("B", "b")).toBe(back);
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    expect(storage.getOperatorResult("B", "b")).not.toBe(back);
+  });
+
+  test("the version tree marks failed runs without reading results back from disk", () => {
+    const storage = tree();
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    const resident = storage.residencyStats().resident;
+    storage.getSnapshotTreeNodes();
+    expect(storage.residencyStats().resident).toBe(resident);
+  });
+
+  test("moving HEAD to the other branch lets the first branch go and keeps what the new path reads", () => {
+    const storage = tree();
+    storage.compact(storage.getAssociatedSnapshot("B").id);
+    expect(storage.residencyStats().resident).toBe(2);
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    // c went to disk with B's compact; pinning does not read it back, reading does, and then it stays.
+    expect(storage.residencyStats().resident).toBe(0);
+    expect(storage.getOperatorResult("C", "c")?.totalRowCount).toBe(7);
+    storage.compact(storage.getAssociatedSnapshot("C").id);
+    expect(storage.residencyStats().resident).toBe(1);
+    expect(storage.getAllVisibleResults("B").get("a")?.totalRowCount).toBe(3);
+  });
+});
+
+describe("WorkflowSnapshotStorage — unchanged frozen dataflow parts are shared", () => {
+  test("a child snapshot reuses its parent's frozen links and positions when they did not change", () => {
+    const storage = new WorkflowSnapshotStorage(stepId => (stepId === "B" ? ["A", "B"] : [stepId]));
+    const native = (ids: string[]): WorkflowContent => {
+      const workflow = makeWorkflow(ids);
+      return {
+        ...workflow,
+        operators: workflow.operators.map(op => ({ ...op, nativeOp: { type: "Scan" } }) as any),
+        operatorPositions: Object.fromEntries(ids.map((id, i) => [id, { x: i, y: 0 }])),
+      };
+    };
+    const a = storage.createSnapshot("A", native(["a"]));
+    const one = native(["a"]);
+    const moved: WorkflowContent = {
+      ...one,
+      operators: [...one.operators, { ...one.operators[0], operatorID: "b" }],
+      operatorPositions: { ...one.operatorPositions, b: { x: 9, y: 9 } },
+    };
+    const b = storage.createSnapshot("B", moved);
+    expect(b.workflow.settings).toBe(a.workflow.settings);
+    expect(b.workflow.links).toBe(a.workflow.links);
+    expect(b.workflow.operatorPositions).not.toBe(a.workflow.operatorPositions);
+    expect(b.workflow.operators[0]).toBe(a.workflow.operators[0]);
+  });
+});
+
+describe("WorkflowSnapshotStorage — unchanged parts deep inside the dataflow are shared", () => {
+  test("a namespace that gains a cell keeps the earlier cells; positions keep each unmoved operator's", () => {
+    const storage = new WorkflowSnapshotStorage(stepId => (stepId === "B" ? ["A", "B"] : [stepId]));
+    const workflow = (cells: string[], positions: Record<string, { x: number; y: number }>): WorkflowContent => {
+      const base = makeWorkflow(["a"]);
+      return {
+        ...base,
+        operators: base.operators.map(op => ({ ...op, nativeOp: { type: "Scan" } }) as any),
+        operatorPositions: positions,
+        nativeNamespace: {
+          cells: cells.map(source => ({ source })),
+          functions: {},
+          bindings: {},
+          revision: cells.length,
+        } as any,
+      };
+    };
+    const a = storage.createSnapshot("A", workflow(["def f(): pass"], { a: { x: 0, y: 0 } }));
+    const b = storage.createSnapshot(
+      "B",
+      workflow(["def f(): pass", "def g(): pass"], { a: { x: 0, y: 0 }, b: { x: 5, y: 5 } })
+    );
+    const cells = (s: typeof a) => (s.workflow.nativeNamespace as any).cells;
+    expect(cells(b)[0]).toBe(cells(a)[0]);
+    expect(cells(b)).toHaveLength(2);
+    expect(b.workflow.operatorPositions.a).toBe(a.workflow.operatorPositions.a);
+    expect(Object.isFrozen(cells(b)[1])).toBe(true);
+  });
+});
+
+describe("WorkflowSnapshotStorage — observations off HEAD's path on disk", () => {
+  test("a step's observations go to disk when HEAD leaves its path and read back as they were", () => {
+    const parents: Record<string, string | undefined> = { A: undefined, B: undefined };
+    const storage = new WorkflowSnapshotStorage(stepId => (parents[stepId] === undefined ? [stepId] : [stepId]));
+    const a = storage.createSnapshot("A", makeWorkflow(["a"]));
+    storage.createSnapshot("B", makeWorkflow(["b"]));
+    a.nativeObservations = Object.freeze({ a: { rows: [1, 2, 3] } as any });
+    (storage as any).observed.add(a);
+    expect(storage.observationsInMemory()).toHaveLength(1);
+    storage.compact(storage.getAssociatedSnapshot("B").id);
+    expect(storage.observationsInMemory()).toHaveLength(0);
+    expect(a.nativeObservations).toEqual({ a: { rows: [1, 2, 3] } } as any);
+    expect(Object.isFrozen(a.nativeObservations)).toBe(true);
+    expect(storage.observationsInMemory()).toHaveLength(1);
+    storage.compact(storage.getAssociatedSnapshot("A").id);
+    expect(storage.observationsInMemory()).toHaveLength(1);
+  });
+});

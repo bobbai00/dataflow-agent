@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
 import { sessionRequests } from "./request-catalog";
 import { renderTableContext, renderTaskCatalog } from "./table-context";
@@ -355,6 +356,8 @@ export class TexeraAgent {
    */
   private head: string | undefined = undefined;
   private stepsById: Map<string, ReActStep> = new Map();
+  /** Each step's children, in the order they were added (lastStepShowing, checkoutVersion). */
+  private childStepIds: Map<string, string[]> = new Map();
   private stepCounter = 0;
   private snapshotStorage: WorkflowSnapshotStorage;
 
@@ -834,12 +837,9 @@ export class TexeraAgent {
     const target = stepId ?? this.head;
     if (!target) return [];
     const chain: string[] = [];
-    let current: string | undefined = target;
-    while (current) {
-      chain.unshift(current);
-      current = this.stepsById.get(current)?.parentId;
-    }
-    return chain;
+    for (let current: string | undefined = target; current; current = this.stepsById.get(current)?.parentId)
+      chain.push(current);
+    return chain.reverse();
   }
 
   getStepsById(): Map<string, ReActStep> {
@@ -973,7 +973,9 @@ export class TexeraAgent {
     // Restore the workflow visible at this branch. The storage's reads are
     // total — if no action-bearing ancestor owns a snapshot on this branch
     // we fall through to the empty root's empty workflow.
-    this.workflowState.setWorkflowContent(this.snapshotStorage.getWorkflow(stepId));
+    const snapshot = this.snapshotStorage.getAssociatedSnapshot(stepId);
+    this.workflowState.setWorkflowContent(snapshot.workflow);
+    this.snapshotStorage.compact(snapshot.id);
     return true;
   }
 
@@ -1033,6 +1035,13 @@ export class TexeraAgent {
     }
     steps.push(step);
     this.stepsById.set(step.id, step);
+    if (step.parentId !== undefined) {
+      const siblings = this.childStepIds.get(step.parentId);
+      if (siblings) siblings.push(step.id);
+      else this.childStepIds.set(step.parentId, [step.id]);
+    }
+    // The step before this one is done: results off its path can go to disk.
+    this.snapshotStorage.compact(this.snapshotStorage.getAssociatedSnapshot(step.parentId).id);
     this.trace?.step(this.agentId, step);
     if (this.stepCallback) {
       this.stepCallback(step);
@@ -1824,7 +1833,7 @@ export class TexeraAgent {
                     cacheCreationInputTokens: (usage as any).cacheCreationInputTokens,
                   }
                 : undefined,
-              inputMessages: lastPreparedMessages,
+              inputMessages: this.shareInputMessages(lastPreparedMessages),
               timing: {
                 preparedAt,
                 requestedAt,
@@ -2149,6 +2158,7 @@ export class TexeraAgent {
   clearHistory(): void {
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
+    this.childStepIds.clear();
     this.currentMessageId = undefined;
     this.head = undefined;
     this.snapshotStorage.clear();
@@ -3331,12 +3341,10 @@ export class TexeraAgent {
       this.checkout(target);
       return target;
     }
-    const restored = [...this.stepsById.values()]
+    const restored = this.childSteps(owner)
       .filter(
         step =>
-          step.parentId === owner &&
-          step.userAction?.kind === "restore" &&
-          this.snapshotStorage.getOwnedSnapshot(step.id)?.parentId === version.id
+          step.userAction?.kind === "restore" && this.snapshotStorage.getOwnedSnapshot(step.id)?.parentId === version.id
       )
       .at(-1);
     if (restored) {
@@ -3375,19 +3383,40 @@ export class TexeraAgent {
    * the replies after it that make no version, along HEAD's branch where it
    * passes through, else the newest branch. */
   private lastStepShowing(stepId: string): string {
-    const children = new Map<string, ReActStep[]>();
-    for (const step of this.stepsById.values())
-      if (step.parentId) children.set(step.parentId, [...(children.get(step.parentId) ?? []), step]);
     const onHead = new Set(this.getAncestorPath());
     const turn = this.stepsById.get(stepId)!.messageId;
     let current = stepId;
     for (;;) {
-      const next = (children.get(current) ?? []).filter(
+      const next = this.childSteps(current).filter(
         child => child.messageId === turn && !this.snapshotStorage.getStepVersions(child.id).length
       );
       if (!next.length) return current;
       current = (next.find(child => onHead.has(child.id)) ?? next[next.length - 1]).id;
     }
+  }
+
+  /**
+   * `messages`, the model input of a step about to be added under HEAD, with
+   * every message whose content the nearest earlier input on the path also has,
+   * at the same place, sharing that content. The context grows by appending, so
+   * a step holds only what its call added, not another copy of the conversation.
+   */
+  private shareInputMessages(messages: ModelMessage[] | undefined): ModelMessage[] | undefined {
+    let previous: any[] | undefined;
+    for (let id = this.head; id !== undefined && !previous; id = this.stepsById.get(id)?.parentId)
+      previous = this.stepsById.get(id)?.inputMessages;
+    if (!messages || !previous) return messages;
+    return messages.map((message, i) => {
+      const before = previous![i];
+      if (!before || before.role !== message.role || !isDeepStrictEqual(before.content, message.content))
+        return message;
+      return isDeepStrictEqual(before, message) ? before : ({ ...message, content: before.content } as ModelMessage);
+    });
+  }
+
+  /** The steps whose parent is `stepId`, in the order they were added. */
+  private childSteps(stepId: string): ReActStep[] {
+    return (this.childStepIds.get(stepId) ?? []).map(id => this.stepsById.get(id)!);
   }
 
   /** Check a canvas edit without changing anything. True when it would change nothing. */
@@ -3471,6 +3500,7 @@ export class TexeraAgent {
 
     this.reActStepsByMessageId.clear();
     this.stepsById.clear();
+    this.childStepIds.clear();
     this.currentMessageId = undefined;
   }
 }

@@ -20,7 +20,7 @@
 import { isDeepStrictEqual } from "node:util";
 import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
-import { bindResultVersion, freezeSnapshotValue, producingExecution } from "./native/result-versions";
+import { bindResultVersion, freezeSnapshotValue, isSnapshotValue, producingExecution } from "./native/result-versions";
 import { selectNativeObservation, type NativeObservation, type NativeObservationOptions } from "./native/evidence";
 import {
   captureNativeDiagnostic,
@@ -30,6 +30,7 @@ import {
 } from "./native/diagnostic-record";
 import type { NativeErrorQuery, NativeErrorSummary } from "./native/diagnostics";
 import { resolveNativeDiagnostic } from "./native/diagnostics";
+import { ResultSpill, type SpillRange } from "./result-spill";
 
 /**
  * A resolved (workflow OR operator-result) entry, augmented with the step
@@ -56,10 +57,69 @@ export interface SnapshotListener {
  * inherit hops the entry has travelled. Only `setOperatorResult` writes
  * entries, and only on snapshots owned by a real ReAct step, so the field
  * is always a real id (the root snapshot's results map is empty).
+ *
+ * The entry is shared by every snapshot that inherits it. Its info, which
+ * holds the result's rows and statistics, stays in memory while a snapshot on
+ * HEAD's path holds it; `WorkflowSnapshotStorage.compact` writes the others to
+ * disk, and reading `info` brings one back until the next compact.
  */
-interface ResultEntry {
-  info: OperatorInfo;
-  sourceStepId: string;
+export class ResultEntry {
+  #info: OperatorInfo | undefined;
+  #spilled: SpillRange | undefined;
+  /** Kept in memory while the info is on disk: the result version's id, and the execution that produced it, which is
+   * all a historical match (bindResultVersion) needs before it reads the rest. */
+  readonly versionId: string | undefined;
+  readonly executionId: string | null | undefined;
+  /** Whether the result is a failure: the version tree marks failed runs without reading results back. */
+  readonly failed: boolean;
+
+  constructor(
+    info: OperatorInfo,
+    readonly sourceStepId: string,
+    private readonly residency: ResultResidency
+  ) {
+    this.#info = info;
+    this.versionId = info.resultVersion?.id;
+    this.executionId = info.resultVersion?.executionId;
+    this.failed = !!info.error;
+    residency.resident.add(this);
+  }
+
+  get info(): OperatorInfo {
+    if (this.#info) return this.#info;
+    this.#info = freezeSnapshotValue(this.residency.spill.read(this.#spilled!) as OperatorInfo);
+    this.residency.resident.add(this);
+    return this.#info;
+  }
+
+  /** Whether the info is in memory (reading `info` brings it back when it is not). */
+  get resident(): boolean {
+    return this.#info !== undefined;
+  }
+
+  /** Write the info to disk, once, and let it go. */
+  evict(): void {
+    if (!this.#info) return;
+    this.#spilled ??= this.residency.spill.write(this.#info);
+    this.#info = undefined;
+    this.residency.resident.delete(this);
+  }
+}
+
+/** Which result entries hold their info in memory: those created or read since the last compact, until it decides. */
+class ResultResidency {
+  readonly resident = new Set<ResultEntry>();
+
+  constructor(readonly spill: ResultSpill) {}
+
+  /** Keep `pinned` in memory and write the others to disk. */
+  compact(pinned: Set<ResultEntry>): void {
+    for (const entry of this.resident) if (!pinned.has(entry)) entry.evict();
+  }
+
+  clear(): void {
+    this.resident.clear();
+  }
 }
 
 /**
@@ -197,6 +257,13 @@ export class WorkflowSnapshotStorage {
   /** Told of every snapshot made or changed and every result stored; the trace store listens. */
   listener?: SnapshotListener;
   private rootSnapshotId: string;
+  /** Snapshots that have a child: a completed snapshot, which never changes again. */
+  private parents = new Set<string>();
+  /** Which results hold their rows and statistics in memory (compact). */
+  private readonly residency = new ResultResidency(new ResultSpill());
+  /** Snapshots whose observations are in memory, and where those written to disk are (compact). */
+  private observed = new Set<SnapshotData>();
+  private observationRanges = new WeakMap<SnapshotData, SpillRange>();
 
   /**
    * @param getAncestorPath returns the chain of ReAct step ids from root →
@@ -268,6 +335,7 @@ export class WorkflowSnapshotStorage {
       ]);
     }
     snapshot.nativeObservations = freezeSnapshotValue(Object.fromEntries(observations));
+    this.observed.add(snapshot);
   }
 
   /**
@@ -314,6 +382,7 @@ export class WorkflowSnapshotStorage {
     const action = options.action === undefined ? describeChange(parentSnap.workflow, workflow) : options.action;
     if (action) Object.assign(snapshot, { version: this.takeVersion(), action });
     this.snapshots.set(snapshot.id, snapshot);
+    this.parents.add(parentSnap.id);
     this.snapshotByReactStepId.set(reactStepId, snapshot.id);
     this.listener?.onSnapshot(snapshot);
     return snapshot;
@@ -357,7 +426,7 @@ export class WorkflowSnapshotStorage {
     const id = this.snapshotByReactStepId.get(reactStepId);
     if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
     let latest = this.snapshots.get(id)!;
-    if (latest.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
+    if (latest.nativeObservations !== undefined || this.parents.has(id))
       throw new Error("Cannot change a completed snapshot");
     const recorded: SnapshotData[] = [];
     for (const { action, workflow = latest.workflow, createdAt = Date.now(), number } of versions) {
@@ -379,6 +448,7 @@ export class WorkflowSnapshotStorage {
           action,
         };
         this.snapshots.set(snapshot.id, snapshot);
+        this.parents.add(latest.id);
         latest = snapshot;
       }
       recorded.push(latest);
@@ -395,7 +465,7 @@ export class WorkflowSnapshotStorage {
     const id = this.snapshotByReactStepId.get(reactStepId);
     if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
     const snapshot = this.snapshots.get(id)!;
-    if (snapshot.nativeObservations !== undefined || [...this.snapshots.values()].some(s => s.parentId === id))
+    if (snapshot.nativeObservations !== undefined || this.parents.has(id))
       throw new Error("Cannot change a completed snapshot");
     const stale = computeStaleResultOps(snapshot.workflow, workflow);
     const present = new Set(workflow.operators.map(op => op.operatorID));
@@ -446,10 +516,12 @@ export class WorkflowSnapshotStorage {
     }
     const current = new Map([...snapshot.results].map(([id, entry]) => [id, entry.info]));
     const snapshots = this.snapshots;
+    const produced = producingExecution(info);
     const historicalResults = function* () {
       for (const candidate of snapshots.values()) {
         const entry = candidate.results.get(operatorId);
-        if (entry) yield entry.info;
+        // Only a result of the same execution can match (bindResultVersion), so the others stay on disk.
+        if (entry && entry.executionId === produced) yield entry.info;
       }
     };
     const bound = bindResultVersion(
@@ -491,7 +563,7 @@ export class WorkflowSnapshotStorage {
       freezeSnapshotValue(bound);
     }
     // Descendants share immutable entries, never a caller's mutable response.
-    snapshot.results.set(operatorId, { info: bound, sourceStepId: reactStepId });
+    snapshot.results.set(operatorId, new ResultEntry(bound, reactStepId, this.residency));
     this.listener?.onResult(snapshot, operatorId, bound);
   }
 
@@ -696,6 +768,8 @@ export class WorkflowSnapshotStorage {
     const ids = new Set(kept.map(record => record.id));
     this.snapshots.clear();
     this.snapshotByReactStepId.clear();
+    this.parents.clear();
+    this.observed.clear();
     // New snapshots and versions continue after the restored ones.
     this.skipIdsThrough(kept.map(record => record.id));
     this.versionCounter = Math.max(0, ...kept.map(record => (record.version ?? -1) + 1));
@@ -724,18 +798,23 @@ export class WorkflowSnapshotStorage {
           ...(record.version !== undefined && record.action ? { version: record.version, action: record.action } : {}),
         };
         for (const result of written.get(record.id) ?? [])
-          restoreResult(snapshot, result.operatorId, result.info, result.stepId ?? record.stepId);
+          restoreResult(snapshot, result.operatorId, result.info, result.stepId ?? record.stepId, this.residency);
         this.snapshots.set(snapshot.id, snapshot);
+        this.parents.add(parent.id);
         queue.push(snapshot.id);
       }
     }
+    // A step owns the end of its chain: the snapshot no other snapshot of the step hangs under.
+    const continued = new Set<string>();
+    for (const snapshot of this.snapshots.values())
+      if (
+        snapshot.parentId !== undefined &&
+        this.snapshots.get(snapshot.parentId)?.reactStepId === snapshot.reactStepId
+      )
+        continued.add(snapshot.parentId);
     for (const snapshot of this.snapshots.values()) {
       const step = snapshot.reactStepId;
-      if (
-        step &&
-        ![...this.snapshots.values()].some(other => other.parentId === snapshot.id && other.reactStepId === step)
-      )
-        this.snapshotByReactStepId.set(step, snapshot.id);
+      if (step && !continued.has(snapshot.id)) this.snapshotByReactStepId.set(step, snapshot.id);
     }
   }
 
@@ -799,6 +878,10 @@ export class WorkflowSnapshotStorage {
   clear(): void {
     this.snapshots.clear();
     this.snapshotByReactStepId.clear();
+    this.parents.clear();
+    this.residency.clear();
+    this.residency.spill.close();
+    this.observed.clear();
     this.versionCounter = 0;
     this.versionsInUse.clear();
     this.rootSnapshotId = this.allocateRoot();
@@ -813,6 +896,92 @@ export class WorkflowSnapshotStorage {
     for (const [snapshotId, snapshot] of [...this.snapshots])
       if (snapshot.reactStepId !== undefined && !liveStepIds.has(snapshot.reactStepId))
         this.snapshots.delete(snapshotId);
+    this.recountParents();
+  }
+
+  private recountParents(): void {
+    this.parents = new Set();
+    for (const snapshot of this.snapshots.values())
+      if (snapshot.parentId !== undefined) this.parents.add(snapshot.parentId);
+  }
+
+  /** Drop every snapshot except `snapshotId`, its ancestors and the root: what
+   * an agent without the context tracker keeps, the state its current path
+   * needs. The overhead experiments call it between conversations. */
+  retainAncestorsOf(snapshotId: string): void {
+    const kept = new Set([this.rootSnapshotId]);
+    for (let id: string | undefined = snapshotId; id !== undefined; id = this.snapshots.get(id)?.parentId) kept.add(id);
+    for (const id of [...this.snapshots.keys()]) if (!kept.has(id)) this.snapshots.delete(id);
+    for (const [stepId, id] of [...this.snapshotByReactStepId])
+      if (!kept.has(id)) this.snapshotByReactStepId.delete(stepId);
+    this.recountParents();
+  }
+
+  /**
+   * Keep in memory the results and observations of the snapshots on the path
+   * to `snapshotId` — what the next model call and the GUI read — and write the
+   * others to disk, from where reading one brings it back until the next
+   * compact. The agent calls it when a step begins and after a checkout.
+   */
+  compact(snapshotId: string): void {
+    const pinned = new Set<ResultEntry>();
+    const path = new Set<SnapshotData>();
+    for (
+      let snapshot = this.snapshots.get(snapshotId);
+      snapshot;
+      snapshot = snapshot.parentId === undefined ? undefined : this.snapshots.get(snapshot.parentId)
+    ) {
+      path.add(snapshot);
+      for (const entry of snapshot.results.values()) pinned.add(entry);
+    }
+    this.residency.compact(pinned);
+    // A snapshot's observations are read only while it is on HEAD's path (the context of the next call).
+    for (const snapshot of this.observed) {
+      if (path.has(snapshot)) continue;
+      this.observed.delete(snapshot);
+      if (this.snapshots.get(snapshot.id) === snapshot) this.spillObservations(snapshot);
+    }
+  }
+
+  /** Write `snapshot`'s observations to disk, once, and read them back when they are read. */
+  private spillObservations(snapshot: SnapshotData): void {
+    const range = this.observationRanges.get(snapshot) ?? this.residency.spill.write(snapshot.nativeObservations);
+    this.observationRanges.set(snapshot, range);
+    const storage = this;
+    Object.defineProperty(snapshot, "nativeObservations", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        const value = freezeSnapshotValue(storage.residency.spill.read(range) as SnapshotData["nativeObservations"]);
+        Object.defineProperty(snapshot, "nativeObservations", {
+          value,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        });
+        storage.observed.add(snapshot);
+        return value;
+      },
+    });
+  }
+
+  /** The observations held in memory (the others are on disk). */
+  observationsInMemory(): Array<SnapshotData["nativeObservations"]> {
+    return [...this.observed].map(snapshot => snapshot.nativeObservations);
+  }
+
+  /** How many results hold their rows in memory, how many the tree holds, and the bytes written to disk. */
+  residencyStats(): { resident: number; results: number; spilledBytes: number } {
+    const all = new Set<ResultEntry>();
+    for (const snapshot of this.snapshots.values()) for (const entry of snapshot.results.values()) all.add(entry);
+    return { resident: this.residency.resident.size, results: all.size, spilledBytes: this.residency.spill.size };
+  }
+
+  /** How many snapshots the tree holds, and how many of them are versions. */
+  size(): { snapshots: number; versions: number } {
+    let versions = 0;
+    for (const snapshot of this.snapshots.values()) if (snapshot.version !== undefined) versions++;
+    return { snapshots: this.snapshots.size, versions };
   }
 
   /**
@@ -901,12 +1070,18 @@ function inheritFrom(
 /** Put a stored result back on `snapshot` as `setOperatorResult` left it: a
  * fresh result drops what its downstream operators held, which the run that
  * follows writes again. */
-function restoreResult(snapshot: SnapshotData, operatorId: string, info: OperatorInfo, sourceStepId: string): void {
-  const previous = snapshot.results.get(operatorId)?.info;
+function restoreResult(
+  snapshot: SnapshotData,
+  operatorId: string,
+  info: OperatorInfo,
+  sourceStepId: string,
+  residency: ResultResidency
+): void {
+  const previous = snapshot.results.get(operatorId)?.versionId;
   const native = snapshot.workflow.operators.some(op => op.operatorID === operatorId && op.nativeOp);
-  if ((info.resultVersion || native) && (info.error || previous?.resultVersion?.id !== info.resultVersion?.id))
+  if ((info.resultVersion || native) && (info.error || previous !== info.resultVersion?.id))
     for (const id of downstreamOf(snapshot.workflow, operatorId)) snapshot.results.delete(id);
-  snapshot.results.set(operatorId, { info: freezeSnapshotValue(info), sourceStepId });
+  snapshot.results.set(operatorId, new ResultEntry(freezeSnapshotValue(info), sourceStepId, residency));
 }
 
 /** Every operator that reads, directly or not, from `operatorId`. */
@@ -922,18 +1097,39 @@ function downstreamOf(workflow: WorkflowContent, operatorId: string): Set<string
   return found;
 }
 
-/** Native snapshots freeze definitions. Share an unchanged frozen operator
- * instead of duplicating its generated Python runtime at every ReAct step.
- * Each graph still owns its edges, positions and mutable incoming definitions. */
+/** Native snapshots freeze definitions (freezeSnapshotValue). Share an unchanged
+ * snapshot operator, and every other unchanged part a snapshot holds (links,
+ * positions, the Python namespace), with the previous snapshot instead of
+ * copying it: a snapshot holds only what its action changed, and copies of
+ * mutable incoming parts. */
 function copyWorkflow(workflow: WorkflowContent, previous: WorkflowContent): WorkflowContent {
   const prior = new Map(previous.operators.map(op => [op.operatorID, op]));
+  const { operators, ...rest } = workflow;
+  const before = previous as unknown as Record<string, unknown>;
+  const parts = Object.fromEntries(Object.entries(rest).map(([key, value]) => [key, shareFrozen(value, before[key])]));
   return {
-    ...structuredClone({ ...workflow, operators: [] }),
-    operators: workflow.operators.map(op => {
+    ...(parts as Omit<WorkflowContent, "operators">),
+    operators: operators.map(op => {
       const saved = prior.get(op.operatorID);
-      return saved && Object.isFrozen(saved) && isDeepStrictEqual(saved, op) ? saved : structuredClone(op);
+      return saved && isSnapshotValue(saved) && isDeepStrictEqual(saved, op) ? saved : structuredClone(op);
     }),
   };
+}
+
+/** A copy of `value` that shares every part of `previous` a snapshot holds and `value` equals, at any depth: a
+ * namespace that gained a cell keeps the other cells, positions keep each unmoved operator's. Arrays are matched by
+ * index, objects by key. */
+function shareFrozen(value: unknown, previous: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  const frozen = isSnapshotValue(previous);
+  if (frozen && isDeepStrictEqual(previous, value)) return previous;
+  if (Array.isArray(value)) {
+    const before = frozen && Array.isArray(previous) ? previous : [];
+    return value.map((item, i) => shareFrozen(item, before[i]));
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return structuredClone(value);
+  const before = (frozen && !Array.isArray(previous) ? previous : {}) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shareFrozen(item, before[key])]));
 }
 
 /** A version an action made, as a step's tool result reports it. */
@@ -957,7 +1153,7 @@ export function changesDataflow(action: VersionAction | undefined): boolean {
 function runFailed(snapshot: SnapshotData): boolean {
   if (snapshot.action?.kind !== "run") return false;
   const targets = snapshot.action.operatorIds ?? snapshot.workflow.operators.map(op => op.operatorID);
-  return targets.some(id => !!snapshot.results.get(id)?.info.error);
+  return targets.some(id => !!snapshot.results.get(id)?.failed);
 }
 
 /** One node of the snapshot tree, without its workflow and results. */

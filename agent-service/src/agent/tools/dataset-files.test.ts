@@ -23,7 +23,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { compileNativeOp, datasetFilesStagingCode, nativeSpecOf, withNativeDatasetFiles } from "../native/codegen";
+import {
+  compileNativeOp,
+  datasetFilesStagingCode,
+  inlineNativeRuntime,
+  nativeSpecOf,
+  withNativeDatasetFiles,
+} from "../native/codegen";
 import type { NativeOpView } from "../native/catalog";
 import { datasetFilePath, withDatasetFiles } from "./dataset-files";
 
@@ -67,8 +73,11 @@ function directory(): string {
   return created;
 }
 
-const scan = (files: string, id = "records") =>
-  compileNativeOp({ type: "Scan", properties: { files }, inputs: [] } as NativeOpView, id);
+// The scan as the engine gets it: its code with the runtime inline.
+const scan = (files: string, id = "records") => {
+  const compiled = compileNativeOp({ type: "Scan", properties: { files }, inputs: [] } as NativeOpView, id);
+  return { ...compiled, code: inlineNativeRuntime(compiled.code) };
+};
 
 /** Run `code` the way the worker does (module namespace, then `load()`), with
  * the download cache inside `cache` so it is cleaned up with the fixtures. */

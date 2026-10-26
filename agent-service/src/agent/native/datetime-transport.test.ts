@@ -20,7 +20,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
 
 test("generated native consumers restore UTC after timestamp transport", () => {
   const cast = compileNativeOp(
@@ -84,7 +84,11 @@ print('ok')
 `,
       engine,
     ],
-    { input: JSON.stringify([cast.code, consumer.code]), encoding: "utf8", timeout: 60_000 }
+    {
+      input: JSON.stringify([inlineNativeRuntime(cast.code), inlineNativeRuntime(consumer.code)]),
+      encoding: "utf8",
+      timeout: 60_000,
+    }
   );
   expect(run.stderr).toBe("");
   expect(run.status).toBe(0);

@@ -106,7 +106,7 @@ function workflowProof(workflow: WorkflowContent) {
   const proof = { plan, fingerprints: executionFingerprints(plan) };
   // Snapshot V2 workflows are deeply frozen. Do not memoize caller-owned mutable
   // workflows, or rehash the generated runtime for every result in a large batch.
-  if (Object.isFrozen(workflow)) workflowProofs.set(workflow, proof);
+  if (isSnapshotValue(workflow)) workflowProofs.set(workflow, proof);
   return proof;
 }
 
@@ -360,11 +360,24 @@ export function orderedResultIds(operators: Record<string, OperatorInfo>): strin
   return order;
 }
 
+/** The arrays snapshots hold. They are not frozen: JavaScriptCore moves a frozen array to sparse storage, which costs
+ * about four times the memory of an ordinary array (a three-element array: 540 bytes instead of 120), and a snapshot
+ * tree holds hundreds of thousands of them. They are never changed all the same. */
+const snapshotArrays = new WeakSet<object>();
+
+/** Whether `value` belongs to a snapshot (freezeSnapshotValue): a frozen object, or an array a snapshot holds. */
+export function isSnapshotValue(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  return Array.isArray(value) ? snapshotArrays.has(value) : Object.isFrozen(value);
+}
+
+/** Make `value` a snapshot's, at every depth: objects are frozen, arrays recorded as the snapshot's (snapshotArrays). */
 export function freezeSnapshotValue<T>(value: T): T {
   const freeze = (value: any) => {
-    if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+    if (!value || typeof value !== "object" || isSnapshotValue(value)) return;
     for (const child of Object.values(value)) freeze(child);
-    Object.freeze(value);
+    if (Array.isArray(value)) snapshotArrays.add(value);
+    else Object.freeze(value);
   };
   freeze(value);
   return value;

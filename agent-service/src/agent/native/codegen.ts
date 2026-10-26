@@ -52,6 +52,54 @@ const runtimeSource =
   datasetFilesSource;
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
+/** What a compiled operator's code holds in place of the runtime source (about 200 KB, the same in every operator):
+ * a name that carries the runtime's digest, so code compiled against another runtime differs. The runtime goes in
+ * only where code leaves the service (inlineNativeRuntime): snapshots, traces and the GUI keep the short form. */
+export const NATIVE_RUNTIME_TOKEN = `_texera_native_runtime_${createHash("sha256").update(runtimeSource).digest("hex").slice(0, 16)}`;
+const runtimeLiteral = JSON.stringify(runtimeSource);
+
+/** `code` as the engine runs it: the runtime source in place of NATIVE_RUNTIME_TOKEN. Other code is returned as is. */
+export function inlineNativeRuntime(code: string): string {
+  const at = code.lastIndexOf(`exec(${NATIVE_RUNTIME_TOKEN},`);
+  return at < 0 ? code : code.slice(0, at + 5) + runtimeLiteral + code.slice(at + 5 + NATIVE_RUNTIME_TOKEN.length);
+}
+
+/** `operators` with every operator's code as the engine runs it (inlineNativeRuntime). */
+export function withNativeRuntime<T extends object>(operators: T[]): T[] {
+  return operators.map(operator => {
+    const code = (operator as { code?: unknown }).code;
+    return typeof code === "string" && code.includes(NATIVE_RUNTIME_TOKEN)
+      ? { ...operator, code: inlineNativeRuntime(code) }
+      : operator;
+  });
+}
+
+/** A workflow's operators with their code as the engine runs it (to persist), or with this runtime's source replaced
+ * by NATIVE_RUNTIME_TOKEN (as read back). Code compiled against another runtime keeps that runtime inline. */
+export function workflowNativeRuntime<T extends { operators: Array<{ operatorProperties: Record<string, any> }> }>(
+  workflow: T,
+  form: "inline" | "token"
+): T {
+  const literal = `exec(${runtimeLiteral},`;
+  const token = `exec(${NATIVE_RUNTIME_TOKEN},`;
+  const [from, to] = form === "inline" ? [token, literal] : [literal, token];
+  return {
+    ...workflow,
+    operators: workflow.operators.map(operator => {
+      const code = operator.operatorProperties?.code;
+      if (typeof code !== "string" || !code.includes(from)) return operator;
+      const at = code.lastIndexOf(from);
+      return {
+        ...operator,
+        operatorProperties: {
+          ...operator.operatorProperties,
+          code: code.slice(0, at) + to + code.slice(at + from.length),
+        },
+      };
+    }),
+  };
+}
+
 /** The interpreter used for parsing and validation (the engine's UDF Python). */
 export function nativePython(): string {
   return process.env.UDF_PYTHON_PATH ?? defaultPython;
@@ -155,7 +203,7 @@ export function compileNativeOp(view: NativeOpView, operatorId = "operator"): Co
     `import json as ${prefix}_json`,
     `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`,
     `${prefix}_scope = {"__name__": "__native_runtime__"}`,
-    `exec(${JSON.stringify(runtimeSource)}, ${prefix}_scope)`,
+    `exec(${NATIVE_RUNTIME_TOKEN}, ${prefix}_scope)`,
   ].join("\n");
   return { operatorType: source ? "DataLoading" : "DataProcessing", code };
 }
