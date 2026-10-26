@@ -71,7 +71,9 @@ This is an agent without the tracker: its context is the same, but no earlier sn
 exception is a result the engine serves from its cache. All conversations share one workflow, so a cached result can
 come from an earlier conversation, and only the tracker still holds that run's statistics. Without them, the
 observation is smaller: in the paper's runs, 62 of the 207 conversations sent model inputs more than 2% shorter than
-recorded (the with-tracker arm: 1). The memory this saves is a few kilobytes per conversation.
+recorded (the with-tracker arm: 1). Over all 207 conversations, the without-tracker arm's history held 0.66 MB less for
+this (tool results 0.56 MB, model inputs 0.10 MB): about 1% of the 67 MiB the tracker adds, which the comparison
+therefore slightly overstates.
 
 `--jumps K --jump-every N` checks out K random versions each time the tree passes another N snapshots
 (`POST /:id/checkout-version`). Each jump is timed from the request to the GUI frame (`headChange`) that carries the
