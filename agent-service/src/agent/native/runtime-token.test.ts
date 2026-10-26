@@ -22,6 +22,7 @@ import {
   NATIVE_RUNTIME_TOKEN,
   compileNativeOp,
   inlineNativeRuntime,
+  nativeRuntimeForClients,
   nativeSpecOf,
   withNativeRuntime,
   workflowNativeRuntime,
@@ -52,4 +53,9 @@ test("other code passes through unchanged", () => {
   const code = "def process(t):\n    return t";
   expect(inlineNativeRuntime(code)).toBe(code);
   expect(withNativeRuntime([{ code }])[0].code).toBe(code);
+});
+
+test("a client that puts the runtime back with what the agent sends gets the engine's code", () => {
+  const { token, literal } = nativeRuntimeForClients();
+  expect(scan.code.replace(`exec(${token},`, () => `exec(${literal},`)).toBe(inlineNativeRuntime(scan.code));
 });

@@ -27,6 +27,7 @@ import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/ll
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
+import { nativeRuntimeForClients } from "./agent/native/codegen";
 import { describeNativeStatement } from "./agent/native/statement-form";
 import { UserActionError, type UserActionRequest } from "./agent/user-actions";
 import {
@@ -1762,6 +1763,8 @@ interface WsOutgoingMessage {
   headId?: string;
   operatorResults?: Record<string, OperatorResultSummaryWs>;
   workflowContent?: any;
+  /** init: the runtime native operators name (`exec(<token>, …)`), for the client to put back (codegen.ts). */
+  nativeRuntime?: { token: string; literal: string };
   /** Assembled next-step transcript content (markdown/JSON). Updated whenever
    * steps, HEAD, workflow, or settings change. Same code path the LLM would
    * receive on the next prepareStep. */
@@ -2093,6 +2096,8 @@ export function buildApp() {
           steps: agent.getRenderableReActSteps(),
           headId: agent.getHead(),
           operatorResults: getOperatorResultSummaries(agent),
+          // Workflow frames carry native code without the runtime; the client puts it back.
+          nativeRuntime: nativeRuntimeForClients(),
         };
         ws.send(JSON.stringify(initMessage));
 

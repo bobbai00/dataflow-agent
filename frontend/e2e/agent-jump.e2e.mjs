@@ -28,6 +28,8 @@
  *      and the chat that branch's steps, which the page already held (a jump
  *      no longer resends the steps)
  *   3. the first version again: the restore is reused, no new step is made
+ * and that the workflow the page saves to Texera holds runnable code (the
+ * agent sends its operators without the Python runtime; the page puts it back).
  * Each click is timed until the canvas shows the version.
  *
  * Usage (from frontend/, with the stack's engine up, an agent service of this
@@ -205,6 +207,23 @@ async function main() {
       `${stepsBefore} → ${stepsAfter.length}`
     );
     await shot("02-middle");
+
+    // What the page saves to Texera is what Texera runs from its own toolbar: the code must hold the runtime.
+    const saved = await until(async () => {
+      const r = await api(WEB, "GET", `/api/workflow/${wid}`);
+      const content = typeof r.json?.content === "string" ? JSON.parse(r.json.content) : r.json?.content;
+      const ops = content?.operators ?? [];
+      return ops.length && same(ops.map(op => op.operatorID).sort(), middleOps) ? ops : undefined;
+    }, 20000);
+    const codes = (saved ?? []).map(op => String(op.operatorProperties?.code ?? ""));
+    check(
+      "the workflow the page saved runs outside the agent: its code holds the runtime",
+      codes.length > 0 &&
+        codes.every(
+          code => code.includes("def execute_native_from_engine") && !/exec\(_texera_native_runtime_/.test(code)
+        ),
+      `${codes.length} operators, ${codes.map(code => code.length).join("/")} chars`
+    );
 
     // 2. A step's own version on another branch: its operators, and that branch's steps, held by the page.
     const owner = id => tree.find(node => node.id === id)?.reactStepId;

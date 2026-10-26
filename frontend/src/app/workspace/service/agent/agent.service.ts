@@ -41,7 +41,13 @@ import { WorkflowPersistService } from "../../../common/service/workflow-persist
 import { AppSettings } from "../../../common/app-setting";
 import { AgentState, ReActStep, ModelMessage, UserActionInfo } from "./agent-types";
 import { Workflow, WorkflowContent } from "../../../common/type/workflow";
-import { applyDataflowChange, DataflowProgress, ProgressPlayer } from "./dataflow-progress";
+import {
+  applyDataflowChange,
+  DataflowProgress,
+  NativeRuntime,
+  ProgressPlayer,
+  withNativeRuntime,
+} from "./dataflow-progress";
 import { ComputingUnitStatusService } from "../../../common/service/computing-unit/computing-unit-status/computing-unit-status.service";
 
 /**
@@ -303,6 +309,8 @@ interface AgentStateTracking {
   websocket?: WebSocket;
   /** Whether this agent is currently active (tab selected) */
   isActive: boolean;
+  /** The runtime native operators name in their code, from the `init` frame (withNativeRuntime). */
+  nativeRuntime?: NativeRuntime;
 }
 
 /**
@@ -580,6 +588,7 @@ export class AgentService {
     switch (message.type) {
       case "init":
         // A (re)connection shows the agent as it is now.
+        if (message.nativeRuntime) tracking.nativeRuntime = message.nativeRuntime;
         tracking.player.flush();
         this.runningOperatorsSubject.next(new Set());
         if (message.state) {
@@ -743,7 +752,10 @@ export class AgentService {
       metadata ||
       tracking.workflowSubject.getValue() ||
       (tracking.workflowId !== undefined ? { wid: tracking.workflowId } : {});
-    return { ...known, content } as Workflow;
+    const operators = Array.isArray(content?.operators)
+      ? withNativeRuntime(content.operators, tracking.nativeRuntime)
+      : content?.operators;
+    return { ...known, content: content && { ...content, operators } } as Workflow;
   }
 
   /** Show one version of a running call: the dataflow after an edit, the
@@ -752,7 +764,11 @@ export class AgentService {
     const workflow = tracking.workflowSubject.getValue();
     if (progress.dataflow && workflow) {
       tracking.wsWorkflowActive = true;
-      tracking.workflowSubject.next({ ...workflow, content: applyDataflowChange(workflow.content, progress.dataflow) });
+      const change = {
+        ...progress.dataflow,
+        operators: withNativeRuntime(progress.dataflow.operators, tracking.nativeRuntime),
+      };
+      tracking.workflowSubject.next({ ...workflow, content: applyDataflowChange(workflow.content, change) });
     }
     if (progress.running) this.runningOperatorsSubject.next(new Set(progress.running));
     if (progress.operatorResults) this.updateOperatorResultSummaries(progress.operatorResults);
@@ -1339,10 +1355,20 @@ export class AgentService {
 
   /** One version's dataflow and results, to preview it without moving HEAD. */
   public getVersion(agentId: string, snapshotId: string): Observable<VersionPreview> {
-    return this.http.get<VersionPreview>(
-      `${this.AGENT_API_BASE}/agents/${agentId}/versions/${encodeURIComponent(snapshotId)}`,
-      this.agentHeaders(agentId)
-    );
+    return this.http
+      .get<VersionPreview>(
+        `${this.AGENT_API_BASE}/agents/${agentId}/versions/${encodeURIComponent(snapshotId)}`,
+        this.agentHeaders(agentId)
+      )
+      .pipe(
+        map(version => {
+          const runtime = this.agentStateTracking.get(agentId)?.nativeRuntime;
+          const operators = version.workflow?.operators;
+          return Array.isArray(operators)
+            ? { ...version, workflow: { ...version.workflow, operators: withNativeRuntime(operators, runtime) } }
+            : version;
+        })
+      );
   }
 
   /**
