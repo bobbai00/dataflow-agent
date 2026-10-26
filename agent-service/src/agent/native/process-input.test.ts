@@ -20,7 +20,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
 
 const runtime = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
 const engine = fileURLToPath(new URL("../../../../amber/src/main/python", import.meta.url));
@@ -82,7 +82,7 @@ exec(sys.stdin.read(), scope)
 output = scope["process"](frame)
 pd.testing.assert_frame_equal(frame, before)
 print(output.to_json(orient="records"))`,
-      compiled.code
+      inlineNativeRuntime(compiled.code)
     );
     expect(JSON.parse(output)).toEqual([
       { book_id: 1, user_1: 5, user_2: 4, user_3: 0 },
