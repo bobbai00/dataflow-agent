@@ -20,6 +20,7 @@
 import { getBackendConfig } from "./backend-api";
 import type { LogicalPlan, OperatorPortSchemaMap } from "../types/workflow";
 import { createLogger } from "../logger";
+import { withNativeRuntime } from "../agent/native/codegen";
 
 const log = createLogger("CompileAPI");
 const SCHEMA_COMPILATION_TIMEOUT_MS = 15_000;
@@ -55,7 +56,7 @@ export async function compileWorkflowAsync(
   const url = `${config.compileEndpoint}/api/compile`;
 
   const body = {
-    operators: logicalPlan.operators,
+    operators: withNativeRuntime(logicalPlan.operators),
     links: logicalPlan.links,
     opsToReuseResult: [],
     opsToViewResult: [],

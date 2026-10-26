@@ -23,7 +23,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compileNativeOp } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime } from "./codegen";
 
 // Execute the generated source: string-only assertions cannot detect an ignored
 // offset. Use the provisioned worker interpreter, not a system Python that may
@@ -63,7 +63,7 @@ function preview(properties: Record<string, unknown>, workbook?: Record<string, 
   if (!existsSync(python)) {
     throw new Error(`Scan execution tests require the worker venv; run uv sync --all-extras or set UDF_PYTHON_PATH`);
   }
-  const code = compileNativeOp({ type: "Scan", properties, inputs: [] }).code;
+  const code = inlineNativeRuntime(compileNativeOp({ type: "Scan", properties, inputs: [] }).code);
   const result = spawnSync(python, ["-c", runPython], {
     input: JSON.stringify({ code, files: properties.files, workbook }),
     encoding: "utf8",

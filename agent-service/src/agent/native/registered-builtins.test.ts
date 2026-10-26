@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { planRegisteredGraphEdit } from "../tools/graph-edits";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython, workflowNativeRuntime } from "./codegen";
 
 const metadataStore = new WorkflowSystemMetadata();
 metadataStore.seedCodeModeDefaults();
@@ -70,7 +70,12 @@ else:
 `,
       JSON.stringify(answer),
     ],
-    { input: JSON.stringify(state.getAllOperators()), encoding: "utf8", timeout: 60_000 }
+    // The operators as the engine gets them: their code with the runtime inline.
+    {
+      input: JSON.stringify(workflowNativeRuntime({ operators: state.getAllOperators() }, "inline").operators),
+      encoding: "utf8",
+      timeout: 60_000,
+    }
   );
   expect(run.stderr).toBe("");
   expect(run.status).toBe(0);
@@ -174,7 +179,11 @@ def above(row, *, minimum=1):
         "-c",
         "import sys,json,pandas as pd\nns={}\nexec(sys.stdin.read(),ns)\nout=ns['process'](pd.DataFrame({'id':[1],'x':[5],'y':[2]}))\nprint(json.dumps(out.attrs['native_v2']['operations']))",
       ],
-      { input: state.getOperator("positive")!.operatorProperties.code, encoding: "utf8", timeout: 30_000 }
+      {
+        input: inlineNativeRuntime(state.getOperator("positive")!.operatorProperties.code),
+        encoding: "utf8",
+        timeout: 30_000,
+      }
     );
     expect(measured.status, measured.stderr).toBe(0);
     expect(JSON.parse(measured.stdout)).toMatchObject({

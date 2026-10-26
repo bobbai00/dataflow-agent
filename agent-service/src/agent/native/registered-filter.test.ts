@@ -16,7 +16,7 @@
  */
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
 import { registeredCatalogText, stageRegisteredEdit } from "./registered";
 
 async function fixture(python: string, settings = "", profileCollection = true) {
@@ -28,7 +28,7 @@ async function fixture(python: string, settings = "", profileCollection = true) 
   });
 }
 function execute(state: Awaited<ReturnType<typeof fixture>>, rows: string, twice = false) {
-  const code = compileNativeOp(state.operators.kept, "kept").code;
+  const code = inlineNativeRuntime(compileNativeOp(state.operators.kept, "kept").code);
   const run = spawnSync(
     nativePython(),
     [
@@ -244,7 +244,9 @@ test("nothing passed a test for literals: the values the condition saw are repor
 
 test("an empty result names the furthest test the rows reached, with that test's literal", async () => {
   // environment-easy-4: Quincy rows reach the beach test; their beaches are not named "Wollaston Beach".
-  const state = await fixture("def keep(row):\n    return row['town'] == 'Quincy' and row['beach'] == 'Wollaston Beach'");
+  const state = await fixture(
+    "def keep(row):\n    return row['town'] == 'Quincy' and row['beach'] == 'Wollaston Beach'"
+  );
   const result = execute(
     state,
     "pd.DataFrame({'town':['Quincy','Quincy','Quincy','Orleans','Falmouth'], 'beach':['Wollaston @ Channing','Wollaston @ Channing','Wollaston @ Rice','Nauset','Old Silver']})"

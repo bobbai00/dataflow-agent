@@ -16,7 +16,7 @@
  */
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
 import { stageRegisteredEdit } from "./registered";
 
 async function mapped(fn: string, python = "") {
@@ -28,7 +28,7 @@ async function mapped(fn: string, python = "") {
   });
 }
 function execute(state: Awaited<ReturnType<typeof mapped>>, rows: string) {
-  const code = compileNativeOp(state.operators.out, "out").code;
+  const code = inlineNativeRuntime(compileNativeOp(state.operators.out, "out").code);
   const run = spawnSync(
     nativePython(),
     [

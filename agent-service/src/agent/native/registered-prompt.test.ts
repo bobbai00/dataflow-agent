@@ -24,7 +24,7 @@ import { buildRegisteredNativeSystemPrompt, registeredReferenceText } from "../p
 import { ContextMode, type RetrievalView } from "../../types/agent";
 import { createDataflowTool, prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
-import { compileNativeOp, nativePython } from "./codegen";
+import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
 import { stageRegisteredEdit, type RegisteredStageInput } from "./registered";
 import { EXAMPLE_STATEMENTS, exampleStatement } from "../prompts/registered-examples";
 
@@ -327,7 +327,7 @@ test("synthetic teaching edits compile and their calculations run in isolated Py
       stage = { ...(await stageRegisteredEdit({ ...stage, ...action })), python: "", changes: "" };
       for (const id of ["totals", "report"]) {
         const op = stage.operators[id];
-        if (op) compiled[id] ??= compileNativeOp(op, id).code;
+        if (op) compiled[id] ??= inlineNativeRuntime(compileNativeOp(op, id).code);
       }
     }
   }

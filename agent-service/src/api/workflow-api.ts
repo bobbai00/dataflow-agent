@@ -20,6 +20,7 @@
 import { getBackendConfig } from "./backend-api";
 import { createAuthHeaders } from "./auth-api";
 import type { WorkflowContent } from "../types/workflow";
+import { workflowNativeRuntime } from "../agent/native/codegen";
 
 export interface Workflow {
   wid: number;
@@ -58,7 +59,8 @@ export async function persistWorkflow(
       wid,
       name,
       description: description || "",
-      content: JSON.stringify(content),
+      // Saved as the engine runs it, so the workflow also runs outside the agent.
+      content: JSON.stringify(workflowNativeRuntime(content, "inline")),
       isPublic: false,
     } as WorkflowPersistRequest),
   });
@@ -93,6 +95,8 @@ export async function retrieveWorkflow(token: string, wid: number): Promise<Work
   if (typeof data.content === "string") {
     data.content = JSON.parse(data.content as unknown as string);
   }
+  // The agent keeps native code without the runtime source (NATIVE_RUNTIME_TOKEN).
+  if (data.content?.operators) data.content = workflowNativeRuntime(data.content, "token");
   return data;
 }
 
@@ -124,7 +128,8 @@ export async function createWorkflow(
     body: JSON.stringify({
       name,
       description,
-      content: JSON.stringify(content),
+      // Saved as the engine runs it, so the workflow also runs outside the agent.
+      content: JSON.stringify(workflowNativeRuntime(content, "inline")),
       isPublic: false,
     }),
   });

@@ -16,7 +16,13 @@
  */
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { compileNativeOp, nativePython, runNativePython } from "./codegen";
+import { compileNativeOp as compileStored, inlineNativeRuntime, nativePython, runNativePython } from "./codegen";
+
+/** An operator compiled as the engine runs it: the runtime inline. */
+const compileNativeOp = (...args: Parameters<typeof compileStored>) => {
+  const compiled = compileStored(...args);
+  return { ...compiled, code: inlineNativeRuntime(compiled.code) };
+};
 import { nativeAssignmentText } from "./catalog";
 import { registeredCatalogText, stageRegisteredEdit } from "./registered";
 
