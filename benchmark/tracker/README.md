@@ -61,19 +61,25 @@ since the finished conversation's results have gone to disk. The paper's data us
 
 ```bash
 R=/var/tmp/snapshot-overhead/runs C=conversations-dataflow.jsonl
-benchmark/tracker/run-arm.sh $R/keep   3143 3197 $C --history keep     # with the context tracker
-benchmark/tracker/run-arm.sh $R/forget 3144 3196 $C --history forget   # without it: only the current path's snapshots
-benchmark/tracker/run-arm.sh $R/jumps  3145 3195 $C --jumps 50 --jump-every 200
+benchmark/tracker/run-arm.sh $R/keep   3143 3197 $C --history keep     # the agent as it is
+benchmark/tracker/run-arm.sh $R/jumps  3145 3195 $C --jumps 50 --jump-every 250
+bun benchmark/tracker/structure_memory.ts $R/keep                      # the tracker's structure, per point
 ```
 
-`--history forget` drops, before each conversation, every snapshot that the new conversation's path does not need.
-This is an agent without the tracker: its context is the same, but no earlier snapshot can be revisited. The
-exception is a result the engine serves from its cache. All conversations share one workflow, so a cached result can
-come from an earlier conversation, and only the tracker still holds that run's statistics. Without them, the
-observation is smaller: in the paper's runs, 62 of the 207 conversations sent model inputs more than 2% shorter than
-recorded (the with-tracker arm: 1). Over all 207 conversations, the without-tracker arm's history held 0.66 MB less for
-this (tool results 0.56 MB, model inputs 0.10 MB): about 1% of the 67 MiB the tracker adds, which the comparison
-therefore slightly overstates.
+What the tracker costs is its structure over the history: the session keeps the same snapshots (dataflows, results,
+observations) either way, and the tracker adds, per snapshot, its id, parent, step, time, version and action, and
+the indexes over them (snapshots by id, each step's newest snapshot, the snapshots with children, the version numbers,
+each step's children). `structure_memory.ts` rebuilds that structure from the run's trace (`traces.db`) for the tree
+as it stood at each `rest` point, as the agent holds it, sharing strings as the agent does, and measures the live
+bytes it adds in a fresh process (heap snapshots before and after). It does not measure in the agent service: there,
+heap snapshots crash Bun after a few calls, and the heap's own size, counted in whole blocks, cannot show a few
+megabytes in a heap that has freed more. The paper's "without" line is the agent's memory less this structure.
+
+`--history forget` is another comparison, not the paper's: before each conversation it drops every snapshot that the
+new conversation's path does not need, so the agent keeps no history of earlier dataflows. Its context is the same,
+except for results the engine serves from its cache: all conversations share one workflow, so a cached result can
+come from an earlier conversation, and only the kept snapshots still hold that run's statistics (62 of the 207
+conversations then sent model inputs more than 2% shorter than recorded).
 
 `--jumps K --jump-every N` checks out K random versions each time the tree passes another N snapshots
 (`POST /:id/checkout-version`). Each jump is timed from the request to the GUI frame (`headChange`) that carries the
@@ -107,7 +113,7 @@ benchmark/retrieval/script-agent/.venv/bin/python benchmark/tracker/restore_smol
 ## The paper's data
 
 ```bash
-python3 -I benchmark/tracker/summarize.py --keep $R/keep --forget $R/forget --jumps $R/jumps \
+python3 -I benchmark/tracker/summarize.py --keep $R/keep --jumps $R/jumps \
   --smolagents smolagents-memory.jsonl --smolagents-restore smolagents-restore.jsonl \
   --out <paper repo>/scripts/plots/data
 ```

@@ -12,7 +12,7 @@
 # limitations under the License.
 """The overhead experiments' results as the paper's plot data (scripts/plots/data in the paper repository).
 
-    python3 -I summarize.py --keep RUN --forget RUN --jumps RUN --smolagents FILE --smolagents-restore FILE --out DIR
+    python3 -I summarize.py --keep RUN --jumps RUN --smolagents FILE --smolagents-restore FILE --out DIR
 
 RUN is a run folder of run-arm.sh (its replay.jsonl); the smolagents files are the outputs of replay_smolagents.py and
 restore_smolagents.py. Writes:
@@ -22,8 +22,8 @@ restore_smolagents.py. Writes:
   after the first conversation, which also holds one-time costs (modules loaded, caches warmed). Interactions are agent
   steps, one per model call.
 - tracker_heap.csv (tracker, snapshots, heap_mib): the dataflow agent's heap and external memory at the same points,
-  with the context tracker keeping every snapshot and without (only the snapshots of the current path); snapshots are
-  those of the with-tracker tree at the same point of the replay.
+  with the context tracker ("with"), and with the same snapshots but without the tracker's structure over them
+  ("without": that memory less the structure's, which structure_memory.ts measured into the run's structure.jsonl).
 - tracker_jumps.csv (snapshots, ms, restore_ms, head_change_bytes): one row per jump; ms is from the request to the
   GUI frame with the restored dataflow and results (client side), restore_ms the server's restore alone.
 - script_restore.csv (step, steps_run, ms): smolagents going back to a step, which means running the code of every
@@ -60,15 +60,15 @@ def write(path: Path, header, rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    for name in ("keep", "forget", "jumps"):
+    for name in ("keep", "jumps"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--smolagents", type=Path, required=True)
     parser.add_argument("--smolagents-restore", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
-    keep, forget = rests(args.keep), rests(args.forget)
-    assert [c["id"] for c in keep] == [c["id"] for c in forget], "the two arms replayed different conversations"
+    keep = rests(args.keep)
+    structure = {line["index"]: line["bytes"] for line in lines(args.keep / "structure.jsonl")}
 
     system = [(c["agentSteps"], (held(c["memory"]) - held(keep[0]["memory"])) / MIB) for c in keep]
     steps = [line for line in lines(args.smolagents) if line.get("conversation")]
@@ -79,7 +79,7 @@ def main():
 
     write(args.out / "tracker_heap.csv", ["tracker", "snapshots", "heap_mib"],
           [("with", c["snapshots"], round(held(c["memory"]) / MIB, 3)) for c in keep]
-          + [("without", k["snapshots"], round(held(f["memory"]) / MIB, 3)) for k, f in zip(keep, forget)])
+          + [("without", c["snapshots"], round((held(c["memory"]) - structure[c["index"]]) / MIB, 3)) for c in keep])
 
     restores = [line for line in lines(args.smolagents_restore) if line.get("seconds") is not None]
     write(args.out / "script_restore.csv", ["step", "steps_run", "ms"],
