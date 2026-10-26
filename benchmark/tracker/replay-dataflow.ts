@@ -27,10 +27,13 @@
  *
  *   bun benchmark/tracker/replay-dataflow.ts --conversations C.jsonl --out OUT.jsonl --agent http://localhost:3141 \
  *     --model-port 3199 [--texera http://localhost:64080] [--cu 10] [--history keep|forget] \
- *     [--jumps 0] [--jump-every 100] [--limit 0]
+ *     [--jumps 0] [--jump-every 100] [--limit 0] [--verify-jumps RESTORES.jsonl]
  *
  * --history forget drops, before each conversation, every snapshot its path does not need (the "without the context
  * tracker" arm). --jumps K checks out K random versions each time the tree passes another --jump-every snapshots.
+ * --verify-jumps, after the replay, jumps to every version and every step in a random order and writes what each jump
+ * restored (dataflow, results, the conversation to HEAD, the model's next context); compare_restores.py compares two
+ * such files, from two versions of the agent that replayed the same conversations.
  */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -49,6 +52,7 @@ const { values: args } = parseArgs({
     limit: { type: "string", default: "0" },
     seed: { type: "string", default: "7" },
     "turn-timeout": { type: "string", default: "1800" },
+    "verify-jumps": { type: "string" },
   },
 });
 
@@ -278,6 +282,75 @@ emit({
   tracker: await call("GET", `${api}/${agentId}/debug/tracker?bytes=1`),
   memory: await memory(),
 });
+
+// ── restores, checked ──────────────────────────────────────────────────────
+/** `value` with each native operator's inlined runtime replaced by the token naming its digest, as the agent holds it
+ * since the runtime token: two versions of the agent then compare equal, and a record stays small. */
+function tokenized(value: any): any {
+  if (typeof value === "string") {
+    const at = value.indexOf('exec("');
+    if (at < 0) return value;
+    let end = at + 6;
+    while (end < value.length && value[end] !== '"') end += value[end] === "\\" ? 2 : 1;
+    if (end - at < 10000) return value;
+    const digest = new Bun.CryptoHasher("sha256").update(JSON.parse(value.slice(at + 5, end + 1))).digest("hex");
+    return value.slice(0, at + 5) + `_texera_native_runtime_${digest.slice(0, 16)}` + value.slice(end + 1);
+  }
+  if (Array.isArray(value)) return value.map(tokenized);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, tokenized(item)]));
+  return value;
+}
+
+if (args["verify-jumps"]) {
+  const sink = args["verify-jumps"];
+  writeFileSync(sink, "");
+  // The last checkout's context frame may still be on its way.
+  await Bun.sleep(1000);
+  const nodes = (await tree()).nodes;
+  const number = (id: string) => Number(/(\d+)(?:-\d{13})?$/.exec(id)![1]);
+  const targets = [
+    ...nodes.filter((node: any) => node.version !== undefined).map((node: any) => ({ kind: "version", id: node.id })),
+    ...[...new Set<string>(nodes.map((node: any) => node.reactStepId).filter(Boolean))].map(id => ({
+      kind: "step",
+      id,
+    })),
+  ].sort((a, b) => a.kind.localeCompare(b.kind) || number(a.id) - number(b.id));
+  for (let i = targets.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [targets[i], targets[j]] = [targets[j], targets[i]];
+  }
+  for (const [index, target] of targets.entries()) {
+    const preview =
+      target.kind === "version" ? await call("GET", `${api}/${agentId}/versions/${target.id}`) : undefined;
+    const headChange = next(frame => frame.type === "headChange", 120);
+    const nextContext = next(frame => frame.type === "nextContext", 120);
+    const response =
+      target.kind === "version"
+        ? await call("POST", `${api}/${agentId}/checkout-version`, { snapshotId: target.id })
+        : await call("POST", `${api}/${agentId}/checkout`, { stepId: target.id });
+    const [{ frame: head }, { frame: context }] = await Promise.all([headChange, nextContext]);
+    const steps = new Map<string, any>(
+      (await call("GET", `${api}/${agentId}/react-steps`)).steps.map((step: any) => [step.id, step])
+    );
+    const path = [];
+    for (let id = response.headId; id && steps.has(id); id = steps.get(id).parentId) path.unshift(steps.get(id));
+    const record = {
+      index,
+      target,
+      headId: response.headId,
+      workflow: head.workflowContent,
+      results: head.operatorResults,
+      context: context.content,
+      head: await call("GET", `${api}/${agentId}/snapshots/head`),
+      path,
+      preview,
+    };
+    appendFileSync(sink, JSON.stringify(tokenized(record)) + "\n");
+    if ((index + 1) % 100 === 0) console.log(`${index + 1}/${targets.length} restores checked`);
+  }
+  console.log(`${targets.length} restores checked`);
+}
 socket.close();
 modelServer.stop(true);
 process.exit(0); // the waiters' timeouts would keep the process alive
