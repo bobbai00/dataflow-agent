@@ -31,10 +31,11 @@ import {
 } from "@angular/core";
 import { HttpErrorResponse } from "@angular/common/http";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
-import { Subject } from "rxjs";
+import { Subject, Subscription } from "rxjs";
 import { distinctUntilChanged, filter, pairwise, startWith, takeUntil } from "rxjs/operators";
 import { AgentState, ReActStep } from "../../../../service/agent/agent-types";
 import { AgentFileUpload, AgentFileUploadService } from "../../../../service/agent/agent-file-upload.service";
+import { fileNameOf, messageWithAttachments, splitAttachments } from "../../../../service/agent/chat-attachments";
 import { AgentInfo, AgentService, SnapshotTreeResponse } from "../../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../../service/workflow-graph/model/workflow-action.service";
 import { NotificationService } from "../../../../../common/service/notification/notification.service";
@@ -45,7 +46,7 @@ import { NzIconDirective } from "ng-zorro-antd/icon";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzSpaceCompactItemDirective } from "ng-zorro-antd/space";
 import { NzButtonComponent } from "ng-zorro-antd/button";
-import { NgClass, NgIf, NgFor, NgSwitch, NgSwitchCase } from "@angular/common";
+import { NgClass, NgIf, NgFor } from "@angular/common";
 import { MarkdownComponent } from "ngx-markdown";
 import { NzSpinComponent } from "ng-zorro-antd/spin";
 import { NzInputDirective, NzAutosizeDirective } from "ng-zorro-antd/input";
@@ -67,6 +68,12 @@ import {
   messageLabel,
   versionLabel,
 } from "./dataflow-versions";
+
+/** A file attached to the message being written: one chip above the input. */
+export interface ChatAttachment extends AgentFileUpload {
+  /** Tells chips apart, also two of one file name. */
+  key: number;
+}
 
 /**
  * One snapshot rendered as a clickable box in the snapshot tree (left rail).
@@ -164,8 +171,6 @@ export type ChatItem =
     NzButtonComponent,
     NgIf,
     NgFor,
-    NgSwitch,
-    NgSwitchCase,
     MarkdownComponent,
     NzSpinComponent,
     NzInputDirective,
@@ -207,8 +212,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
   /** True while a file is being dragged over the panel (drop-zone overlay). */
   public isFileDragOver = false;
-  /** In-flight and just-finished drops, newest last; cleared a beat after they finish. */
-  public fileUploads: AgentFileUpload[] = [];
+  /** Files attached to the message being written, in drop order: uploading, in, or failed. */
+  public attachments: ChatAttachment[] = [];
+  private nextAttachmentKey = 0;
+  /** Each drop's upload and the chips it fills; it stops once all of them are removed. */
+  private attachmentUploads: Array<{ keys: number[]; subscription: Subscription }> = [];
+  /** Sent messages split into text and attached files, by step id. */
+  private sentMessages = new Map<string, { content: string; text: string; files: string[] }>();
+  public readonly fileNameOf = fileNameOf;
   private fileDragDepth = 0;
 
   /**
@@ -579,9 +590,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   // Drag & drop file upload
   // ============================================================================
 
-  /** How long a finished upload row stays visible before it clears itself. */
-  private static readonly UPLOAD_ROW_LINGER_MS = 2500;
-
   /** Only file drags open the drop zone — dragging an operator must not. */
   private static isFileDrag(event: DragEvent): boolean {
     const types = event.dataTransfer?.types;
@@ -637,62 +645,107 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Upload dropped files into the user's `agent-uploads` dataset and append the
-   * resulting dataset paths to the message being composed, so the next thing
-   * the user types is the task for those files.
+   * Upload dropped files into the user's `agent-uploads` dataset and attach
+   * them to the message being written: a chip each, showing its progress and
+   * then its dataset path, until the message is sent or the chip removed.
    */
   private uploadDroppedFiles(files: File[]): void {
-    const pending: AgentFileUpload[] = files.map(file => ({
+    const dropped: ChatAttachment[] = files.map(file => ({
+      key: this.nextAttachmentKey++,
       fileName: AgentFileUploadService.sanitizeFileName(file.name),
       percentage: 0,
       status: "uploading",
     }));
-    this.fileUploads = [...this.fileUploads, ...pending];
+    this.attachments = [...this.attachments, ...dropped];
     this.cdr.detectChanges();
 
-    this.agentFileUploadService
+    const keyOf = new Map(dropped.map(file => [file.fileName, file.key]));
+    const upload = { keys: dropped.map(file => file.key), subscription: Subscription.EMPTY };
+    this.attachmentUploads.push(upload);
+    upload.subscription = this.agentFileUploadService
       .uploadFiles(files)
       .pipe(untilDestroyed(this))
       .subscribe({
         next: update => {
-          this.mergeUploadState(update);
-          if (update.status === "done" && update.path) {
-            this.appendToMessage(update.path);
+          const key = keyOf.get(update.fileName);
+          if (key !== undefined) {
+            this.updateAttachment(key, update);
           }
           this.cdr.detectChanges();
         },
         error: (err: unknown) => {
           const message = err instanceof HttpErrorResponse ? err.error?.message || err.message : String(err);
           this.notificationService.error(`File upload failed: ${message}`);
-          pending.forEach(p => this.mergeUploadState({ ...p, status: "failed", error: message }));
+          upload.keys.forEach(key => this.updateAttachment(key, { status: "failed", error: message }));
           this.cdr.detectChanges();
-          this.scheduleUploadRowCleanup();
         },
-        complete: () => this.scheduleUploadRowCleanup(),
       });
-  }
-
-  private mergeUploadState(update: AgentFileUpload): void {
-    const index = this.fileUploads.findIndex(u => u.fileName === update.fileName && u.status !== "done");
-    if (index === -1) {
-      this.fileUploads = [...this.fileUploads, update];
-      return;
-    }
-    this.fileUploads = this.fileUploads.map((u, i) => (i === index ? { ...u, ...update } : u));
-  }
-
-  /** Append text to the composer, keeping whatever the user already typed. */
-  private appendToMessage(text: string): void {
-    const current = this.currentMessage.trimEnd();
-    this.currentMessage = current.length > 0 ? `${current} ${text}` : text;
     this.messageInput?.nativeElement.focus();
   }
 
-  private scheduleUploadRowCleanup(): void {
-    setTimeout(() => {
-      this.fileUploads = this.fileUploads.filter(u => u.status !== "done" && u.status !== "failed");
-      this.cdr.detectChanges();
-    }, AgentChatComponent.UPLOAD_ROW_LINGER_MS);
+  /** Apply an upload update to its chip, unless the chip is gone or its file is already in. */
+  private updateAttachment(key: number, update: Partial<AgentFileUpload>): void {
+    this.attachments = this.attachments.map(file =>
+      file.key === key && file.status !== "done" ? { ...file, ...update } : file
+    );
+  }
+
+  /** Remove a chip. A drop whose chips are all gone stops uploading. */
+  public removeAttachment(key: number): void {
+    this.attachments = this.attachments.filter(file => file.key !== key);
+    const kept = new Set(this.attachments.map(file => file.key));
+    this.attachmentUploads = this.attachmentUploads.filter(upload => {
+      if (upload.keys.some(k => kept.has(k))) {
+        return true;
+      }
+      upload.subscription.unsubscribe();
+      return false;
+    });
+  }
+
+  public trackAttachment(_: number, file: ChatAttachment): number {
+    return file.key;
+  }
+
+  /** The dataset paths of the attached files that are in. */
+  public readyAttachmentPaths(): string[] {
+    return this.attachments.flatMap(file => (file.status === "done" && file.path ? [file.path] : []));
+  }
+
+  /** True while an attached file is still on its way into the dataset. */
+  public attachmentsUploading(): boolean {
+    return this.attachments.some(file => file.status === "uploading" || file.status === "committing");
+  }
+
+  /** The line under a chip's file name: its dataset path once it is in, else how it is doing. */
+  public attachmentDetail(file: ChatAttachment): string {
+    switch (file.status) {
+      case "uploading":
+        return `Uploading… ${file.percentage}%`;
+      case "committing":
+        return "Saving a version…";
+      case "failed":
+        return file.error || "Upload failed";
+      default:
+        return file.path ?? "";
+    }
+  }
+
+  /** A sent message's text and attached files, split once per step. */
+  public sentMessage(step: ReActStep): { text: string; files: string[] } {
+    const content = step.content ?? "";
+    const known = this.sentMessages.get(step.id);
+    if (known && known.content === content) {
+      return known;
+    }
+    const sent = { content, ...splitAttachments(content) };
+    this.sentMessages.set(step.id, sent);
+    return sent;
+  }
+
+  /** Nothing sent yet (and nothing running): the chat says where files go. */
+  public showDropHint(): boolean {
+    return !this.isGenerating() && !this.visibleSteps.some(step => step.role === "user");
   }
 
   public setHoveredMessage(index: number | null): void {
@@ -850,12 +903,14 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public sendMessage(): void {
     // A new message advances HEAD; stop any snapshot playback first.
     this.stopSnapshotPlayback();
-    if (!this.currentMessage.trim() || !this.canSendMessage()) {
+    if (!this.canSend()) {
       return;
     }
 
-    const userMessage = this.currentMessage.trim();
+    const userMessage = messageWithAttachments(this.currentMessage, this.readyAttachmentPaths());
     this.currentMessage = "";
+    // The sent files leave the composer; a failed one stays until it is removed.
+    this.attachments.filter(file => file.status === "done").forEach(file => this.removeAttachment(file.key));
 
     // Fire-and-forget; responses stream in via the WebSocket subscription.
     // Debug mode dispatches a `type:"debug"` WS frame instead, which bypasses
@@ -873,6 +928,15 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
    */
   public canSendMessage(): boolean {
     return this.agentState === AgentState.AVAILABLE;
+  }
+
+  /** There is something to send (text, or a file that is in), no file still uploading, and the agent listens. */
+  public canSend(): boolean {
+    return (
+      this.canSendMessage() &&
+      !this.attachmentsUploading() &&
+      (this.currentMessage.trim().length > 0 || this.readyAttachmentPaths().length > 0)
+    );
   }
 
   /**
