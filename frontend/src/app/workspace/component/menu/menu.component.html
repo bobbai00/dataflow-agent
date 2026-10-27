@@ -43,7 +43,7 @@
             (change)="onWorkflowNameChange()"
             [(ngModel)]="currentWorkflowName"
             class="workflow-name"
-            placeholder="Untitled Workflow" />
+            placeholder="Untitled Chat" />
           <span *ngIf="displayParticularWorkflowVersion"> {{particularVersionDate}} </span>
         </label>
         <button
@@ -124,7 +124,7 @@
         <button
           (click)="onClickExportWorkflow()"
           nz-button
-          title="export workflow">
+          title="Export the dataflow">
           <i
             nz-icon
             nzType="download"></i>
@@ -142,7 +142,7 @@
           nz-button
           [disabled]="!isWorkflowModifiable || isWaitingForLLM"
           (click)="openImportNotebookModal()"
-          title="AI generate workflow">
+          title="AI generate dataflow">
           <i
             nz-icon
             nzType="robot"></i>

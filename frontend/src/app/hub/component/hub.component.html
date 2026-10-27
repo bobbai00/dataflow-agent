@@ -33,14 +33,14 @@
   <li
     *ngIf="sidebarTabs.workflow_enabled"
     nz-menu-item
-    nz-tooltip="Search public workflows"
+    nz-tooltip="Search public chats"
     nzMatchRouter="true"
     nzTooltipPlacement="right"
     [routerLink]="HUB_WORKFLOW_RESULT">
     <span
       nz-icon
-      nzType="project"></span>
-    <span>Workflows</span>
+      nzType="message"></span>
+    <span>Chats</span>
   </li>
   <li
     *ngIf="sidebarTabs.dataset_enabled"

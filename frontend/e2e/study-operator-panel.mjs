@@ -46,13 +46,9 @@ const page = await context.newPage();
 const shot = name => page.screenshot({ path: `${out}-${name}.png`, fullPage: false });
 try {
   await page.goto(`${FE}/user/workflow/${wid}`, { waitUntil: "domcontentloaded" });
+  // The chat panel is always open.
   const content = page.locator("#agent-container #content");
-  if (!(await content.isVisible().catch(() => false))) {
-    const docked = page.locator("#agent-docked-button");
-    await docked.waitFor({ state: "visible", timeout: 60_000 });
-    await docked.click();
-  }
-  await content.waitFor({ state: "visible", timeout: 30_000 });
+  await content.waitFor({ state: "visible", timeout: 60_000 });
   await page.locator(".computing-units-dropdown-button").click();
   const unit = page.locator(".computing-unit-option", { hasText: process.env.STUDY_CU ?? "user-study" }).first();
   await unit.waitFor({ timeout: 15_000 });

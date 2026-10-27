@@ -46,7 +46,7 @@ import { User } from "../../../../common/type/user";
 import { SharedModelChangeHandler } from "./shared-model-change-handler";
 import { GuiConfigService } from "../../../../common/service/gui-config.service";
 
-export const DEFAULT_WORKFLOW_NAME = "Untitled Workflow";
+export const DEFAULT_WORKFLOW_NAME = "Untitled Chat";
 export const DEFAULT_WORKFLOW = {
   name: DEFAULT_WORKFLOW_NAME,
   description: undefined,

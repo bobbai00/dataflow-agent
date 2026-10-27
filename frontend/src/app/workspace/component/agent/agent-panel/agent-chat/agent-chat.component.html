@@ -17,9 +17,9 @@
  under the License.
 -->
 
-<!-- Agent Chat Container (used within tabs). Dropping files anywhere on the
-     panel uploads them to the user's `agent-uploads` dataset and appends the
-     resulting dataset paths to the message being composed. -->
+<!-- Agent Chat Container. Dropping files anywhere on the panel uploads them to
+     the user's `agent-uploads` dataset and attaches them to the message being
+     written, as chips above the input. -->
 <div
   class="agent-chat-container"
   (dragenter)="onFileDragEnter($event)"
@@ -34,7 +34,7 @@
       nz-icon
       nzType="cloud-upload"
       nzTheme="outline"></i>
-    <span>Drop files to upload — their dataset paths land in your message</span>
+    <span>Drop files to attach them to your message</span>
   </div>
   <!-- Toolbar -->
   <div class="chat-toolbar">
@@ -247,6 +247,22 @@
       <div
         #messageContainer
         class="messages-container">
+        <!-- Nothing sent yet: say where the data goes. -->
+        <div
+          *ngIf="showDropHint()"
+          class="chat-drop-hint">
+          <i
+            nz-icon
+            nzType="cloud-upload"
+            nzTheme="outline"
+            class="chat-drop-hint-icon"></i>
+          <div class="chat-drop-hint-title">Drag and drop your data files here</div>
+          <div class="chat-drop-hint-text">
+            They are attached to your message. Then ask a question about them, and {{ agentInfo.name }} builds a
+            dataflow to answer it.
+          </div>
+        </div>
+
         <ng-container *ngFor="let item of chatItems">
           <!-- ReAct action card: consecutive action-bearing steps rendered as
                single-line list rows (status icon · thinking · action chips). -->
@@ -435,11 +451,39 @@
               (mouseenter)="setHoveredMessage(msg.index)"
               (mouseleave)="setHoveredMessage(null)"
               style="position: relative">
-              <div
-                *ngIf="msg.step.content"
-                class="message-content">
-                <markdown [data]="msg.step.content"></markdown>
-              </div>
+              <!-- A user message shows its attached files as chips under its text. -->
+              <ng-container *ngIf="msg.step.role === 'user' && sentMessage(msg.step) as sent; else agentText">
+                <div
+                  *ngIf="sent.text"
+                  class="message-content">
+                  <markdown [data]="sent.text"></markdown>
+                </div>
+                <div
+                  *ngIf="sent.files.length"
+                  class="attachment-list sent">
+                  <div
+                    *ngFor="let path of sent.files"
+                    class="attachment-chip"
+                    [title]="path">
+                    <i
+                      nz-icon
+                      nzType="file-text"
+                      nzTheme="outline"
+                      class="attachment-icon"></i>
+                    <span class="attachment-text">
+                      <span class="attachment-name">{{ fileNameOf(path) }}</span>
+                      <span class="attachment-detail">{{ path }}</span>
+                    </span>
+                  </div>
+                </div>
+              </ng-container>
+              <ng-template #agentText>
+                <div
+                  *ngIf="msg.step.content"
+                  class="message-content">
+                  <markdown [data]="msg.step.content"></markdown>
+                </div>
+              </ng-template>
 
               <button
                 *ngIf="hoveredMessageIndex === msg.index && msg.step.usage"
@@ -565,29 +609,48 @@
       </div>
 
       <!-- Input Area -->
-      <!-- Upload progress, one row per dropped file -->
+      <!-- Files attached to the message: one chip each, with its dataset path once it is in. -->
       <div
-        *ngIf="fileUploads.length > 0"
-        class="file-upload-list">
+        *ngIf="attachments.length > 0"
+        class="attachment-list composer">
         <div
-          *ngFor="let upload of fileUploads"
-          class="file-upload-row"
-          [class.failed]="upload.status === 'failed'">
-          <i
-            nz-icon
-            [nzType]="upload.status === 'failed' ? 'close-circle' : upload.status === 'done' ? 'check-circle' : 'loading'"
-            nzTheme="outline"></i>
-          <span class="file-upload-name">{{ upload.fileName }}</span>
-          <span class="file-upload-status">
-            <ng-container [ngSwitch]="upload.status">
-              <ng-container *ngSwitchCase="'uploading'">{{ upload.percentage }}%</ng-container>
-              <ng-container *ngSwitchCase="'committing'">saving version…</ng-container>
-              <ng-container *ngSwitchCase="'done'"
-                >{{ upload.reused ? "already in dataset — path added" : "added to message" }}</ng-container
-              >
-              <ng-container *ngSwitchCase="'failed'">{{ upload.error || 'failed' }}</ng-container>
-            </ng-container>
+          *ngFor="let file of attachments; trackBy: trackAttachment"
+          class="attachment-chip"
+          [class.uploading]="file.status === 'uploading' || file.status === 'committing'"
+          [class.failed]="file.status === 'failed'"
+          [title]="file.path ?? file.error ?? file.fileName">
+          <nz-spin
+            *ngIf="file.status === 'uploading' || file.status === 'committing'; else fileIcon"
+            nzSimple
+            nzSize="small"
+            class="attachment-icon"></nz-spin>
+          <ng-template #fileIcon>
+            <i
+              nz-icon
+              [nzType]="file.status === 'failed' ? 'warning' : 'file-text'"
+              nzTheme="outline"
+              class="attachment-icon"></i>
+          </ng-template>
+          <span class="attachment-text">
+            <span class="attachment-name">{{ file.fileName }}</span>
+            <span class="attachment-detail">{{ attachmentDetail(file) }}</span>
           </span>
+          <button
+            type="button"
+            class="attachment-remove"
+            nz-tooltip
+            nzTooltipTitle="Remove"
+            [attr.aria-label]="'Remove ' + file.fileName"
+            (click)="removeAttachment(file.key)">
+            <i
+              nz-icon
+              nzType="close"
+              nzTheme="outline"></i>
+          </button>
+          <span
+            *ngIf="file.status === 'uploading'"
+            class="attachment-progress"
+            [style.width.%]="file.percentage"></span>
         </div>
       </div>
 
@@ -603,7 +666,9 @@
         <button
           nz-button
           nzType="primary"
-          [disabled]="!currentMessage.trim() || !canSendMessage()"
+          [disabled]="!canSend()"
+          nz-tooltip
+          [nzTooltipTitle]="attachmentsUploading() ? 'Waiting for the files to finish uploading' : ''"
           (click)="sendMessage()">
           <i
             nz-icon

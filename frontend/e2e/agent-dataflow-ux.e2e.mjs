@@ -159,9 +159,8 @@ async function domClick(locator) {
   await locator.waitFor({ state: "visible", timeout: 30000 });
   await locator.evaluate(el => el.click());
 }
+// The chat panel is always open.
 async function openAgentPanel(page) {
-  const docked = page.locator("#agent-docked-button");
-  if (await docked.isVisible().catch(() => false)) await docked.click();
   await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 20000 });
 }
 async function selectComputingUnit(page, name) {
@@ -171,23 +170,21 @@ async function selectComputingUnit(page, name) {
   await option.click();
   await sleep(1500);
 }
-// A workflow without an agent opens the panel on the registration.
-async function createAgentViaUI(page, modelId, name) {
-  const reg = page.locator("texera-agent-registration");
-  await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
-  const label = modelId
-    .split("-")
-    .map(w => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
-  const card = reg.locator(".model-card", { has: page.locator("h5", { hasText: new RegExp(`^${label}$`) }) });
-  if ((await card.count()) === 0)
-    throw new Error(`model card "${label}" not found; cards=${await reg.locator(".model-card h5").allTextContents()}`);
-  await domClick(card.first());
-  await reg.locator("input[nz-input]").fill(name);
-  const btn = reg.locator("button", { hasText: /Create Agent/ });
-  await btn.waitFor({ state: "visible" });
-  await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
-  await domClick(btn);
+// The chat's agent, made with this run's computing unit and model before the page opens. A chat
+// without one starts its own (Claude Haiku 5.5, on whichever unit the workspace selects first).
+async function createChatAgent(wid, cuid, modelType, name) {
+  const r = await api(AGENT, "POST", "/api/agents", {
+    modelType,
+    name,
+    workflowId: wid,
+    computingUnitId: cuid,
+    // As the panel makes them: the canvas captions each operator with its one-line doc.
+    settings: { operatorDoc: true },
+  });
+  if (r.status >= 300) throw new Error(`createAgent ${r.status} ${r.text.slice(0, 200)}`);
+  return r.json;
+}
+async function waitForChat(page, name) {
   await page.locator("#agent-container #title", { hasText: name }).waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
 }
@@ -308,6 +305,7 @@ async function main() {
   const shot = async name => page.screenshot({ path: `${OUT_DIR}/${name}.png`, fullPage: false }).catch(() => {});
 
   try {
+    await createChatAgent(wid, cuid, MODEL, "e2e-ux");
     await page.goto(`${FE}/user/workflow/${wid}`, { waitUntil: "domcontentloaded" });
     await page.locator("texera-workflow-editor").first().waitFor({ timeout: 60000 });
     const trigger = page.locator(".ant-layout-sider-trigger");
@@ -317,7 +315,7 @@ async function main() {
     }
     await selectComputingUnit(page, unitName);
     await openAgentPanel(page);
-    await createAgentViaUI(page, MODEL, "e2e-ux");
+    await waitForChat(page, "e2e-ux");
     const agent = (await agentsForWorkflow(wid))[0];
     check("agent created on the workflow, native mode", agent?.settings?.agentMode === "native", agent?.modelType);
     check("the workspace has no separate result panel", (await page.locator("texera-result-panel").count()) === 0);
@@ -520,10 +518,11 @@ async function main() {
       errs.length === 0,
       errs.slice(0, 3).join(" | ") || `(known pre-existing: ${known.length})`
     );
+    // The page goes first: an open chat would start again once its agent is deleted.
+    await browser.close();
     for (const a of await agentsForWorkflow(wid)) await api(AGENT, "DELETE", `/api/agents/${a.id}`);
     await api(WEB, "POST", "/api/workflow/delete", { wids: [wid] });
     await api(CU, "DELETE", `/api/computing-unit/${cuid}/terminate`);
-    await browser.close();
     fs.writeFileSync(`${OUT_DIR}/results.json`, JSON.stringify(results, null, 2));
     const failed = results.filter(r => !r.ok);
     console.log(`\n===== ${results.length - failed.length}/${results.length} passed`);

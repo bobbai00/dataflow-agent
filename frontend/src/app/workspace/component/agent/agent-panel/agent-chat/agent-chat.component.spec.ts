@@ -850,19 +850,20 @@ describe("AgentChatComponent", () => {
       expect(component.isFileDragOver).toBe(true);
     });
 
-    it("uploads dropped files and appends each dataset path to the message", () => {
+    it("attaches dropped files as chips that show the dataset path once the file is in; the text is left alone", () => {
       createComponent();
+      component.currentMessage = "plot this";
       const file = new File(["a,b\n1,2\n"], "my data.csv", { type: "text/csv" });
 
       component.onFileDrop(fileDragEvent("drop", [file]));
 
       expect(fileUpload.uploadFiles).toHaveBeenCalledWith([file]);
-      // The pending row uses the sanitized name the service will store under.
-      expect(component.fileUploads).toEqual([{ fileName: "my_data.csv", percentage: 0, status: "uploading" }]);
+      // The chip uses the sanitized name the service will store under.
+      expect(component.attachments).toEqual([{ key: 0, fileName: "my_data.csv", percentage: 0, status: "uploading" }]);
       expect(component.isFileDragOver).toBe(false);
 
       uploadSubject.next({ fileName: "my_data.csv", percentage: 40, status: "uploading" });
-      expect(component.fileUploads[0].percentage).toBe(40);
+      expect(component.attachmentDetail(component.attachments[0])).toBe("Uploading… 40%");
 
       uploadSubject.next({
         fileName: "my_data.csv",
@@ -870,27 +871,87 @@ describe("AgentChatComponent", () => {
         status: "done",
         path: "/me@texera.dev/agent-uploads/v1/my_data.csv",
       });
-      expect(component.currentMessage).toBe("/me@texera.dev/agent-uploads/v1/my_data.csv");
+      expect(component.attachmentDetail(component.attachments[0])).toBe("/me@texera.dev/agent-uploads/v1/my_data.csv");
+      expect(component.currentMessage).toBe("plot this");
+
+      fixture.detectChanges();
+      const chip = fixture.nativeElement.querySelector(".attachment-list.composer .attachment-chip") as HTMLElement;
+      expect(chip.textContent).toContain("my_data.csv");
+      expect(chip.textContent).toContain("/me@texera.dev/agent-uploads/v1/my_data.csv");
+      expect(chip.querySelector(".attachment-remove")).not.toBeNull();
     });
 
-    it("appends the path after text the user already typed", () => {
+    it("sends the attached files' paths after the text and clears the chips", () => {
       createComponent();
-      component.currentMessage = "plot this ";
       component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
+      uploadSubject.next({ fileName: "a.csv", percentage: 100, status: "done", path: "/me/agent-uploads/v1/a.csv" });
+      component.currentMessage = "how many rows?";
 
+      component.sendMessage();
+
+      expect(agentService.sendMessage).toHaveBeenCalledWith(
+        AGENT_ID,
+        "how many rows?\n\nAttached files:\n/me/agent-uploads/v1/a.csv"
+      );
+      expect(component.attachments).toEqual([]);
+      expect(component.currentMessage).toBe("");
+    });
+
+    it("sends attached files without any text", () => {
+      createComponent();
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
       uploadSubject.next({ fileName: "a.csv", percentage: 100, status: "done", path: "/me/agent-uploads/v1/a.csv" });
 
-      expect(component.currentMessage).toBe("plot this /me/agent-uploads/v1/a.csv");
+      expect(component.canSend()).toBe(true);
+      component.sendMessage();
+
+      expect(agentService.sendMessage).toHaveBeenCalledWith(AGENT_ID, "Attached files:\n/me/agent-uploads/v1/a.csv");
     });
 
-    it("reports an upload failure and marks the row failed", () => {
+    it("does not send while a file is still uploading", () => {
+      createComponent();
+      component.currentMessage = "go";
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
+
+      expect(component.canSend()).toBe(false);
+      component.sendMessage();
+
+      expect(agentService.sendMessage).not.toHaveBeenCalled();
+      expect(component.currentMessage).toBe("go");
+    });
+
+    it("stops a drop's upload once all of its chips are removed", () => {
+      createComponent();
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
+
+      component.removeAttachment(component.attachments[0].key);
+
+      expect(component.attachments).toEqual([]);
+      expect(uploadSubject.observed).toBe(false);
+    });
+
+    it("keeps uploading the rest of a drop when one of its chips is removed, and sends only the rest", () => {
+      createComponent();
+      component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv"), new File(["y"], "b.csv")]));
+
+      component.removeAttachment(component.attachments[0].key);
+      uploadSubject.next({ fileName: "a.csv", percentage: 100, status: "done", path: "/me/agent-uploads/v1/a.csv" });
+      uploadSubject.next({ fileName: "b.csv", percentage: 100, status: "done", path: "/me/agent-uploads/v1/b.csv" });
+
+      expect(component.attachments.map(file => file.fileName)).toEqual(["b.csv"]);
+      expect(component.readyAttachmentPaths()).toEqual(["/me/agent-uploads/v1/b.csv"]);
+    });
+
+    it("reports an upload failure and keeps the failed chip until it is removed", () => {
       createComponent();
       component.onFileDrop(fileDragEvent("drop", [new File(["x"], "a.csv")]));
 
       uploadSubject.error(new Error("lakefs is down"));
 
       expect(notification.error).toHaveBeenCalledWith(expect.stringContaining("lakefs is down"));
-      expect(component.fileUploads[0].status).toBe("failed");
+      expect(component.attachments[0].status).toBe("failed");
+      expect(component.attachmentDetail(component.attachments[0])).toContain("lakefs is down");
+      expect(component.canSend()).toBe(false);
       expect(component.currentMessage).toBe("");
     });
 
@@ -900,7 +961,42 @@ describe("AgentChatComponent", () => {
       component.onFileDrop(fileDragEvent("drop", []));
 
       expect(fileUpload.uploadFiles).not.toHaveBeenCalled();
-      expect(component.fileUploads).toEqual([]);
+      expect(component.attachments).toEqual([]);
+    });
+  });
+
+  describe("sent files and the empty chat", () => {
+    it("shows a sent message's attached files as chips under its text", () => {
+      createComponent();
+      const step = makeStep({ role: "user", content: "how many rows?\n\nAttached files:\n/me/agent-uploads/v1/a.csv" });
+      agentService.stepsSubject.next([step]);
+      fixture.detectChanges();
+
+      // The markdown shows the text alone (ngx-markdown renders it asynchronously).
+      expect(component.sentMessage(step)).toMatchObject({
+        text: "how many rows?",
+        files: ["/me/agent-uploads/v1/a.csv"],
+      });
+      const message = fixture.nativeElement.querySelector(".user-message") as HTMLElement;
+      expect(message.querySelectorAll("markdown").length).toBe(1);
+      const chips = message.querySelectorAll(".attachment-list.sent .attachment-chip");
+      expect(chips.length).toBe(1);
+      expect(chips[0].textContent).toContain("a.csv");
+      expect(chips[0].textContent).toContain("/me/agent-uploads/v1/a.csv");
+      expect(chips[0].querySelector(".attachment-remove")).toBeNull();
+    });
+
+    it("says where files go until the first message is sent", () => {
+      createComponent();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector(".chat-drop-hint")?.textContent).toContain(
+        "Drag and drop your data files here"
+      );
+
+      agentService.stepsSubject.next([makeStep({ role: "user", content: "hi" })]);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector(".chat-drop-hint")).toBeNull();
     });
   });
 

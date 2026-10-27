@@ -124,11 +124,11 @@ describe("HubComponent", () => {
     expect(labels[0]).toContain("Home");
   });
 
-  it("renders only the Workflows item when workflow_enabled is the only flag set", () => {
+  it("renders only the Chats item when workflow_enabled is the only flag set", () => {
     setup(false, makeSidebarTabs({ workflow_enabled: true }));
     const labels = renderedMenuLabels();
     expect(labels.length).toBe(1);
-    expect(labels[0]).toContain("Workflows");
+    expect(labels[0]).toContain("Chats");
   });
 
   it("renders only the Datasets item when dataset_enabled is the only flag set", () => {
@@ -143,7 +143,7 @@ describe("HubComponent", () => {
     const labels = renderedMenuLabels();
     expect(labels.length).toBe(3);
     expect(labels.some(l => l.includes("Home"))).toBe(true);
-    expect(labels.some(l => l.includes("Workflows"))).toBe(true);
+    expect(labels.some(l => l.includes("Chats"))).toBe(true);
     expect(labels.some(l => l.includes("Datasets"))).toBe(true);
   });
 
@@ -153,13 +153,13 @@ describe("HubComponent", () => {
     expect(labels.length).toBe(2);
     expect(labels.some(l => l.includes("Home"))).toBe(true);
     expect(labels.some(l => l.includes("Datasets"))).toBe(true);
-    expect(labels.some(l => l.includes("Workflows"))).toBe(false);
+    expect(labels.some(l => l.includes("Chats"))).toBe(false);
   });
 
   it("binds each menu item's routerLink to the correct routing constant", () => {
     setup(false, makeSidebarTabs({ home_enabled: true, workflow_enabled: true, dataset_enabled: true }));
     expect(routerLinkFor("Home")).toBe(HOME);
-    expect(routerLinkFor("Workflows")).toBe(HUB_WORKFLOW_RESULT);
+    expect(routerLinkFor("Chats")).toBe(HUB_WORKFLOW_RESULT);
     expect(routerLinkFor("Datasets")).toBe(HUB_DATASET_RESULT);
   });
 });

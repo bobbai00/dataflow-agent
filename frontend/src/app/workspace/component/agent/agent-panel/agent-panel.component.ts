@@ -20,14 +20,15 @@
 import { Component, HostListener, OnDestroy, OnInit } from "@angular/core";
 import { ActivatedRoute } from "@angular/router";
 import { UntilDestroy, untilDestroyed } from "@ngneat/until-destroy";
+import { Subscription } from "rxjs";
+import { filter, switchMap, take } from "rxjs/operators";
 import { NzResizeEvent, NzResizableDirective, NzResizeHandlesComponent } from "ng-zorro-antd/resizable";
 import { AgentService, AgentInfo } from "../../../service/agent/agent.service";
 import { agentOf } from "../../../service/agent/workflow-agent";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
-import { calculateTotalTranslate3d } from "../../../../common/util/panel-dock";
-import { NgIf, NgClass, NgFor } from "@angular/common";
-import { NzButtonComponent } from "ng-zorro-antd/button";
-import { NzWaveDirective } from "ng-zorro-antd/core/wave";
+import { ComputingUnitStatusService } from "../../../../common/service/computing-unit/computing-unit-status/computing-unit-status.service";
+import { ComputingUnitState } from "../../../../common/type/computing-unit-connection.interface";
+import { NgIf, NgFor } from "@angular/common";
 import { ɵNzTransitionPatchDirective } from "ng-zorro-antd/core/transition-patch";
 import { NzTooltipDirective } from "ng-zorro-antd/tooltip";
 import { NzIconDirective } from "ng-zorro-antd/icon";
@@ -38,12 +39,14 @@ import { AgentRegistrationComponent } from "./agent-registration/agent-registrat
 import { AgentChatComponent } from "./agent-chat/agent-chat.component";
 
 /**
- * The agent panel: one chat, with the open workflow's agent.
+ * The agent panel: one chat, with the open workflow's agent. It is always open.
  *
  * A workflow has at most one agent here, its newest. Opening a workflow that
- * has an agent shows its chat; opening one that has none shows the
- * registration, where the user picks a model and creates the agent. Agents of
- * other workflows are never shown: moving to another workflow moves the chat.
+ * has an agent shows its chat; opening one that has none starts its chat with
+ * the default model as soon as a computing unit runs. Only when that model is
+ * not offered (or the start fails) does the registration ask for a model.
+ * Agents of other workflows are never shown: moving to another workflow moves
+ * the chat.
  */
 @UntilDestroy()
 @Component({
@@ -53,9 +56,6 @@ import { AgentChatComponent } from "./agent-chat/agent-chat.component";
   imports: [
     NgIf,
     NgFor,
-    NgClass,
-    NzButtonComponent,
-    NzWaveDirective,
     ɵNzTransitionPatchDirective,
     NzTooltipDirective,
     NzIconDirective,
@@ -72,18 +72,30 @@ import { AgentChatComponent } from "./agent-chat/agent-chat.component";
 })
 export class AgentPanelComponent implements OnInit, OnDestroy {
   protected readonly window = window;
-  private static readonly MIN_PANEL_WIDTH = 400;
-  /** Width a closed panel opens at: room for the version rail and a readable chat. */
-  private static readonly DEFAULT_PANEL_WIDTH = 560;
+  /** The model a new chat starts with, and its name in the panel. */
+  public static readonly DEFAULT_MODEL = "claude-haiku-5.5";
+  public static readonly DEFAULT_MODEL_NAME = "Claude Haiku 5.5";
+  protected readonly defaultModelName = AgentPanelComponent.DEFAULT_MODEL_NAME;
   private static readonly MIN_PANEL_HEIGHT = 450;
+  /** The panel's top: just under the workspace's menu bar. */
+  static readonly TOP = 80;
+  /** Room left under the panel for the canvas's zoom buttons. */
+  private static readonly BOTTOM_GAP = 56;
 
-  // Panel dimensions and position
-  width: number = 0; // Start with 0 to show docked button
-  height = Math.max(AgentPanelComponent.MIN_PANEL_HEIGHT, window.innerHeight * 0.7);
+  /**
+   * The panel opens on the right of the canvas, the same each time: about 40%
+   * of the window wide (600 to 900 px) and as tall as the canvas allows. It can
+   * be dragged and resized; a chat opened later starts from here again.
+   */
+  width = Math.round(Math.min(900, Math.max(600, window.innerWidth * 0.4)));
+  height = Math.max(
+    AgentPanelComponent.MIN_PANEL_HEIGHT,
+    window.innerHeight - AgentPanelComponent.TOP - AgentPanelComponent.BOTTOM_GAP
+  );
+  readonly top = AgentPanelComponent.TOP;
+  readonly maxHeight = Math.max(AgentPanelComponent.MIN_PANEL_HEIGHT, window.innerHeight - AgentPanelComponent.TOP - 8);
   id = -1;
   dragPosition = { x: 0, y: 0 };
-  returnPosition = { x: 0, y: 0 };
-  isDocked = true;
 
   /** The caller's agents, as the service last listed them. */
   agents: AgentInfo[] = [];
@@ -95,15 +107,28 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
   chatAgents: AgentInfo[] = [];
   /** The workflow's agent list has not arrived yet. */
   loading = true;
+  /** The workflow has no agent and its chat is starting: waiting for a computing unit, or creating the agent. */
+  startingChat = false;
+  /** The selected computing unit runs; a new agent needs one. */
+  computingUnitRunning = false;
+  /** The default model is not offered, or starting the chat failed: the user picks a model. */
+  pickModel = false;
+  /** The workflow whose chat was started, so a listing that returns before the new agent starts no second one. */
+  private chatStartedFor?: number;
+  private chatStart?: Subscription;
 
   constructor(
     private agentService: AgentService,
     private workflowActionService: WorkflowActionService,
+    private computingUnitStatusService: ComputingUnitStatusService,
     private route: ActivatedRoute
   ) {}
 
   ngOnInit(): void {
-    this.loadPanelSettings();
+    this.computingUnitStatusService
+      .getStatus()
+      .pipe(untilDestroyed(this))
+      .subscribe(status => (this.computingUnitRunning = status === ComputingUnitState.Running));
 
     // The workflow's metadata arrives after the panel exists; the route already names the
     // workflow, so its agent is asked for at once (an unsaved new workflow has no id yet).
@@ -121,6 +146,9 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
         const wid = metadata.wid ?? undefined;
         if (wid === this.workflowId) return;
         this.workflowId = wid;
+        this.cancelChatStart();
+        this.chatStartedFor = undefined;
+        this.pickModel = false;
         this.show(null);
         this.loading = true;
         this.listAgents();
@@ -138,7 +166,7 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
     return Number.isFinite(id) && id > 0 ? id : undefined;
   }
 
-  /** List the caller's agents for the open workflow and show the one that is its. */
+  /** List the caller's agents for the open workflow and show the one that is its; none: start its chat. */
   private listAgents(): void {
     const wid = this.workflowId;
     this.agentService
@@ -150,7 +178,64 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
         this.agents = agents;
         this.loading = false;
         this.show(agentOf(agents, wid));
+        if (!this.agent) {
+          this.startChat();
+        }
       });
+  }
+
+  /**
+   * The workflow has no agent: start its chat with the default model once a
+   * computing unit runs. When that model is not offered, or the start fails,
+   * the registration asks for a model instead.
+   */
+  private startChat(): void {
+    const wid = this.workflowId;
+    if (this.pickModel || (wid !== undefined && this.chatStartedFor === wid)) {
+      return;
+    }
+    // An unsaved workflow has no id to bind a chat to: its user picks a model, as before.
+    if (wid === undefined) {
+      this.pickModel = true;
+      return;
+    }
+    this.chatStartedFor = wid;
+    this.startingChat = true;
+    this.chatStart = this.computingUnitStatusService
+      .getStatus()
+      .pipe(
+        filter(status => status === ComputingUnitState.Running),
+        take(1),
+        switchMap(() => this.agentService.fetchModelTypes()),
+        switchMap(models => {
+          if (!models.some(model => model.id === AgentPanelComponent.DEFAULT_MODEL)) {
+            throw new Error(`${AgentPanelComponent.DEFAULT_MODEL} is not offered`);
+          }
+          return this.agentService.createAgent(
+            AgentPanelComponent.DEFAULT_MODEL,
+            AgentRegistrationComponent.DEFAULT_AGENT_NAME,
+            wid
+          );
+        }),
+        untilDestroyed(this)
+      )
+      .subscribe({
+        next: agent => {
+          this.startingChat = false;
+          this.onAgentCreated(agent.id);
+        },
+        error: (error: unknown) => {
+          console.error("Failed to start the chat:", error);
+          this.startingChat = false;
+          this.pickModel = true;
+        },
+      });
+  }
+
+  private cancelChatStart(): void {
+    this.chatStart?.unsubscribe();
+    this.chatStart = undefined;
+    this.startingChat = false;
   }
 
   /** Put the agent in the chat and connect it; disconnect the one shown before. */
@@ -178,26 +263,12 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
     if (this.agent) {
       this.agentService.deactivateAgent(this.agent.id);
     }
-    this.savePanelSettings();
   }
 
   /**
-   * Open the panel from docked state
-   */
-  public openPanel(): void {
-    if (this.width === 0) {
-      // Open panel
-      this.width = AgentPanelComponent.DEFAULT_PANEL_WIDTH;
-    } else {
-      // Close panel (dock it)
-      this.width = 0;
-      this.isDocked = true;
-    }
-  }
-
-  /**
-   * The registration made an agent for this workflow. Connect it right away and
-   * list again: it is the newest, so the listing puts it in the chat.
+   * An agent was made for this workflow (its chat started, or the registration
+   * made it). Connect it right away and list again: it is the newest, so the
+   * listing puts it in the chat.
    */
   public onAgentCreated(agentId: string): void {
     this.agentService.activateAgent(agentId);
@@ -205,21 +276,28 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Delete the workflow's agent, after confirmation. The chat closes; the
-   * listing that follows shows the registration (or an older agent of the
-   * workflow, if one exists).
+   * Start the chat over, after confirmation: delete the workflow's agent; the
+   * listing that follows starts a new chat (or shows an older agent of the
+   * workflow, if one exists). The dataflow on the canvas stays.
    */
   public removeAgent(): void {
     const agent = this.agent;
     if (!agent) return;
-    if (!confirm(`Remove ${agent.name} and its chat from this workflow? You can create a new agent afterwards.`)) {
+    if (
+      !confirm(
+        `Start a new chat? ${agent.name}'s messages and versions in this chat are removed; the dataflow on the canvas stays.`
+      )
+    ) {
       return;
     }
     this.show(null);
+    // The first listing without the agent starts the new chat; later ones see it started.
+    this.chatStartedFor = undefined;
     this.agentService
       .deleteAgent(agent.id)
       .pipe(untilDestroyed(this))
       .subscribe({
+        next: () => this.listAgents(),
         error: (error: unknown) => {
           console.error("Failed to delete agent:", error);
         },
@@ -235,62 +313,5 @@ export class AgentPanelComponent implements OnInit, OnDestroy {
       this.width = width!;
       this.height = height!;
     });
-  }
-
-  /**
-   * Handle drag start
-   */
-  handleDragStart(): void {
-    this.isDocked = false;
-  }
-
-  /**
-   * Load panel settings from localStorage
-   */
-  private loadPanelSettings(): void {
-    const savedWidth = localStorage.getItem("agent-panel-width");
-    const savedHeight = localStorage.getItem("agent-panel-height");
-    const savedStyle = localStorage.getItem("agent-panel-style");
-    const savedDocked = localStorage.getItem("agent-panel-docked");
-
-    // Only restore width if the panel was not docked
-    if (savedDocked === "false" && savedWidth) {
-      const parsedWidth = Number(savedWidth);
-      if (!isNaN(parsedWidth) && parsedWidth >= AgentPanelComponent.MIN_PANEL_WIDTH) {
-        this.width = parsedWidth;
-      }
-    }
-
-    if (savedHeight) {
-      const parsedHeight = Number(savedHeight);
-      if (!isNaN(parsedHeight) && parsedHeight >= AgentPanelComponent.MIN_PANEL_HEIGHT) {
-        this.height = parsedHeight;
-      }
-    }
-
-    if (savedStyle) {
-      const container = document.getElementById("agent-container");
-      if (container) {
-        container.style.cssText = savedStyle;
-        const translates = container.style.transform;
-        const [xOffset, yOffset] = calculateTotalTranslate3d(translates);
-        this.returnPosition = { x: -xOffset, y: -yOffset };
-        this.isDocked = this.dragPosition.x === this.returnPosition.x && this.dragPosition.y === this.returnPosition.y;
-      }
-    }
-  }
-
-  /**
-   * Save panel settings to localStorage
-   */
-  private savePanelSettings(): void {
-    localStorage.setItem("agent-panel-width", String(this.width));
-    localStorage.setItem("agent-panel-height", String(this.height));
-    localStorage.setItem("agent-panel-docked", String(this.width === 0));
-
-    const container = document.getElementById("agent-container");
-    if (container) {
-      localStorage.setItem("agent-panel-style", container.style.cssText);
-    }
   }
 }

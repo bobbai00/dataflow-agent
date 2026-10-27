@@ -89,9 +89,8 @@ async function domClick(locator) {
   await locator.waitFor({ state: "visible", timeout: 30000 });
   await locator.evaluate(el => el.click());
 }
+// The chat panel is always open.
 async function openAgentPanel(page) {
-  const docked = page.locator("#agent-docked-button");
-  if (await docked.isVisible().catch(() => false)) await docked.click();
   await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 20000 });
 }
 /** The operators the canvas shows, by id. */

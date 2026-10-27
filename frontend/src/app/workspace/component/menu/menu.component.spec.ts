@@ -135,13 +135,13 @@ describe("MenuComponent", () => {
       expect(behavior.disable).toBe(true);
     });
 
-    it("returns 'Empty Workflow' when the workflow has no operators", () => {
+    it("returns 'Empty Dataflow' when the workflow has no operators", () => {
       component.isWorkflowValid = true;
       component.isWorkflowEmpty = true;
 
       const behavior = component.getRunButtonBehavior();
 
-      expect(behavior.text).toBe("Empty Workflow");
+      expect(behavior.text).toBe("Empty Dataflow");
       expect(behavior.icon).toBe("info-circle");
       expect(behavior.disable).toBe(true);
     });
@@ -238,7 +238,7 @@ describe("MenuComponent", () => {
     validationStream$.next({ errors: {}, workflowEmpty: true });
 
     expect(component.isWorkflowEmpty).toBe(true);
-    expect(component.runButtonText).toBe("Empty Workflow");
+    expect(component.runButtonText).toBe("Empty Dataflow");
     expect(component.runDisable).toBe(true);
   });
 
@@ -1095,7 +1095,7 @@ describe("MenuComponent", () => {
 
     it("disables the AI-generate button while a conversion is in flight", () => {
       const button = () =>
-        fixture.nativeElement.querySelector('button[title="AI generate workflow"]') as HTMLButtonElement;
+        fixture.nativeElement.querySelector('button[title="AI generate dataflow"]') as HTMLButtonElement;
       (TestBed.inject(GuiConfigService) as unknown as MockGuiConfigService).setConfig({
         pythonNotebookMigrationEnabled: true,
       });
@@ -1117,7 +1117,7 @@ describe("MenuComponent", () => {
       component.isWorkflowModifiable = true; // enable the button so the click lands
       fixture.detectChanges();
 
-      const button = fixture.nativeElement.querySelector('button[title="AI generate workflow"]') as HTMLButtonElement;
+      const button = fixture.nativeElement.querySelector('button[title="AI generate dataflow"]') as HTMLButtonElement;
       button.click();
 
       expect(openSpy).toHaveBeenCalled();

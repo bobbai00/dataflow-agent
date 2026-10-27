@@ -22,13 +22,15 @@
 // canvas and the agent's results come back. Prints what arrived and saves a screenshot.
 //
 //   node e2e/study-import-archive.mjs <workflow id> <archive.json> <out.png>
-//   (FE_BASE, WEB_BASE, AGENT_BASE as the other e2e scripts)
+//   (FE_BASE, WEB_BASE, AGENT_BASE, CU_BASE as the other e2e scripts; STUDY_CU names the computing
+//   unit, STUDY_MODEL the agent's model, by id or by name: claude-haiku-5.5 or "Claude Haiku 5.5")
 import { chromium } from "playwright";
 
 const [wid, archive, out] = process.argv.slice(2);
 const FE = process.env.FE_BASE ?? "http://localhost:4200";
 const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
 const AGENT = process.env.AGENT_BASE ?? "http://localhost:3001";
+const CU = process.env.CU_BASE ?? "http://localhost:8888";
 
 const login = await fetch(`${WEB}/api/auth/login`, {
   method: "POST",
@@ -36,38 +38,41 @@ const login = await fetch(`${WEB}/api/auth/login`, {
   body: JSON.stringify({ username: "texera", password: "texera" }),
 });
 const { accessToken } = await login.json();
+const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+
+// The workflow's agent, on the study's computing unit, made as a participant's facilitator would
+// before the page opens: a chat without an agent starts its own, on whichever unit the workspace
+// selects first.
+const unitName = process.env.STUDY_CU ?? "user-study";
+const unit = (await (await fetch(`${CU}/api/computing-unit`, { headers })).json()).find(
+  u => u.computingUnit?.name === unitName
+);
+if (!unit) throw new Error(`no computing unit named ${unitName}`);
+const model = (process.env.STUDY_MODEL ?? "claude-haiku-5.5").toLowerCase().replaceAll(" ", "-");
+const made = await fetch(`${AGENT}/api/agents`, {
+  method: "POST",
+  headers,
+  body: JSON.stringify({
+    modelType: model,
+    name: "Bob",
+    workflowId: Number(wid),
+    computingUnitId: unit.computingUnit.cuid,
+    settings: { operatorDoc: true },
+  }),
+});
+if (!made.ok) throw new Error(`creating the agent failed: ${made.status} ${(await made.text()).slice(0, 200)}`);
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1920, height: 1200 } });
 await context.addInitScript(token => localStorage.setItem("access_token", token), accessToken);
 const page = await context.newPage();
 try {
   await page.goto(`${FE}/user/workflow/${wid}`, { waitUntil: "domcontentloaded" });
-  // The panel is docked away by default; its button appears once the workspace has loaded.
-  const docked = page.locator("#agent-docked-button");
-  const content = page.locator("#agent-container #content");
-  if (!(await content.isVisible().catch(() => false))) {
-    await docked.waitFor({ state: "visible", timeout: 60_000 });
-    await docked.click();
-  }
-  await content.waitFor({ state: "visible", timeout: 30_000 });
-  // The agent panel shows the agents of the selected computing unit: pick the study's.
+  // The chat panel is always open, on the agent made above.
+  await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 60_000 });
   await page.locator(".computing-units-dropdown-button").click();
-  const unit = page.locator(".computing-unit-option", { hasText: process.env.STUDY_CU ?? "user-study" }).first();
-  await unit.waitFor({ timeout: 15_000 });
-  await unit.click();
-  // Create the agent as a participant's facilitator would, in the panel: the model card, a name, Create.
-  // (A workflow without an agent opens the panel on the registration.)
-  const registration = page.locator("texera-agent-registration");
-  const model = process.env.STUDY_MODEL ?? "Claude Sonnet 5.5";
-  const card = registration
-    .locator(".model-card", { has: page.locator("h5", { hasText: new RegExp(`^${model}$`) }) })
-    .first();
-  await card.waitFor({ timeout: 30_000 });
-  await card.evaluate(el => el.click());
-  await registration.locator("input[nz-input]").fill("Bob");
-  const create = registration.locator("button", { hasText: /Create Agent/ });
-  await page.waitForFunction(el => !el.disabled, await create.elementHandle(), { timeout: 60_000 });
-  await create.evaluate(el => el.click());
+  const option = page.locator(".computing-unit-option", { hasText: unitName }).first();
+  await option.waitFor({ timeout: 15_000 });
+  await option.click();
   await page.locator("#agent-container #title", { hasText: "Bob" }).waitFor({ timeout: 60_000 });
   const fileInput = page.locator('texera-agent-chat input[type=file][accept*="json"]').first();
   await fileInput.waitFor({ state: "attached", timeout: 30_000 });
