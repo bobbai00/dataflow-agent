@@ -4,22 +4,24 @@
  *
  * Drives the actual Angular UI with Playwright (chromium from
  * frontend/node_modules) — no API shortcuts for the things under test:
- *   1. agent features in native mode (the default): create agent, chat,
- *      streamed steps, hover→canvas highlight, snapshot tree, settings modal
- *      (agent mode / context mode / data and flow evidence), clear
+ *   0. the chat: the panel is open on arrival, and a workflow without an
+ *      agent starts its chat by itself (Bob, Claude Haiku 5.5), with a hint
+ *      that files can be dropped on it; "Start a new chat" replaces the agent
+ *   1. agent features in native mode (the default): chat, streamed steps,
+ *      hover→canvas highlight, snapshot tree, settings modal (agent mode /
+ *      context mode / data and flow evidence), clear
  *   2. versioning: checkout an earlier snapshot, branch from it with a new
  *      message, verify the tree forks and the canvas follows HEAD
- *   3. code mode: a second agent switched to Code from the settings modal
- *      gets the code-mode tools and answers through a Python operator; tab
- *      switching and deleting an agent by closing its tab
+ *   3. code mode: the next chat's agent switched to Code from the settings
+ *      modal gets the code-mode tools and answers through a Python operator
  *
  * Cross-checks via the agent-service REST API are used only as oracles
  * (e.g. operator types actually in the DAG), never to drive the UI. The test
  * provisions its own local computing unit and workflow and removes both.
  *
  * Usage (from frontend/, with the local stack up — see bin/local-dev.sh):
- *   PROBE_MODEL=claude-haiku-4.5 node e2e/agent-panel.e2e.mjs
- *   (PROBE_MODEL defaults to claude-haiku-4.5; any model on the LLM gateway works)
+ *   node e2e/agent-panel.e2e.mjs
+ *   (a chat starts with Claude Haiku 5.5, so the gateway must offer it)
  */
 import { chromium } from "../node_modules/playwright/index.mjs";
 import fs from "node:fs";
@@ -29,7 +31,8 @@ const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
 const AGENT = process.env.AGENT_BASE ?? "http://localhost:3001";
 const CU = process.env.CU_BASE ?? "http://localhost:8888";
 const CU_URI = process.env.TEXERA_LOCAL_CU_URI ?? "http://localhost:8085";
-const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-4.5";
+// The model a chat starts with; there is no model to pick.
+const MODEL = "claude-haiku-5.5";
 const OUT_DIR = process.env.OUT_DIR ?? "./fe-e2e-out";
 const TURN_TIMEOUT = Number(process.env.TURN_TIMEOUT_MS ?? "420000");
 const HEADLESS = process.env.HEADFUL ? false : true;
@@ -41,6 +44,15 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
 };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function until(probe, timeout = 60000, every = 500) {
+  const t0 = Date.now();
+  for (;;) {
+    const value = await probe().catch(() => undefined);
+    if (value) return value;
+    if (Date.now() - t0 > timeout) return undefined;
+    await sleep(every);
+  }
+}
 
 // ---------- backend oracles ----------
 let token = "";
@@ -116,9 +128,8 @@ async function domClick(locator) {
   await locator.waitFor({ state: "visible", timeout: 30000 });
   await locator.evaluate(el => el.click());
 }
+// The chat panel is always open.
 async function openAgentPanel(page) {
-  const docked = page.locator("#agent-docked-button");
-  if (await docked.isVisible().catch(() => false)) await docked.click();
   await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 20000 });
 }
 // A new workflow attaches to the first unit the service lists as running,
@@ -130,33 +141,22 @@ async function selectComputingUnit(page, name) {
   await option.click();
   await sleep(1500);
 }
-// The panel shows one chat, the workflow's newest agent's; a workflow without an
-// agent opens on the registration. To make a second agent, remove the first.
-async function createAgentViaUI(page, modelId, name) {
-  if (await page.locator("#return-button .remove-agent").count()) await removeAgentViaUI(page);
-  const reg = page.locator("texera-agent-registration");
-  await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
-  const label = modelId
-    .split("-")
-    .map(w => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
-  const card = reg.locator(".model-card", { has: page.locator("h5", { hasText: new RegExp(`^${label}$`) }) });
-  if ((await card.count()) === 0)
-    throw new Error(`model card "${label}" not found; cards=${await reg.locator(".model-card h5").allTextContents()}`);
-  await domClick(card.first());
-  await reg.locator("input[nz-input]").fill(name);
-  const btn = reg.locator("button", { hasText: /Create Agent/ });
-  // Enabled only once the workspace connected to a computing unit.
-  await btn.waitFor({ state: "visible" });
-  await page.waitForFunction(el => !el.disabled, await btn.elementHandle(), { timeout: 60000 });
-  await domClick(btn);
-  await page.locator("#agent-container #title", { hasText: name }).waitFor({ timeout: 30000 });
+// A workflow without an agent starts its chat by itself: wait for the new agent
+// (one not in `before`) and for the panel to show its empty chat.
+async function waitForNewChat(page, wid, before) {
+  const agent = await until(async () => (await agentsForWorkflow(wid)).find(a => !before.includes(a.id)), 60000);
+  if (!agent) throw new Error(`no chat started for workflow ${wid}`);
+  await page.locator("#agent-container #title", { hasText: agent.name }).waitFor({ timeout: 30000 });
+  await chat(page).locator(".chat-drop-hint").waitFor({ timeout: 30000 });
   await chat(page).locator("textarea").waitFor({ timeout: 30000 });
+  await sleep(1000);
+  return agent;
 }
-// The panel's remove button (confirm is auto-accepted); the registration follows.
-async function removeAgentViaUI(page) {
+// The panel's "Start a new chat" (confirm is auto-accepted): the agent is deleted and the next chat starts.
+async function startNewChat(page, wid, oldId) {
   await domClick(page.locator("#return-button .remove-agent"));
-  await page.locator("texera-agent-registration").waitFor({ timeout: 30000 });
+  await until(async () => !(await agentsForWorkflow(wid)).some(a => a.id === oldId), 30000);
+  return waitForNewChat(page, wid, [oldId]);
 }
 async function sendAndWait(page, text, { timeout = TURN_TIMEOUT } = {}) {
   const c = chat(page);
@@ -330,19 +330,39 @@ async function main() {
       await trigger.click();
       await sleep(600);
     }
-    await selectComputingUnit(page, unitName);
+    // ===== 0. The chat: open on arrival, started by itself =====
     await openAgentPanel(page);
+    check(
+      "the chat panel is open on arrival, with no button to open it",
+      (await page.locator("#agent-docked-button").count()) === 0
+    );
+    const firstChat = await waitForNewChat(page, wid, []);
+    check(
+      "a chat starts by itself: Bob on Claude Haiku 5.5, bound to this workflow",
+      firstChat.name === "Bob" && firstChat.modelType === MODEL && (await agentsForWorkflow(wid)).length === 1,
+      `${firstChat.name} ${firstChat.modelType}`
+    );
+    check("no model to pick", (await page.locator("texera-agent-registration").count()) === 0);
+    check(
+      "the new chat says files can be dropped on it",
+      /Drag and drop your data files here/.test(await chat(page).locator(".chat-drop-hint").innerText())
+    );
+    check(
+      "nothing closes the panel: its one button starts a new chat",
+      (await page.locator("#return-button li").count()) === 1
+    );
     await shot("01-panel-open");
 
     // ===== 1. Agent features (native mode, the default) =====
-    await createAgentViaUI(page, MODEL, "e2e-native");
+    // This run's own unit, then a new chat: an agent keeps the unit selected when it started.
+    await selectComputingUnit(page, unitName);
+    const nativeAgent = await startNewChat(page, wid, firstChat.id);
     let agents = await agentsForWorkflow(wid);
     check(
-      "UI created agent bound to this workflow",
-      agents.length === 1 && agents[0].name === "e2e-native",
-      JSON.stringify(agents.map(a => ({ id: a.id, mode: a.settings?.agentMode, ctx: a.settings?.contextMode })))
+      "start a new chat: the old agent goes and the new one runs on the selected unit",
+      agents.length === 1 && agents[0].id === nativeAgent.id && nativeAgent.delegate?.computingUnitId === cuid,
+      JSON.stringify(agents.map(a => ({ id: a.id, cu: a.delegate?.computingUnitId, mode: a.settings?.agentMode })))
     );
-    const nativeAgent = agents[0];
     check(
       "new agent defaults: native mode + delta context",
       nativeAgent.settings?.agentMode === "native" && nativeAgent.settings?.contextMode === "delta"
@@ -354,6 +374,7 @@ async function main() {
       "Build a table with columns id (1, 2, 3) and value (10, 20, 30), run it, and answer with the sum of value."
     );
     check("turn 1: steps streamed into chat", t1.after > t1.before + 1, `steps ${t1.before}→${t1.after}`);
+    check("the hint goes once a message is sent", (await chat(page).locator(".chat-drop-hint").count()) === 0);
     await shot("03-turn1-done");
     const opsT1 = await operatorsOf(nativeAgent.id);
     check(
@@ -482,7 +503,7 @@ async function main() {
           )
         )
           // JointJS renders spaces inside SVG text as NBSP — match any whitespace.
-          .filter(t => /e2e-native:\s(added|modified|viewed)/.test(t));
+          .filter(t => new RegExp(`${nativeAgent.name}:\\s(added|modified|viewed)`).test(t));
       }
       check(
         "hover step → canvas shows agent action label",
@@ -655,19 +676,20 @@ async function main() {
     check("chat empty after clear", (await chat(page).locator("[data-step-id]").count()) === 0);
 
     // ===== 3. Code mode, switched from the settings modal =====
-    // The panel holds one chat per workflow: a second agent needs the first removed.
-    await removeAgentViaUI(page);
+    // The panel holds one chat per workflow: "Start a new chat" replaces its agent.
+    const codeAgent = await startNewChat(page, wid, nativeAgent.id);
     check(
-      "removing the agent deletes it on the server",
-      !(await agentsForWorkflow(wid)).some(a => a.name === "e2e-native"),
-      (await agentsForWorkflow(wid)).map(a => a.name).join(",")
+      "start a new chat deletes the agent on the server",
+      !(await agentsForWorkflow(wid)).some(a => a.id === nativeAgent.id),
+      (await agentsForWorkflow(wid)).map(a => a.id).join(",")
     );
-    await createAgentViaUI(page, MODEL, "e2e-code");
-    const codeAgent = (await agentsForWorkflow(wid)).find(a => a.name === "e2e-code");
-    check("second agent created from the UI", !!codeAgent);
+    check(
+      "the next chat starts by itself",
+      codeAgent.modelType === MODEL && codeAgent.delegate?.computingUnitId === cuid
+    );
     check(
       "the panel title names the workflow's agent",
-      (await page.locator("#agent-container #title").innerText()).includes("e2e-code")
+      (await page.locator("#agent-container #title").innerText()).includes(codeAgent.name)
     );
     modal = await openSettingsModal(page);
     await setSelectParam(page, modal, "Agent Mode", "Code");
@@ -698,19 +720,19 @@ async function main() {
     check("code turn: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
     await shot("09-code-mode");
 
-    // the panel's remove button deletes the agent and offers a new one
-    await removeAgentViaUI(page);
-    await sleep(1000);
+    // "Start a new chat" once more: the code agent goes and a fresh chat starts, nothing to pick
+    const lastChat = await startNewChat(page, wid, codeAgent.id);
     agents = await agentsForWorkflow(wid);
     check(
-      "remove button deletes the agent on the server",
-      !agents.some(a => a.name === "e2e-code"),
-      agents.map(a => a.name).join(",")
+      "the code agent is deleted on the server",
+      !agents.some(a => a.id === codeAgent.id),
+      agents.map(a => a.id).join(",")
     );
     check(
-      "the panel offers the registration once the workflow has no agent",
-      (await page.locator("texera-agent-registration").count()) === 1 &&
-        (await page.locator("#agent-container #title").innerText()).includes("AI Agent")
+      "a fresh chat follows, with no model to pick",
+      agents.length === 1 &&
+        agents[0].id === lastChat.id &&
+        (await page.locator("texera-agent-registration").count()) === 0
     );
     await shot("10-final");
   } catch (e) {
@@ -727,10 +749,11 @@ async function main() {
       errs.length === 0,
       errs.slice(0, 3).join(" | ") || `(known pre-existing: ${known.length})`
     );
+    // The page goes first: an open chat would start again once its agent is deleted.
+    await browser.close();
     for (const a of await agentsForWorkflow(wid)) await api(AGENT, "DELETE", `/api/agents/${a.id}`);
     await deleteWorkflow(wid);
     await terminateComputingUnit(cuid);
-    await browser.close();
     fs.writeFileSync(`${OUT_DIR}/results.json`, JSON.stringify(results, null, 2));
     const failed = results.filter(r => !r.ok);
     console.log(`\n===== ${results.length - failed.length}/${results.length} passed`);

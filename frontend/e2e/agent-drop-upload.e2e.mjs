@@ -20,16 +20,19 @@
 /**
  * End-to-end check of agent-panel drag & drop upload:
  *   drop a CSV on the panel -> uploaded to the user's `agent-uploads` dataset
- *   -> a version is committed -> the dataset path lands in the composer
+ *   -> a version is committed -> the file is attached to the message as a chip
+ *      showing its dataset path (the text box stays as typed)
  *   -> the path is readable through the dataset API
- *   -> the agent can actually load it (real turn, real execution).
+ *   -> the chip can be removed; dropping the file again reuses its version
+ *   -> the sent message carries the path, shows the file as a chip, and the
+ *      agent can actually load it (real turn, real execution).
  */
 import { chromium } from "../node_modules/playwright/index.mjs";
 
 // Usage (from frontend/, with the local stack up — see bin/local-dev.sh):
 //   node e2e/agent-drop-upload.e2e.mjs
 //   SKIP_AGENT_TURN=1 node e2e/agent-drop-upload.e2e.mjs   # skip the LLM turn
-//   HEADFUL=1 PROBE_MODEL=gpt-5-mini node e2e/agent-drop-upload.e2e.mjs
+//   HEADFUL=1 PROBE_MODEL=gpt-5-mini node e2e/agent-drop-upload.e2e.mjs   # the chat's agent on another model
 //   TEXERA_USERNAME=agent-demo TEXERA_PASSWORD=... node e2e/agent-drop-upload.e2e.mjs   # another account
 const FE = process.env.FE_BASE ?? "http://localhost:4200";
 const WEB = process.env.WEB_BASE ?? "http://localhost:8080";
@@ -38,7 +41,7 @@ const AGENT = process.env.AGENT_BASE ?? "http://localhost:3001";
 const FILE = process.env.FILE_BASE ?? "http://localhost:9092";
 const CU = process.env.CU_BASE ?? "http://localhost:8888";
 const CU_URI = process.env.TEXERA_LOCAL_CU_URI ?? "http://localhost:8085";
-const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-4.5";
+const MODEL = process.env.PROBE_MODEL ?? "claude-haiku-5.5";
 const USERNAME = process.env.TEXERA_USERNAME ?? "texera";
 const PASSWORD = process.env.TEXERA_PASSWORD ?? "texera";
 const RUN_AGENT_TURN = process.env.SKIP_AGENT_TURN ? false : true;
@@ -123,6 +126,15 @@ async function main() {
   });
 
   try {
+    // The chat's agent, with this run's unit and model, before the page opens (a chat
+    // without one starts its own, on whichever unit the workspace selects first).
+    const created = await api(AGENT, "POST", "/api/agents", {
+      modelType: MODEL,
+      workflowId: wid,
+      computingUnitId: cuid,
+      settings: { operatorDoc: true },
+    });
+    if (created.status >= 300) throw new Error(`createAgent ${created.status} ${created.text.slice(0, 200)}`);
     await page.goto(`${FE}/user/workflow/${wid}`, { waitUntil: "domcontentloaded", timeout: 180000 });
     await page.locator("texera-workflow-editor, #workflow-editor").first().waitFor({ timeout: 60000 });
     const trigger = page.locator(".ant-layout-sider-trigger");
@@ -130,41 +142,8 @@ async function main() {
       await trigger.click();
       await sleep(600);
     }
-    const docked = page.locator("#agent-docked-button");
-    if (await docked.isVisible().catch(() => false)) await docked.click();
+    // The chat panel is always open; its agent was made before the page opened.
     await page.locator("#agent-container #content").waitFor({ state: "visible", timeout: 20000 });
-
-    // A fresh browser profile has no computing unit selected, and the agent
-    // cannot be created until one is running.
-    const cuButton = page.locator(".computing-units-dropdown-button");
-    if (await cuButton.isVisible().catch(() => false)) {
-      await cuButton.click();
-      const option = page.locator(".computing-unit-option").first();
-      if (await option.isVisible().catch(() => false)) {
-        await option.click();
-        await sleep(2500);
-      } else {
-        await page.keyboard.press("Escape");
-      }
-    }
-
-    // create the agent (a workflow without one opens the panel on the registration)
-    const reg = page.locator("texera-agent-registration");
-    await reg.locator(".model-card").first().waitFor({ timeout: 30000 });
-    await sleep(1200);
-    const label = MODEL.split("-")
-      .map(w => w[0].toUpperCase() + w.slice(1))
-      .join(" ");
-    // A leaving tab pane overlays the panel in headless chromium; a real click
-    // (even forced) lands on the overlay, so dispatch on the element itself.
-    await reg
-      .locator(".model-card", { has: page.locator("h5", { hasText: new RegExp(`^${label}$`) }) })
-      .first()
-      .evaluate(el => el.click());
-    const createBtn = reg.locator("button", { hasText: /Create Agent/ });
-    await createBtn.waitFor({ state: "visible" });
-    await page.waitForFunction(el => !el.disabled, await createBtn.elementHandle(), { timeout: 120000 });
-    await createBtn.evaluate(el => el.click());
     const composer = page.locator("texera-agent-chat .input-area textarea");
     await composer.waitFor({ timeout: 30000 });
 
@@ -195,17 +174,29 @@ async function main() {
         .catch(() => false))
     );
 
-    // ---- the path lands in the composer ----
-    await page
-      .waitForFunction(el => /\/agent-uploads\/v\d+\//.test(el.value), await composer.elementHandle(), {
-        timeout: 120000,
-      })
+    // ---- the file is attached as a chip, with its dataset path ----
+    const chips = page.locator(".attachment-list.composer .attachment-chip");
+    const readyChip = page.locator(".attachment-list.composer .attachment-chip:not(.uploading):not(.failed)");
+    await readyChip
+      .first()
+      .waitFor({ timeout: 120000 })
       .catch(() => {});
-    const composed = await composer.inputValue();
-    const path = (composed.match(/\/\S+\/agent-uploads\/v\d+\/\S+/) ?? [])[0];
-    check("dataset path appended to the composer", !!path, composed.slice(0, 160));
-    if (!path) throw new Error("no dataset path in the composer");
+    const path = (
+      (await readyChip
+        .first()
+        .locator(".attachment-detail")
+        .textContent()
+        .catch(() => "")) ?? ""
+    ).trim();
+    check("the dropped file is attached as one chip", (await chips.count()) === 1, `${await chips.count()} chip(s)`);
+    check("the chip shows the file's dataset path", /^\/\S+\/agent-uploads\/v\d+\/\S+$/.test(path), path);
+    if (!path) throw new Error("no dataset path on the chip");
     check("file name sanitized in the path", path.endsWith(".csv") && !/\s/.test(path), path);
+    check(
+      "the chip names the file",
+      ((await readyChip.first().locator(".attachment-name").textContent()) ?? "").trim() === path.split("/").pop()
+    );
+    check("the text box stays as typed (empty)", (await composer.inputValue()) === "");
 
     // ---- the path is real ----
     const presign = await api(FILE, "GET", `/api/dataset/presign-download?filePath=${encodeURIComponent(path)}`);
@@ -219,32 +210,47 @@ async function main() {
     // The bytes are already committed, so LakeFS has no diff and file-service
     // refuses to cut a version. That must resolve to the existing version, not
     // surface as a failed upload.
-    await composer.fill("");
+    await chips
+      .first()
+      .locator(".attachment-remove")
+      .evaluate(el => el.click());
+    check("the chip's × removes it", (await chips.count()) === 0);
     await page.dispatchEvent(panel, "dragenter", { dataTransfer });
     await page.dispatchEvent(panel, "drop", { dataTransfer });
-    await page
-      .waitForFunction(el => /\/agent-uploads\/v\d+\//.test(el.value), await composer.elementHandle(), {
-        timeout: 120000,
-      })
+    await readyChip
+      .first()
+      .waitFor({ timeout: 120000 })
       .catch(() => {});
-    const secondPath = ((await composer.inputValue()).match(/\/\S+\/agent-uploads\/v\d+\/\S+/) ?? [])[0];
-    check("re-dropping the same file still yields a path", !!secondPath, secondPath ?? "(none)");
+    const secondPath = (
+      (await readyChip
+        .first()
+        .locator(".attachment-detail")
+        .textContent()
+        .catch(() => "")) ?? ""
+    ).trim();
+    check("re-dropping the same file still yields a path", !!secondPath, secondPath || "(none)");
     check("re-drop reuses the version it is already in", secondPath === path, `${secondPath} vs ${path}`);
-    // `.last()`, not `.first()`: the previous drop's row lingers for a couple of
-    // seconds, so the first row belongs to that drop.
-    const rowText = await page
-      .locator(".file-upload-row")
-      .last()
-      .textContent()
-      .catch(() => "");
-    check("row says it was already in the dataset", /already in dataset/.test(rowText ?? ""), (rowText ?? "").trim());
     const errorToast = await page.locator(".ant-notification-notice-message").count();
     check("no error notification raised", errorToast === 0, `${errorToast} notice(s)`);
 
     // ---- the agent can use it ----
     if (RUN_AGENT_TURN) {
-      await composer.fill(`${path} — load this file and tell me how many rows it has`);
+      await composer.fill("Load this file and tell me how many rows it has.");
       await page.locator("texera-agent-chat .input-area button.ant-btn-primary").click();
+      const sentChip = page.locator("texera-agent-chat .user-message .attachment-list.sent .attachment-chip");
+      await sentChip
+        .first()
+        .waitFor({ timeout: 30000 })
+        .catch(() => {});
+      check(
+        "the sent message shows the file as a chip, and the composer is cleared",
+        (
+          (await sentChip
+            .first()
+            .textContent()
+            .catch(() => "")) ?? ""
+        ).includes(path) && (await chips.count()) === 0
+      );
       const t0 = Date.now();
       while (Date.now() - t0 < 300000) {
         const generating =
@@ -256,6 +262,12 @@ async function main() {
       const agents = (await api(AGENT, "GET", "/api/agents")).json.agents.filter(a => a.delegate?.workflowId === wid);
       const steps = (await api(AGENT, "GET", `/api/agents/${agents[0].id}/react-steps`)).json;
       const list = steps.steps ?? steps;
+      const sent = list.find(s => s.role === "user")?.content ?? "";
+      check(
+        "the message carries the path for the agent",
+        sent.endsWith(`Attached files:\n${path}`),
+        JSON.stringify(sent.slice(-160))
+      );
       const outputs = list
         .flatMap(s => s.toolResults ?? [])
         .map(tr => (typeof tr.output === "string" ? tr.output : JSON.stringify(tr.output)))
