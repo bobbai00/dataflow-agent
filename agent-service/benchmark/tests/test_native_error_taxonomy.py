@@ -32,7 +32,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from test_native_v2_runtime import runtime, RUNTIME
+from test_native_v2_runtime import load_registered_support, runtime, RUNTIME
 
 pd_ts = pd.Timestamp
 
@@ -67,6 +67,20 @@ def fn(body, name="apply", params="row"):
 
 def process(body):
     return {"code": f"def process(t):\n    import pandas as pd\n    return {body}", "entry": "process"}
+
+
+def chart(body):
+    """A registered function flagged is_visualization, returning `body`."""
+    cell = f"import pandas as pd\ndef chart(table):\n    return {body}"
+    return {
+        "registered": {
+            "cells": [cell],
+            "entry": "chart",
+            "settings": {},
+            "namespaceRevision": "ns-test",
+            "visualization": True,
+        }
+    }
 
 
 F = frame
@@ -1035,6 +1049,29 @@ CASES = [
         "code",
         ["KeyError", "'nope'"],
     ),
+    # visualization ----------------------------------------------------------
+    (
+        "visualization",
+        "returns a number, not HTML",
+        "Process",
+        [F],
+        chart("42"),
+        "VISUALIZATION_TYPE",
+        "contract",
+        None,
+        ["HTML text", "int"],
+    ),
+    (
+        "visualization",
+        "returns an empty table",
+        "Process",
+        [F],
+        chart("pd.DataFrame()"),
+        "VISUALIZATION_EMPTY",
+        "contract",
+        None,
+        ["empty table"],
+    ),
     # runtime envelope --------------------------------------------------------
     (
         "envelope",
@@ -1112,6 +1149,8 @@ LEGAL = [
         process("pd.DataFrame({'a': [pd.Timestamp('2024-01-01')]})"),
     ),
     ("process", "numbers and text in one column become text", "Process", [F], process("pd.DataFrame({'a': [1, 'x']})")),
+    ("visualization", "HTML text", "Process", [F], chart("'<svg></svg>'")),
+    ("visualization", "a one-cell table holding the HTML", "Process", [F], chart("pd.DataFrame({'html': ['<b>x</b>']})")),
 ]
 
 
@@ -1131,6 +1170,8 @@ def files(tmp_path_factory):
 
 def _run(kind, frames, props, files):
     props = dict(props)
+    if "registered" in props:
+        load_registered_support()
     operator_id = props.pop("__id", "op")
     if "files" in props:
         props["files"] = files.get(props["files"], props["files"])
