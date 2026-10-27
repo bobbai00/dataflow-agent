@@ -208,7 +208,8 @@ async function canvasOperatorBoxes(page) {
         .map(el => {
           const text = selector => {
             const node = el.querySelector(selector);
-            const lines = node ? Array.from(node.querySelectorAll("tspan")) : [];
+            // One tspan per line; a line's annotated part (the label's bold id) is a tspan inside it.
+            const lines = node ? Array.from(node.querySelectorAll(":scope > tspan")) : [];
             const raw = lines.length ? lines.map(line => line.textContent).join(" ") : node?.textContent ?? "";
             return raw.replace(/\s+/g, " ").trim();
           };
@@ -409,8 +410,8 @@ async function main() {
       .catch(() => false);
     const actionNames = panelShown ? (await opPanel.locator(".op-action").allTextContents()).map(t => t.trim()) : [];
     check(
-      "selecting a native operator opens its panel: Run, Edit, Feedback",
-      actionNames.join(",") === "Run,Edit,Feedback",
+      "selecting a native operator opens its panel: Run, Edit, Feedback, Explain",
+      actionNames.join(",") === "Run,Edit,Feedback,Explain",
       `${shown.operatorID}: ${actionNames.join(",")}`
     );
     if (panelShown) {

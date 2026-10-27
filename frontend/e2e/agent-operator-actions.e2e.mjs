@@ -332,7 +332,10 @@ async function main() {
     // ===== 2. selecting an operator opens its panel, not the property editor =====
     await selectOperator(page, filter.operatorID);
     const actions = (await panel(page).locator(".op-action").allTextContents()).map(t => t.trim());
-    check("selecting the filter opens its panel: Run, Edit, Feedback", actions.join(",") === "Run,Edit,Feedback");
+    check(
+      "selecting the filter opens its panel: Run, Edit, Feedback, Explain",
+      actions.join(",") === "Run,Edit,Feedback,Explain"
+    );
     check(
       "the panel names the operator and its type",
       (await panel(page).locator(".op-type").innerText()).trim() === "Filter"
