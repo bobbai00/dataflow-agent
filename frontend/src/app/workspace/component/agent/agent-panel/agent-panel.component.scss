@@ -17,25 +17,29 @@
  * under the License.
  */
 
+// The host covers the viewport from its top-left corner, so the panel inside is
+// placed against the viewport, not against wherever the host would otherwise
+// land in the workspace's layout. It lets every click through; the panel takes
+// its own.
 :host {
   display: block;
   width: 100%;
   height: 100%;
   position: fixed;
-  // Anchor to the viewport's left edge. Without it the fixed host keeps its
-  // static x (the workspace's left edge, i.e. after the dashboard sider) while
-  // `width: 100%` is the full viewport width, so the right-anchored
-  // #agent-container overflowed the viewport by the sider's width.
+  top: 0;
   left: 0;
   z-index: 3;
+  pointer-events: none;
 }
 
+// On the right of the canvas; its top (under the menu bar), width and height come from the component.
 #agent-container {
   position: absolute;
-  top: calc(-100% + 80px);
   right: 0;
   z-index: 3;
   background: white;
+  pointer-events: auto;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.08);
 }
 
 #title {
@@ -64,17 +68,6 @@
   }
 }
 
-#agent-docked-button {
-  position: fixed;
-  bottom: 40px; // Position above the mini-map button
-  right: 10px;
-  z-index: 4;
-  box-shadow:
-    0 3px 1px -2px #0003,
-    0 2px 2px #00000024,
-    0 1px 5px #0000001f;
-}
-
 #return-button {
   position: absolute;
   top: 0;
@@ -91,14 +84,6 @@
   overflow-y: auto;
 }
 
-.shadow {
-  border-radius: 5px;
-  box-shadow:
-    0 3px 1px -2px #0003,
-    0 2px 2px #00000024,
-    0 1px 5px #0000001f;
-}
-
 .ant-menu-item {
   margin: 0 !important;
   height: 32px;
@@ -106,9 +91,10 @@
   padding: 0 9px;
 }
 
-// The chat (or the registration) fills the panel under the title bar.
+// The chat (or the registration) fills the panel under the title bar (#content's
+// padding already makes room for the title).
 .panel-body {
-  height: calc(100% - 32px);
+  height: 100%;
   overflow: hidden;
 
   > texera-agent-chat,
@@ -121,8 +107,16 @@
 .panel-loading {
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
+}
+
+.panel-loading-text {
+  margin: 0;
+  color: #8c8c8c;
+  font-size: 13px;
 }
 
 #return-button .remove-agent:hover {

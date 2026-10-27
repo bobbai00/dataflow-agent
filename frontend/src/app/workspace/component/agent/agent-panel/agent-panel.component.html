@@ -17,23 +17,7 @@
  under the License.
 -->
 
-<!-- Docked Button -->
-<button
-  id="agent-docked-button"
-  nz-button
-  nzType="primary"
-  nzShape="circle"
-  nzSize="large"
-  (click)="openPanel()"
-  *ngIf="!width"
-  nz-tooltip
-  nzTooltipPlacement="left"
-  nzTooltipTitle="AI Agent">
-  <span
-    nz-icon
-    nzType="robot"></span>
-</button>
-
+<!-- The chat is always open: it can be resized and moved, not closed. -->
 <div
   cdkDrag
   cdkDragBoundary="texera-workspace"
@@ -43,43 +27,33 @@
   [nzMinWidth]="400"
   [nzMinHeight]="450"
   [nzMaxWidth]="window.innerWidth * 0.9"
-  [nzMaxHeight]="window.innerHeight * 0.85"
+  [nzMaxHeight]="maxHeight"
+  [style.top.px]="top"
   [style.width.px]="width"
   [style.height.px]="height"
   (nzResize)="onResize($event)"
-  (cdkDragStarted)="handleDragStart()"
   [cdkDragFreeDragPosition]="dragPosition">
-  <!-- Panel buttons: remove the agent, minimize -->
+  <!-- Panel button: start the chat over -->
   <ul
     id="return-button"
     nz-menu
-    [ngClass]="{'shadow': !width}"
-    *ngIf="width">
+    *ngIf="agent">
     <li
-      *ngIf="agent"
       nz-menu-item
       class="remove-agent"
       (click)="removeAgent()"
       nz-tooltip
       nzTooltipPlacement="bottom"
-      [nzTooltipTitle]="'Remove ' + agent.name + ' from this workflow'">
+      nzTooltipTitle="Start a new chat">
       <span
         nz-icon
         nzType="delete"></span>
-    </li>
-    <li
-      nz-menu-item
-      (click)="openPanel()">
-      <span
-        nz-icon
-        nzType="minus"></span>
     </li>
   </ul>
 
   <div
     #content
-    id="content"
-    [hidden]="!width">
+    id="content">
     <!-- The title names the workflow's agent; the bar drags the panel. -->
     <h4
       id="title"
@@ -93,11 +67,17 @@
     </h4>
 
     <div class="panel-body">
-      <!-- The workflow's agent list is on its way. -->
+      <!-- The workflow's agent list is on its way, or its chat is starting. -->
       <div
-        *ngIf="loading"
+        *ngIf="loading || startingChat"
         class="panel-loading">
         <nz-spin nzSimple></nz-spin>
+        <p
+          *ngIf="!loading && startingChat"
+          class="panel-loading-text">
+          <span *ngIf="computingUnitRunning">Starting a chat with {{ defaultModelName }}…</span>
+          <span *ngIf="!computingUnitRunning">Waiting for a computing unit to start the chat…</span>
+        </p>
       </div>
 
       <!-- The workflow's agent: one chat. Tracked by id so a new listing keeps the chat. -->
@@ -106,9 +86,9 @@
         [agentInfo]="shown"
         [isActive]="true"></texera-agent-chat>
 
-      <!-- No agent yet: pick a model and create one for this workflow. -->
+      <!-- No agent, and the default model cannot start the chat: pick a model. -->
       <texera-agent-registration
-        *ngIf="!loading && !agent"
+        *ngIf="!loading && !agent && pickModel"
         (agentCreated)="onAgentCreated($event)"></texera-agent-registration>
     </div>
 

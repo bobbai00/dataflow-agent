@@ -23,12 +23,14 @@ import { HttpClientTestingModule } from "@angular/common/http/testing";
 import { NoopAnimationsModule } from "@angular/platform-browser/animations";
 import { ActivatedRoute } from "@angular/router";
 import { By } from "@angular/platform-browser";
-import { Observable, Subject, of } from "rxjs";
+import { BehaviorSubject, Observable, Subject, of } from "rxjs";
 import { AgentPanelComponent } from "./agent-panel.component";
 import { AgentRegistrationComponent } from "./agent-registration/agent-registration.component";
 import { AgentChatComponent } from "./agent-chat/agent-chat.component";
-import { AgentInfo, AgentService } from "../../../service/agent/agent.service";
+import { AgentInfo, AgentService, ModelType } from "../../../service/agent/agent.service";
 import { WorkflowActionService } from "../../../service/workflow-graph/model/workflow-action.service";
+import { ComputingUnitStatusService } from "../../../../common/service/computing-unit/computing-unit-status/computing-unit-status.service";
+import { ComputingUnitState } from "../../../../common/type/computing-unit-connection.interface";
 import { commonTestProviders } from "../../../../common/testing/test-utils";
 
 const CURRENT_WID = 42;
@@ -49,6 +51,19 @@ class MockAgentService {
   public activateAgent = vi.fn((): boolean => true);
   public deactivateAgent = vi.fn();
   public deleteAgent = vi.fn((): Observable<boolean> => of(true));
+
+  /** The models the gateway offers; the default model leads. */
+  public modelTypes: ModelType[] = [
+    { id: "claude-haiku-5.5", name: "Claude Haiku 5.5", description: "", icon: "robot" },
+    { id: "gpt-test", name: "GPT Test", description: "", icon: "robot" },
+  ];
+  public fetchModelTypes = vi.fn((): Observable<ModelType[]> => of(this.modelTypes));
+  /** Creating an agent adds it to what the service lists, as the agent service does. */
+  public createAgent = vi.fn((_model: string, _name?: string, workflowId?: number): Observable<AgentInfo> => {
+    const made = makeDelegateAgent("started", workflowId, "2026-02-01T00:00:00Z");
+    this.agentList = [...this.agentList, made];
+    return of(made);
+  });
 }
 
 /**
@@ -98,10 +113,7 @@ describe("AgentPanelComponent", () => {
   let metadataSubject: Subject<{ wid?: number }>;
   let workflowAction: { getWorkflowMetadata: ReturnType<typeof vi.fn>; workflowMetaDataChanged: () => Observable<any> };
   let routeParams: { id?: string };
-  // Element injected before the fixture so loadPanelSettings' getElementById("agent-container")
-  // resolves to a style object the test controls (jsdom does not round-trip `transform`
-  // through cssText, so the style is faked via defineProperty).
-  let fakeContainer: HTMLDivElement | undefined;
+  let computingUnitStatus: BehaviorSubject<ComputingUnitState>;
 
   beforeEach(async () => {
     localStorage.clear();
@@ -112,6 +124,7 @@ describe("AgentPanelComponent", () => {
       workflowMetaDataChanged: () => metadataSubject.asObservable(),
     };
     routeParams = {};
+    computingUnitStatus = new BehaviorSubject<ComputingUnitState>(ComputingUnitState.Running);
 
     TestBed.overrideComponent(AgentPanelComponent, {
       remove: { imports: [AgentRegistrationComponent, AgentChatComponent] },
@@ -124,6 +137,7 @@ describe("AgentPanelComponent", () => {
         { provide: AgentService, useValue: agentService },
         { provide: WorkflowActionService, useValue: workflowAction },
         { provide: ActivatedRoute, useValue: { snapshot: { params: routeParams } } },
+        { provide: ComputingUnitStatusService, useValue: { getStatus: () => computingUnitStatus.asObservable() } },
         ...commonTestProviders,
       ],
     }).compileComponents();
@@ -137,9 +151,6 @@ describe("AgentPanelComponent", () => {
       // already destroyed
     }
     fixture = undefined as unknown as ComponentFixture<AgentPanelComponent>;
-    fakeContainer?.remove();
-    fakeContainer = undefined;
-    // ngOnDestroy persists panel settings; wipe them so specs stay independent.
     localStorage.clear();
     vi.restoreAllMocks();
   });
@@ -151,18 +162,11 @@ describe("AgentPanelComponent", () => {
     return component;
   }
 
-  function installFakeContainer(style: { cssText: string; transform: string }): void {
-    fakeContainer = document.createElement("div");
-    fakeContainer.id = "agent-container";
-    Object.defineProperty(fakeContainer, "style", { value: style, configurable: true });
-    // Insert at the front of <body> so getElementById resolves to this element,
-    // not the panel's own #agent-container rendered later by the fixture.
-    document.body.insertBefore(fakeContainer, document.body.firstChild);
-  }
-
   const chats = () => fixture.debugElement.queryAll(By.directive(StubAgentChatComponent)).map(d => d.componentInstance);
   const registration = () => fixture.debugElement.query(By.directive(StubAgentRegistrationComponent));
   const title = () => (fixture.nativeElement.querySelector("#title") as HTMLElement).textContent?.trim();
+  const loadingText = () =>
+    (fixture.nativeElement.querySelector(".panel-loading-text") as HTMLElement | null)?.textContent?.trim();
 
   describe("the workflow's agent", () => {
     it("lists the agents for the open workflow and shows its newest agent in the one chat", () => {
@@ -180,41 +184,82 @@ describe("AgentPanelComponent", () => {
       expect(chats().map(c => [c.agentInfo?.id, c.isActive])).toEqual([["newest", true]]);
       expect(registration()).toBeNull();
       expect(title()).toBe("Agent newest");
-      // The open panel has a remove button for the shown agent.
-      component.openPanel();
-      fixture.detectChanges();
+      expect(agentService.createAgent).not.toHaveBeenCalled();
+      // The panel has a button that starts the chat over.
       expect(fixture.nativeElement.querySelector(".remove-agent")).toBeTruthy();
     });
 
-    it("shows the registration when the workflow has no agent, even if other workflows have", () => {
+    it("starts the workflow's chat with Claude Haiku 5.5 when it has no agent, even if other workflows have", () => {
       agentService.agentList = [makeDelegateAgent("elsewhere", OTHER_WID)];
       createComponent();
 
-      expect(component.agent).toBeNull();
-      expect(component.loading).toBe(false);
-      expect(chats()).toEqual([]);
-      expect(registration()).not.toBeNull();
-      expect(title()).toBe("AI Agent");
-      expect(agentService.activateAgent).not.toHaveBeenCalled();
-      component.openPanel();
+      expect(agentService.createAgent).toHaveBeenCalledTimes(1);
+      expect(agentService.createAgent).toHaveBeenCalledWith("claude-haiku-5.5", "Bob", CURRENT_WID);
+      expect(agentService.activateAgent).toHaveBeenCalledWith("started");
+      expect(agentService.activateAgent).not.toHaveBeenCalledWith("elsewhere");
+      expect(component.agent?.id).toBe("started");
+      expect(chats().map(c => c.agentInfo?.id)).toEqual(["started"]);
+      expect(registration()).toBeNull();
+      expect(fixture.nativeElement.querySelector(".panel-loading")).toBeNull();
+    });
+
+    it("waits for a running computing unit before starting the chat, and says so", () => {
+      computingUnitStatus.next(ComputingUnitState.NoComputingUnit);
+      createComponent();
+
+      expect(agentService.createAgent).not.toHaveBeenCalled();
+      expect(loadingText()).toBe("Waiting for a computing unit to start the chat…");
+      expect(registration()).toBeNull();
+
+      computingUnitStatus.next(ComputingUnitState.Running);
       fixture.detectChanges();
+
+      expect(agentService.createAgent).toHaveBeenCalledTimes(1);
+      expect(component.agent?.id).toBe("started");
+    });
+
+    it("starts one chat: a listing that returns before the new agent starts no second one", () => {
+      const created = new Subject<AgentInfo>();
+      agentService.createAgent.mockReturnValue(created.asObservable());
+      createComponent();
+      expect(loadingText()).toBe("Starting a chat with Claude Haiku 5.5…");
+
+      agentService.agentChangeSubject.next();
+      fixture.detectChanges();
+
+      expect(agentService.getAllAgents).toHaveBeenCalledTimes(2);
+      expect(agentService.createAgent).toHaveBeenCalledTimes(1);
+      expect(loadingText()).toBe("Starting a chat with Claude Haiku 5.5…");
+    });
+
+    it("asks for a model when Claude Haiku 5.5 is not offered", () => {
+      agentService.modelTypes = [{ id: "gpt-test", name: "GPT Test", description: "", icon: "robot" }];
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      createComponent();
+
+      expect(agentService.createAgent).not.toHaveBeenCalled();
+      expect(registration()).not.toBeNull();
+      expect(fixture.nativeElement.querySelector(".panel-loading")).toBeNull();
+      expect(title()).toBe("AI Agent");
       expect(fixture.nativeElement.querySelector(".remove-agent")).toBeNull();
     });
 
-    it("shows a spinner, not the registration, until the agent list arrives", () => {
+    it("shows a spinner, not the registration, until the agent list arrives and while the chat starts", () => {
       const pending = new Subject<AgentInfo[]>();
       agentService.getAllAgents.mockReturnValue(pending.asObservable());
+      agentService.createAgent.mockReturnValue(new Subject<AgentInfo>().asObservable());
       createComponent();
 
       expect(component.loading).toBe(true);
       expect(fixture.nativeElement.querySelector(".panel-loading")).toBeTruthy();
+      expect(loadingText()).toBeUndefined();
       expect(registration()).toBeNull();
 
       pending.next([]);
       fixture.detectChanges();
       expect(component.loading).toBe(false);
-      expect(fixture.nativeElement.querySelector(".panel-loading")).toBeNull();
-      expect(registration()).not.toBeNull();
+      expect(loadingText()).toBe("Starting a chat with Claude Haiku 5.5…");
+      expect(registration()).toBeNull();
     });
 
     it("asks with the route's workflow id while the workflow metadata has none yet", () => {
@@ -234,6 +279,20 @@ describe("AgentPanelComponent", () => {
 
       expect(agentService.getAllAgents).toHaveBeenCalledWith(undefined);
       expect(component.agent?.id).toBe("free");
+    });
+
+    it("asks for a model in an unsaved workflow, which has no id to bind a chat to", () => {
+      workflowAction.getWorkflowMetadata.mockReturnValue({});
+      createComponent();
+
+      expect(agentService.createAgent).not.toHaveBeenCalled();
+      expect(registration()).not.toBeNull();
+
+      // Once saved, the workflow has an id and its chat starts.
+      metadataSubject.next({ wid: CURRENT_WID });
+      fixture.detectChanges();
+      expect(agentService.createAgent).toHaveBeenCalledWith("claude-haiku-5.5", "Bob", CURRENT_WID);
+      expect(registration()).toBeNull();
     });
 
     it("moves the chat to a newer agent of the workflow when the list changes", () => {
@@ -268,7 +327,7 @@ describe("AgentPanelComponent", () => {
       expect(chats()[0]).toBe(chatBefore);
     });
 
-    it("closes the chat when the workflow's agent disappears from the list", () => {
+    it("starts a new chat when the workflow's agent disappears from the list", () => {
       agentService.agentList = [makeDelegateAgent("a", CURRENT_WID)];
       createComponent();
 
@@ -277,9 +336,9 @@ describe("AgentPanelComponent", () => {
       fixture.detectChanges();
 
       expect(agentService.deactivateAgent).toHaveBeenCalledWith("a");
-      expect(component.agent).toBeNull();
-      expect(chats()).toEqual([]);
-      expect(registration()).not.toBeNull();
+      expect(agentService.createAgent).toHaveBeenCalledTimes(1);
+      expect(chats().map(c => c.agentInfo?.id)).toEqual(["started"]);
+      expect(registration()).toBeNull();
     });
   });
 
@@ -337,7 +396,9 @@ describe("AgentPanelComponent", () => {
   });
 
   describe("onAgentCreated", () => {
-    it("connects the new agent at once and lists again, which puts it in the chat", () => {
+    it("connects an agent the registration made at once and lists again, which puts it in the chat", () => {
+      agentService.modelTypes = [];
+      vi.spyOn(console, "error").mockImplementation(() => {});
       createComponent();
       expect(registration()).not.toBeNull();
 
@@ -366,11 +427,9 @@ describe("AgentPanelComponent", () => {
       expect(component.agent?.id).toBe("a");
     });
 
-    it("disconnects and deletes the agent and goes back to the registration", () => {
+    it("disconnects and deletes the agent, then starts one new chat", () => {
       agentService.agentList = [makeDelegateAgent("a", CURRENT_WID)];
       createComponent();
-      component.openPanel();
-      fixture.detectChanges();
       vi.spyOn(window, "confirm").mockReturnValue(true);
       // The service signals the change once the agent is gone.
       agentService.deleteAgent.mockImplementation(() => {
@@ -384,10 +443,10 @@ describe("AgentPanelComponent", () => {
 
       expect(agentService.deactivateAgent).toHaveBeenCalledWith("a");
       expect(agentService.deleteAgent).toHaveBeenCalledWith("a");
-      expect(component.agent).toBeNull();
-      expect(chats()).toEqual([]);
-      expect(registration()).not.toBeNull();
-      expect(title()).toBe("AI Agent");
+      expect(agentService.createAgent).toHaveBeenCalledTimes(1);
+      expect(component.agent?.id).toBe("started");
+      expect(chats().map(c => c.agentInfo?.id)).toEqual(["started"]);
+      expect(registration()).toBeNull();
     });
 
     it("falls back to the workflow's older agent when the newest is removed", () => {
@@ -411,28 +470,57 @@ describe("AgentPanelComponent", () => {
     });
   });
 
-  describe("openPanel and docked state", () => {
-    it("the docked button opens the panel and the minimize button docks it again", () => {
+  describe("always open, on the right", () => {
+    const defaultWidth = () => Math.round(Math.min(900, Math.max(600, window.innerWidth * 0.4)));
+    const defaultHeight = () => Math.max(450, window.innerHeight - 80 - 56);
+
+    it("opens at once, with no docked button and nothing that closes it", () => {
+      agentService.agentList = [makeDelegateAgent("a", CURRENT_WID)];
       createComponent();
-      const content = fixture.nativeElement.querySelector("#content") as HTMLElement;
-      expect(content.hidden).toBe(true);
-      expect(fixture.nativeElement.querySelector("#return-button")).toBeNull();
 
-      const dockedButton = fixture.nativeElement.querySelector("#agent-docked-button") as HTMLButtonElement;
-      dockedButton.click();
-      fixture.detectChanges();
-
-      expect(component.width).toBe(560);
-      expect(content.hidden).toBe(false);
+      expect((fixture.nativeElement.querySelector("#content") as HTMLElement).hidden).toBe(false);
       expect(fixture.nativeElement.querySelector("#agent-docked-button")).toBeNull();
+      // The one panel button starts the chat over.
+      expect(fixture.nativeElement.querySelectorAll("#return-button li").length).toBe(1);
+    });
 
-      const minimize = fixture.nativeElement.querySelector("#return-button li:last-child") as HTMLElement;
-      minimize.click();
-      fixture.detectChanges();
+    it("opens under the menu bar at 40% of the window wide (600 to 900 px) and as tall as the canvas", () => {
+      createComponent();
 
-      expect(component.width).toBe(0);
-      expect(component.isDocked).toBe(true);
-      expect(fixture.nativeElement.querySelector("#agent-docked-button")).toBeTruthy();
+      expect(component.width).toBe(defaultWidth());
+      expect(component.height).toBe(defaultHeight());
+      const container = fixture.nativeElement.querySelector("#agent-container") as HTMLElement;
+      expect(container.style.top).toBe("80px");
+      expect(container.style.width).toBe(`${defaultWidth()}px`);
+      expect(container.style.height).toBe(`${defaultHeight()}px`);
+      // No dragged position: it sits against the right edge.
+      expect(container.style.transform === "" || container.style.transform === "translate3d(0px, 0px, 0px)").toBe(
+        true
+      );
+    });
+
+    it("opens the same way whatever an earlier session left in local storage", () => {
+      localStorage.setItem("agent-panel-width", "420");
+      localStorage.setItem("agent-panel-height", "460");
+      localStorage.setItem("agent-panel-docked", "true");
+      localStorage.setItem("agent-panel-style", "transform: translate3d(-900px, 400px, 0px);");
+      createComponent();
+
+      expect(component.width).toBe(defaultWidth());
+      expect(component.height).toBe(defaultHeight());
+      const container = fixture.nativeElement.querySelector("#agent-container") as HTMLElement;
+      expect(container.style.transform).not.toContain("-900px");
+    });
+
+    it("disconnects the agent on destroy and saves no geometry", () => {
+      agentService.agentList = [makeDelegateAgent("a", CURRENT_WID)];
+      createComponent();
+
+      fixture.destroy();
+
+      expect(agentService.deactivateAgent).toHaveBeenCalledWith("a");
+      expect(localStorage.getItem("agent-panel-width")).toBeNull();
+      expect(localStorage.getItem("agent-panel-style")).toBeNull();
     });
   });
 
@@ -456,106 +544,6 @@ describe("AgentPanelComponent", () => {
       expect(caf).toHaveBeenLastCalledWith(123); // cancels the previous frame
       expect(component.width).toBe(700);
       expect(component.height).toBe(560);
-    });
-
-    it("handleDragStart undocks the panel", () => {
-      createComponent();
-      component.isDocked = true;
-      component.handleDragStart();
-      expect(component.isDocked).toBe(false);
-    });
-  });
-
-  describe("panel settings persistence", () => {
-    it("restores a saved width only when the panel was left undocked", () => {
-      localStorage.setItem("agent-panel-width", "512");
-      localStorage.setItem("agent-panel-docked", "false");
-      createComponent();
-      expect(component.width).toBe(512);
-    });
-
-    it("stays docked when the panel was saved docked, regardless of the saved width", () => {
-      localStorage.setItem("agent-panel-width", "512");
-      localStorage.setItem("agent-panel-docked", "true");
-      createComponent();
-      expect(component.width).toBe(0);
-    });
-
-    it("rejects a saved width below the minimum", () => {
-      localStorage.setItem("agent-panel-width", "100");
-      localStorage.setItem("agent-panel-docked", "false");
-      createComponent();
-      expect(component.width).toBe(0);
-    });
-
-    it("rejects a non-numeric saved width", () => {
-      localStorage.setItem("agent-panel-width", "not-a-number");
-      localStorage.setItem("agent-panel-docked", "false");
-      createComponent();
-      expect(component.width).toBe(0);
-    });
-
-    it("restores a saved height at or above the minimum", () => {
-      localStorage.setItem("agent-panel-height", "600");
-      createComponent();
-      expect(component.height).toBe(600);
-    });
-
-    it("keeps the default height when the saved height is below the minimum", () => {
-      localStorage.setItem("agent-panel-height", "300");
-      createComponent();
-      expect(component.height).toBe(Math.max(450, window.innerHeight * 0.7));
-    });
-
-    it("re-applies the saved container style and derives the return position from its transform", () => {
-      const style = { cssText: "", transform: "translate3d(10px, 20px, 0px) translate3d(5px, -5px, 0px)" };
-      installFakeContainer(style);
-      localStorage.setItem("agent-panel-style", "transform: translate3d(15px, 15px, 0px);");
-
-      createComponent();
-
-      expect(style.cssText).toBe("transform: translate3d(15px, 15px, 0px);");
-      expect(component.returnPosition).toEqual({ x: -15, y: -15 });
-      expect(component.isDocked).toBe(false); // drag position (0,0) differs from (-15,-15)
-    });
-
-    it("counts as docked when the saved transform nets out to the origin", () => {
-      const style = { cssText: "", transform: "translate3d(5px, 5px, 0px) translate3d(-5px, -5px, 0px)" };
-      installFakeContainer(style);
-      localStorage.setItem("agent-panel-style", "transform: none;");
-
-      createComponent();
-
-      expect(component.returnPosition.x === 0).toBe(true);
-      expect(component.returnPosition.y === 0).toBe(true);
-      expect(component.isDocked).toBe(true);
-    });
-
-    it("persists dimensions, docked flag and container style, and disconnects the agent on destroy", () => {
-      agentService.agentList = [makeDelegateAgent("a", CURRENT_WID)];
-      createComponent();
-      component.openPanel(); // width 0 -> 560
-      const height = component.height;
-
-      fixture.destroy();
-
-      expect(agentService.deactivateAgent).toHaveBeenCalledWith("a");
-      expect(localStorage.getItem("agent-panel-width")).toBe("560");
-      expect(localStorage.getItem("agent-panel-height")).toBe(String(height));
-      expect(localStorage.getItem("agent-panel-docked")).toBe("false");
-      // The panel's own #agent-container is still attached during ngOnDestroy.
-      expect(localStorage.getItem("agent-panel-style")).not.toBeNull();
-    });
-
-    it("saves docked=true for a closed panel and skips the style when no container exists", () => {
-      createComponent();
-      vi.spyOn(document, "getElementById").mockReturnValue(null);
-
-      fixture.destroy();
-
-      expect(localStorage.getItem("agent-panel-width")).toBe("0");
-      expect(localStorage.getItem("agent-panel-docked")).toBe("true");
-      expect(localStorage.getItem("agent-panel-style")).toBeNull();
     });
   });
 });
