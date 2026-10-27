@@ -54,7 +54,7 @@
           *ngIf="editable"
           (click)="editingName = true"
           nz-button
-          nz-tooltip="Customize Workflow Name"
+          nz-tooltip="Rename the chat"
           nzSize="small"
           nzTooltipPlacement="bottom"
           nzType="text">
@@ -160,7 +160,7 @@
       <button
         (click)="onClickOpenShareAccess()"
         nz-button
-        nz-tooltip="Share the workflow {{
+        nz-tooltip="Share the chat {{
                       workflow.name
                   }} to others"
         nzTooltipPlacement="bottom"
@@ -176,7 +176,7 @@
         (click)="duplicated.emit()"
         class="duplicate-workflow-btn"
         nz-button
-        nz-tooltip="Duplicate the workflow {{
+        nz-tooltip="Duplicate the chat {{
                       workflow.name
                   }}"
         nzTooltipPlacement="bottom"
@@ -191,7 +191,7 @@
       <button
         (click)="onClickDownloadWorkfllow()"
         nz-button
-        nz-tooltip="Download the workflow {{
+        nz-tooltip="Download the chat {{
                       workflow.name
                   }}"
         nzTooltipPlacement="bottom"
@@ -206,11 +206,11 @@
       <button
         (nzOnConfirm)="deleted.emit()"
         nz-popconfirm
-        nzPopconfirmTitle="Confirm to delete this workflow."
+        nzPopconfirmTitle="Confirm to delete this chat."
         [disabled]="!entry.workflow.isOwner"
         class="delete-workflow-btn"
         nz-button
-        nz-tooltip="Delete the workflow {{
+        nz-tooltip="Delete the chat {{
                       workflow.name
                   }}"
         nzTooltipPlacement="bottom">
@@ -224,7 +224,7 @@
       <button
         (click)="onClickGetWorkflowExecutions()"
         nz-button
-        nz-tooltip="Executions of the workflow {{
+        nz-tooltip="Executions of the chat {{
                       workflow.name
                   }}"
         nzTooltipPlacement="bottom"

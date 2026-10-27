@@ -1073,21 +1073,21 @@ describe("SavedWorkflowSectionComponent", () => {
       it("wires the Download-as-ZIP button", () => {
         renderWithSelection();
         const spy = vi.spyOn(component, "onClickOpenDownloadZip").mockResolvedValue(undefined);
-        q('[title="Download added workflow as a ZIP file"]').triggerEventHandler("click", null);
+        q('[title="Download the selected chats as a ZIP file"]').triggerEventHandler("click", null);
         expect(spy).toHaveBeenCalled();
       });
 
       it("wires the Duplicate-selected button", () => {
         renderWithSelection();
         const spy = vi.spyOn(component, "onClickDuplicateSelectedWorkflows").mockImplementation(() => {});
-        q('[nz-tooltip="Duplicate selected workflows"]').triggerEventHandler("click", null);
+        q('[nz-tooltip="Duplicate the selected chats"]').triggerEventHandler("click", null);
         expect(spy).toHaveBeenCalled();
       });
 
       it("wires the Delete-selected popconfirm", () => {
         renderWithSelection();
         const spy = vi.spyOn(component, "handleConfirmDeleteSelectedWorkflows").mockImplementation(() => {});
-        q('[nzPopconfirmTitle="Confirm to delete selected workflows."]').triggerEventHandler("nzOnConfirm", null);
+        q('[nzPopconfirmTitle="Confirm to delete the selected chats."]').triggerEventHandler("nzOnConfirm", null);
         expect(spy).toHaveBeenCalled();
       });
 
@@ -1097,8 +1097,8 @@ describe("SavedWorkflowSectionComponent", () => {
         const addSpy = vi.spyOn(component, "onClickOpenAddWorkflow").mockImplementation(() => {});
         const removeSpy = vi.spyOn(component, "onClickOpenRemoveWorkflow").mockImplementation(() => {});
 
-        q('[title="Add workflow(s) to project"]').triggerEventHandler("click", null);
-        q('[title="Remove workflow(s) from project"]').triggerEventHandler("click", null);
+        q('[title="Add chat(s) to project"]').triggerEventHandler("click", null);
+        q('[title="Remove chat(s) from project"]').triggerEventHandler("click", null);
 
         expect(addSpy).toHaveBeenCalled();
         expect(removeSpy).toHaveBeenCalled();

@@ -19,19 +19,19 @@
 
 <div class="section-container subsection-grid-container">
   <nz-card class="section-title">
-    <h2 class="page-title">Workflows</h2>
+    <h2 class="page-title">Chats</h2>
     <div class="button-group">
       <button
         nz-button
         class="create-btn"
         (click)="onClickCreateNewWorkflowFromDashboard()"
         [disabled]="accessLevel === 'READ'"
-        title="Create a new workflow">
+        title="Start a new chat">
         <i
           nz-icon
           nzType="file-add"
           nzTheme="outline"></i>
-        <span>Create Workflow</span>
+        <span>New Chat</span>
       </button>
       <nz-space-compact
         class="utility-button-group"
@@ -41,8 +41,8 @@
           <button
             [disabled]="accessLevel === 'READ'"
             nz-button
-            title="Upload ZIP/JSON file as workflow"
-            nz-tooltip="Upload ZIP/JSON file as workflow"
+            title="Upload a ZIP/JSON file as a chat"
+            nz-tooltip="Upload a ZIP/JSON file as a chat"
             nzTooltipPlacement="bottom"
             type="button">
             <i
@@ -69,8 +69,8 @@
           *ngIf="multiWorkflowsOperationButtonEnabled()"
           (click)="onClickOpenDownloadZip()"
           nz-button
-          title="Download added workflow as a ZIP file"
-          nz-tooltip="Download added workflow as a ZIP file"
+          title="Download the selected chats as a ZIP file"
+          nz-tooltip="Download the selected chats as a ZIP file"
           nzTooltipPlacement="bottom"
           type="button">
           <i
@@ -82,7 +82,7 @@
           *ngIf="multiWorkflowsOperationButtonEnabled()"
           (click)="onClickDuplicateSelectedWorkflows()"
           nz-button
-          nz-tooltip="Duplicate selected workflows"
+          nz-tooltip="Duplicate the selected chats"
           nzTooltipPlacement="bottom"
           type="button">
           <i
@@ -93,9 +93,9 @@
         <button
           *ngIf="multiWorkflowsOperationButtonEnabled()"
           nz-popconfirm
-          nzPopconfirmTitle="Confirm to delete selected workflows."
+          nzPopconfirmTitle="Confirm to delete the selected chats."
           nz-button
-          nz-tooltip="Delete selected workflows"
+          nz-tooltip="Delete the selected chats"
           (nzOnConfirm)="handleConfirmDeleteSelectedWorkflows()"
           nzTooltipPlacement="bottom">
           <i
@@ -108,8 +108,8 @@
           [disabled]="accessLevel === 'READ'"
           (click)="onClickOpenAddWorkflow()"
           nz-button
-          title="Add workflow(s) to project"
-          nz-tooltip="Add workflow(s) to project"
+          title="Add chat(s) to project"
+          nz-tooltip="Add chat(s) to project"
           nzTooltipPlacement="bottom"
           type="button">
           <i
@@ -122,8 +122,8 @@
           [disabled]="accessLevel === 'READ'"
           (click)="onClickOpenRemoveWorkflow()"
           nz-button
-          title="Remove workflow(s) from project"
-          nz-tooltip="Remove workflow(s) from project"
+          title="Remove chat(s) from project"
+          nz-tooltip="Remove chat(s) from project"
           nzTooltipPlacement="bottom"
           type="button">
           <i
@@ -164,7 +164,7 @@
       class="search-input-box"
       name="search-input-box"
       nzMode="tags"
-      nzPlaceHolder="Search all workflows"
+      nzPlaceHolder="Search all chats"
       nzVariant="borderless"
       [nzOpen]="false"
       ngDefaultControl

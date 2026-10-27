@@ -48,7 +48,7 @@ export const WORKFLOW_DESCRIPTION = WORKFLOW_BASE_URL + "/workflow_description";
 export const WORKFLOW_USER_ACCESS = WORKFLOW_BASE_URL + "/workflow_user_access";
 export const WORKFLOW_SIZE = WORKFLOW_BASE_URL + "/size";
 
-export const DEFAULT_WORKFLOW_NAME = "Untitled workflow";
+export const DEFAULT_WORKFLOW_NAME = "Untitled chat";
 
 @Injectable({
   providedIn: "root",

@@ -378,10 +378,10 @@ export class MenuComponent implements OnInit, OnDestroy {
       };
     }
 
-    // If workflow is empty, always disable and show "Empty Workflow"
+    // If the dataflow is empty, always disable and show "Empty Dataflow"
     if (this.isWorkflowEmpty) {
       return {
-        text: "Empty Workflow",
+        text: "Empty Dataflow",
         icon: "info-circle",
         disable: true,
         onClick: () => {},
