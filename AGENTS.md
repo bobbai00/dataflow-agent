@@ -26,15 +26,14 @@ A fork of [Apache Texera](https://texera.apache.org/) extended with a
 building, executing, and iterating on Texera dataflow operators. The fork adds
 three things on top of the upstream platform:
 
-1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop with
-   two modes — **native** (default: one `dataflow(python, statements)` tool;
-   the model edits a graph with `set id: type(inputs, settings)` and
-   `delete id` statements over thirteen built-ins and registered Python table
-   functions, then runs and reads it with `execute` and `show`; see
-   [docs/native-registered-python-design.md](docs/native-registered-python-design.md)) and
-   **code** (every operator a free Python function) — plus a heavily
-   instrumented context-assembly layer (sampling budgets, evidence — every
-   knob is a runtime setting).
+1. **`agent-service/`** — the agent itself (Bun/TypeScript): a ReAct loop
+   with one tool, `dataflow(python, statements)`: the model edits a graph with
+   `set id: type(inputs, settings)` and `delete id` statements over thirteen
+   built-ins and registered Python table functions, then runs and reads it
+   with `execute` and `show` (see
+   [docs/native-registered-python-design.md](docs/native-registered-python-design.md))
+   — plus a heavily instrumented context-assembly layer (sampling budgets,
+   evidence — every knob is a runtime setting).
 2. **Engine extensions in `amber/`** — table profiles (data statistics), UDF
    error reporting that points at user code, operator port-result caching,
    dynamic output schemas: the engine-side features the agent's context

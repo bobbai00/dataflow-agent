@@ -5,8 +5,8 @@ never needs to be told what it asked for. It needs to be told what the data
 did about it, in the form its next action needs, at the step it needs it. This
 section turns that sentence into a problem statement, a family of selection
 mechanisms, and an evaluation. All numbers are from the per-operator-tool runs
-of 2026-09-11 (36 LATEST runs, 18 tasks × two arms; `OP_GRANULARITY_PILOT.md`
-§5–§7), unless marked otherwise.
+of 2026-09-11 (36 LATEST runs, 18 tasks × two arms;
+`docs/archived/OP_GRANULARITY_PILOT.md` §5–§7), unless marked otherwise.
 
 ## 4.1 The example
 

@@ -1,7 +1,7 @@
 # Tests for the DataProcessing / DataLoading port
 
-End-to-end validation of the engine port from the dataflow-agent branch's
-CODE-mode operator descriptors into texera/main.
+End-to-end validation of the `DataLoading` / `DataProcessing` operator
+descriptors (the operator types native operators compile to) on texera/main.
 
 ## Layout
 
@@ -18,8 +18,8 @@ tests/
 ```
 
 Each test folder contains:
-- `workflow.json` — the workflow as constructed by the agent-service's CODE
-  mode (operator IDs match function parameter names; links wired by parameter
+- `workflow.json` — the workflow in the shape the agent-service builds
+  (operator IDs match function parameter names; links wired by parameter
   index).
 - `README.md` — what topology is being tested and what each operator does.
 - `result.json` — written by the Scala spec; per-operator port topology, the
@@ -66,7 +66,7 @@ The runner produces detailed logs under `tests/.logs/`.
 - `getPhysicalOp` succeeds and emits `OpExecWithCode`.
 - `propagateSchema` returns an empty `Schema()` (runtime owns the schema).
 - Link validation: every `link.toPortIndex` aligns with the source operator
-  ID's position in the target's parameter list (CODE-mode convention).
+  ID's position in the target's parameter list.
 
 ## What's NOT verified
 

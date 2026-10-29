@@ -36,7 +36,6 @@ budget, and physical profile collection setting for all four arms. Example:
 
 ```json
 {
-  "agentMode": "native",
   "nativeProfileCollection": true,
   "contextMode": "delta",
   "maxOperatorResultCharLimit": 2000,

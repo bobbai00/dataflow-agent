@@ -165,8 +165,8 @@ Three-pane layout with a top toolbar that holds the **view-mode knobs**:
 ├────────────────────────────────┬─────────────────────────────────────────┤
 │ Steps timeline (left, scroll)  │ Data-flow DAG (top right)               │
 │  ▸ 0  initialize               │  ┌─────┐    ┌────────┐    ┌─────────┐  │
-│  ▸ 1  createOrModifyOperator   │  │scan │──▶│ filter │──▶│ project │  │
-│  ▸ 2  createOrModifyOperator   │  └─────┘    └────────┘    └─────────┘  │
+│  ▸ 1  dataflow                 │  │scan │──▶│ filter │──▶│ project │  │
+│  ▸ 2  dataflow                 │  └─────┘    └────────┘    └─────────┘  │
 │  ▸ 3  executeWorkflow          │                                         │
 │  ▸ 4  finalAnswer  ✓           │ Step detail (bottom right)              │
 │                                │  Thought / Action / Action Input        │

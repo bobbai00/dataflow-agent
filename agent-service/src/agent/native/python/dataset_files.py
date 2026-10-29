@@ -21,10 +21,6 @@ upload inserts) is not on the worker's disk. For every execution the agent
 service resolves the dataset paths an operator names to short-lived download
 links; these helpers copy each file into a local cache once and hand the reader
 that copy. A link names the stored object, so a cached copy never goes stale.
-
-The same source runs inside code-mode operators, whose non-source code is
-screened for file I/O by pattern, so it moves bytes only through `urllib`,
-`os.fdopen` and `shutil.copyfileobj`.
 """
 
 
@@ -79,48 +75,3 @@ def localize_settings(files, settings):
     if not files:
         return settings
     return {name: localize_value(files, value) for name, value in settings.items()}
-
-
-def localize_module(namespace, files):
-    """Point the dataset paths written in a module's code at local copies.
-
-    Code-mode operators read files themselves (`pd.read_csv('/owner/ds/v1/a.csv')`).
-    Their source stays as written, so error pointers still quote the model's own
-    line; only the string constants of the module's functions and its string
-    globals are swapped for the local copies.
-    """
-    import types
-
-    local = {path: dataset_local_file(path, url) for path, url in files.items()}
-
-    def swap(value):
-        if isinstance(value, str):
-            return local.get(value, value)
-        if isinstance(value, (tuple, frozenset)):
-            return type(value)(swap(item) for item in value)
-        if isinstance(value, types.CodeType):
-            consts = tuple(swap(item) for item in value.co_consts)
-            return value if consts == value.co_consts else value.replace(co_consts=consts)
-        return value
-
-    def rebind(function):
-        function.__code__ = swap(function.__code__)
-        if function.__defaults__:
-            function.__defaults__ = swap(function.__defaults__)
-        if function.__kwdefaults__:
-            function.__kwdefaults__ = {name: swap(value) for name, value in function.__kwdefaults__.items()}
-
-    for name, value in list(namespace.items()):
-        if name.startswith("__"):
-            continue
-        if isinstance(value, str):
-            namespace[name] = swap(value)
-        elif isinstance(value, list) and any(isinstance(item, str) and item in local for item in value):
-            value[:] = [swap(item) for item in value]
-        elif isinstance(value, types.FunctionType) and value.__globals__ is namespace:
-            rebind(value)
-        elif isinstance(value, type) and value.__module__ == namespace.get("__name__"):
-            for member in vars(value).values():
-                member = getattr(member, "__func__", member)
-                if isinstance(member, types.FunctionType):
-                    rebind(member)

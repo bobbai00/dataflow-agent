@@ -4,7 +4,7 @@
 iris_data (DataLoading) ──► filter_setosa (DataProcessing)
 ```
 
-**Topology:** 2 operators, 1 link. The simplest possible CODE-mode workflow — one source, one transform.
+**Topology:** 2 operators, 1 link. The simplest possible `DataLoading` / `DataProcessing` workflow — one source, one transform.
 
 **What this verifies:**
 

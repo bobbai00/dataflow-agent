@@ -38,10 +38,9 @@
  *         - "<col>" <stat>                    (current formatter — see `formatColumnStats`)
  *         <col>: <stat>                       (older Kramabench trace format)
  *
- * Failures render as `Result:\n  [ERROR] <message>`. The renderer's
- * heading depth varies with context mode (`### Operator` in local-react
- * traces, `##### Operator` deep inside FULL/DELTA contexts), so we accept any
- * leading `#` count, or none at all.
+ * Failures render as `Result:\n  [ERROR] <message>`. The heading depth varies
+ * across older traces (`### Operator`, or `##### Operator` deep inside FULL/DELTA
+ * contexts), so we accept any leading `#` count, or none at all.
  */
 
 import type { OperatorInfo } from "../../types/execution";
@@ -67,7 +66,7 @@ export interface ParsedOperatorResult {
   warnings?: string[];
 }
 
-// `### Operator \`id\` (Type)` (code mode) or `### filter operator \`id\`` (native).
+// `### Operator \`id\` (Type)` for other operators, `### filter operator \`id\`` for native ones.
 const OPERATOR_HEADER = /(?:^|\n)#*\s*(?:Operator\s+`([^`]+)`\s+\(([^)]+)\)|(\w+) operator\s+`([^`]+)`)/g;
 
 /**

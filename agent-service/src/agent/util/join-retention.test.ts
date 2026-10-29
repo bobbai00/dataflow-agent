@@ -36,7 +36,7 @@ function joinScenario(inputRows: number[], outputRows: number): Scenario {
       role: "agent",
       messageId: "m1",
       parentId: "u1",
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "joined" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
   ]);
@@ -93,7 +93,7 @@ function coerceScenario(upNulls: number, upRows: number, outNulls: number, outRo
       role: "agent",
       messageId: "m1",
       parentId: "u1",
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "cleaned" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
   ]);

@@ -108,7 +108,7 @@ export class NativeOperatorEditorComponent implements OnChanges {
   public doc = "";
   /** The registered function's Python, when the statement calls one. */
   public definition = "";
-  public codeMode = false;
+  public statementView = false;
   public statementText = "";
   /** The statement as it was when the code view opened. */
   private codeStart = "";
@@ -165,7 +165,7 @@ export class NativeOperatorEditorComponent implements OnChanges {
     }));
     this.doc = form.doc ?? "";
     this.definition = form.definition?.source ?? "";
-    this.codeMode = false;
+    this.statementView = false;
     this.statementText = form.statement;
     const graph = this.workflowActionService.getTexeraGraph();
     this.inputOptions = graph
@@ -192,7 +192,7 @@ export class NativeOperatorEditorComponent implements OnChanges {
   /** The statement the form spells, or the code view's text. */
   public get statement(): string {
     if (!this.form) return "";
-    if (this.codeMode) return this.statementText.trim();
+    if (this.statementView) return this.statementText.trim();
     return assembleNativeStatement({
       id: this.form.id,
       op: this.form.op,
@@ -223,7 +223,7 @@ export class NativeOperatorEditorComponent implements OnChanges {
 
   /** The code view's edits are only in the code; the form cannot show them. */
   public get codeEdited(): boolean {
-    return this.codeMode && this.statementText.trim() !== this.codeStart;
+    return this.statementView && this.statementText.trim() !== this.codeStart;
   }
 
   /** Show the keyword beside its label only when the label renames it (`by` as "Group by"). */
@@ -241,11 +241,11 @@ export class NativeOperatorEditorComponent implements OnChanges {
 
   public toggleCode(): void {
     if (this.codeEdited) return;
-    if (!this.codeMode) {
+    if (!this.statementView) {
       this.statementText = this.statement;
       this.codeStart = this.statementText.trim();
     }
-    this.codeMode = !this.codeMode;
+    this.statementView = !this.statementView;
   }
 
   public save(run: boolean): void {

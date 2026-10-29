@@ -159,7 +159,6 @@ agent-service/src/dashboard/dist/
 /fetaqa/
 /kramabench/
 /llm-training-set-v1-kramabench/
-/local-llm-training-set-v1/
 /texera.egg-info/
 /amber/uv.lock
 

@@ -153,7 +153,7 @@ describe("dataflow versions in the chat", () => {
         ])
       )
     ).toBe("show x, y failed: RESULT_NOT_RUN: y has no result.");
-    expect(dataflowChips({ toolCalls: [{ toolName: "createOrModifyOperator" }] })).toBeUndefined();
+    expect(dataflowChips({ toolCalls: [{ toolName: "addOperator" }] })).toBeUndefined();
   });
 
   it("keeps versions in the tree, each under its nearest version, and finds the version a snapshot shows", () => {

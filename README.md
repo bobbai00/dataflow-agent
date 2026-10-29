@@ -196,10 +196,10 @@ An agent created with no `settings` uses
 | Setting | Default | What it gives the model |
 |---|---|---|
 | `contextMode` | `delta` (the only context) | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
+| `dataEvidence` | `true` | legacy switch; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
-| `operatorDoc` | `false` (agents made in the UI: `true`) | native mode: asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
+| `operatorDoc` | `false` (agents made in the UI: `true`) | asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
 | `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own 2,000-character budget (native data statistics, automatic flow evidence), so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
@@ -223,7 +223,7 @@ Key endpoints (all under `/api/agents`):
 
 | Method | Path | What |
 |---|---|---|
-| POST | `/` | create agent — `modelType` (any LiteLLM model above), `workflowId`, `computingUnitId`, optional `settings` (mode, evidence flags, budgets, every knob in the table above) |
+| POST | `/` | create agent — `modelType` (any LiteLLM model above), `workflowId`, `computingUnitId`, optional `settings` (evidence flags, budgets, every knob in the table above) |
 | GET | `/` | list agents |
 | POST | `/:id/message` | **run one turn synchronously**; body `{content}`; 409 while a turn is running |
 | GET | `/:id/react-steps` | full ReAct trace (thoughts, tool calls, observations) |

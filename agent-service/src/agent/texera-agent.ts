@@ -49,7 +49,7 @@ import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
 import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS } from "../types/agent";
 import { buildRegisteredNativeSystemPrompt, withSessionInstructions } from "./prompts";
-import { TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
+import { TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
 import { formatNativeDiagnostic } from "./native/diagnostics";
@@ -229,13 +229,13 @@ export function computeOperatorAccess(
       access[i] = entry;
       return;
     }
-    // `operatorId` on the code-mode tools; `id` on native mode's deleteOperator.
+    // `operatorId` on the operator tools of older traces; `id` on native mode's deleteOperator.
     const inputOpId = writtenOperatorId(tc.toolName, tc.input);
     if (result && !result.isError && result.output !== undefined && result.output !== null) {
       const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);
-      // Code / general receipts ("Added operator x", "Operator x modified",
-      // "Deleted operator: x") and native receipts ("added filter operator
-      // `x`; inputs: …", "modified …", "deleted operator `x`").
+      // Receipts of the older operator tools ("Added operator x", "Operator x
+      // modified", "Deleted operator: x") and native receipts ("added filter
+      // operator `x`; inputs: …", "modified …", "deleted operator `x`").
       const added =
         out.match(/Added operator ([A-Za-z0-9_-]+)/) ?? out.match(/\badded [a-z_]+ operator `([A-Za-z0-9_-]+)`/);
       const modified =
@@ -250,8 +250,7 @@ export function computeOperatorAccess(
       else if (inputOpId) {
         // Fall back on the tool's declared intent when the result text is
         // not one of the known summaries (e.g. inspect/execute variants).
-        if (tc.toolName === TOOL_NAME_CREATE_OR_MODIFY_OPERATOR || tc.toolName === TOOL_NAME_DELETE_OPERATOR)
-          entry.modifiedOperatorIds.push(inputOpId);
+        if (tc.toolName === TOOL_NAME_DELETE_OPERATOR) entry.modifiedOperatorIds.push(inputOpId);
         else entry.viewedOperatorIds.push(inputOpId);
       }
     } else if (
@@ -1794,13 +1793,14 @@ export class TexeraAgent {
    * - `snapshots`: optional `Record<stepId, WorkflowContent>` — explicit
    *   per-step overrides. When provided for a step, that snapshot is loaded
    *   verbatim and replay is skipped for that step.
-   * - Steps without explicit snapshots are reconstructed by *replaying* their
-   *   workflow-CRUD tool calls against a clean `WorkflowState` rooted at the
-   *   parent step's content. Replay is DFS-ordered so each step's snapshot is
-   *   created after its parent's. Skipped tool names:
+   * - Steps without explicit snapshots are reconstructed by *replaying* the
+   *   edits their `dataflow` calls recorded, against a clean `WorkflowState`
+   *   rooted at the parent step's content. Replay is DFS-ordered so each
+   *   step's snapshot is created after its parent's. Other calls are skipped:
    *     - the synthetic `initialize` (no registered tool),
-   *     - `executeOperator` (no workflow execution on import).
-   *   Individual tool failures are logged and ignored; the original session
+   *     - `executeOperator` (no workflow execution on import),
+   *     - a call of any tool the agent does not have (logged).
+   *   Individual replay failures are logged and ignored; the original session
    *   may itself have produced error toolResults.
    * - Replay starts from an empty workflow when no parent snapshot exists,
    *   so a session that loaded a non-empty baseline at init will lose

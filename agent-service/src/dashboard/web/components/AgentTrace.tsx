@@ -176,9 +176,9 @@ export function AgentTrace({ agentId }: { agentId: string }) {
     [steps, selectedStepId]
   );
 
-  // Compute the diff vs the previous step. We compare ids and the
-  // operatorProperties (specifically `code` for code-mode, full props
-  // otherwise). The result is consumed by DagView as an outline overlay.
+  // Compute the diff vs the previous step. We compare ids and each operator's
+  // type, ports and properties (operatorChanged). The result is consumed by
+  // DagView as an outline overlay.
   const diff: Map<string, DiffStatus> | undefined = useMemo(() => {
     if (!diffOn || !snapshot?.workflow) return undefined;
     const out = new Map<string, DiffStatus>();
@@ -329,10 +329,8 @@ export function AgentTrace({ agentId }: { agentId: string }) {
 
 /**
  * Two operators with the same id are "modified" if their
- * execution-affecting fields differ. For code-mode operators we mostly
- * just need the Python `code` field, but we cast a wider net so the
- * GUI-authored (typed-operator) traces also get a useful highlight when the
- * agent reconfigures a Filter / Aggregate / etc.
+ * execution-affecting fields differ: the type, the input ports, or the
+ * properties (a Python operator's `code`, a Filter / Aggregate's settings).
  */
 function operatorChanged(
   a: { operatorProperties?: Record<string, unknown>; inputPorts?: unknown[]; operatorType?: string },

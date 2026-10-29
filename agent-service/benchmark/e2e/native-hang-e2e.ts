@@ -100,7 +100,7 @@ const filter = compileNativeOp({ type: "Filter", inputs: ["water"], properties: 
 const VARIANTS: Record<string, string> = {
   // no filter operator at all: measures scan + materialization of the 320k rows
   scanonly: "",
-  // plain pandas filter — what a code-mode UDF would do; isolates DuckDB's share
+  // plain pandas filter — what a Python UDF would do; isolates DuckDB's share
   pandas: "def process(water):\n    return water[water['Beach Type Description'] == 'Marine']",
   current: filter.code,
   threads1: filter.code.replace("duckdb.connect()", "duckdb.connect(config={'threads': 1})"),

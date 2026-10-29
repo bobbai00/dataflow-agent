@@ -305,8 +305,8 @@ appear as `user` messages at their positions.
 Typed operators appear in catalog (`versionedMode`) entries as
 `#### filter operator \`id\` (added)` with their `Properties:`; `recallState`
 returns parameters, not generated code. Every place that identifies the
-operator a call wrote accepts the typed tools' `id` as well as the code tool's
-`operatorId` (`writtenOperatorId`).
+operator a call wrote accepts the typed tools' `id` as well as the `operatorId`
+of older operator tools (`writtenOperatorId`).
 
 ## 7. Prompt
 
@@ -316,8 +316,7 @@ notes (quoting, `TRY_CAST`, regex, dates, `NULL`, window functions); build
 rules (several operators per turn; no udf for what a tool does; ratios via
 cross join; preview before scan; non-delimited text via `whitespace` /
 `comment` / `fwf` / `lines`; binary via udf loader; fix in place with the same
-id; delete probes); the context layout; the result-table format; the key
-principles carried over from code mode minus the pandas-specific ones.
+id; delete probes); the context layout; the result-table format.
 
 ## 8. Settings
 

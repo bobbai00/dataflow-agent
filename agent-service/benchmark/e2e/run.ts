@@ -38,7 +38,7 @@ import type { LogicalLink, LogicalPlan } from "../../src/api/execution-api";
 import type { OperatorPredicate, WorkflowContent } from "../../src/types/workflow";
 import type { OperatorInfo, SyncExecutionResult } from "../../src/types/execution";
 
-import { CODE_MODE_WORKFLOW_SPECS } from "./code-mode-workflows";
+import { PYTHON_OPERATOR_WORKFLOW_SPECS } from "./python-operator-workflows";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,16 +55,16 @@ const LOCAL_CU_URI =
   process.env.TEXERA_LOCAL_CU_URI ?? process.env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT ?? "http://localhost:8085";
 
 interface WorkflowJob {
-  label: string; // e.g. "[CodeMode] W1 single-input chain"
+  label: string; // e.g. "[PythonOps] W1 single-input chain"
   name: string; // unique persisted name for this run
   description: string;
   content: WorkflowContent;
   /**
    * Optional STRICT post-execution validator. When set, this runs after the
    * standard "all sinks produced rows" check and may throw to fail the job
-   * even if the workflow technically reached `Completed`. The code-mode
-   * specs use it to assert port→parameter mapping, exact column sets, and
-   * expected row values.
+   * even if the workflow technically reached `Completed`. The Python
+   * operator specs use it to assert port→parameter mapping, exact column
+   * sets, and expected row values.
    */
   validate?: (result: SyncExecutionResult) => void;
 }
@@ -102,8 +102,8 @@ async function loadGeneralWorkflows(): Promise<WorkflowJob[]> {
   return jobs;
 }
 
-function buildCodeModeWorkflows(): WorkflowJob[] {
-  return CODE_MODE_WORKFLOW_SPECS.map(spec => ({
+function buildPythonOperatorWorkflows(): WorkflowJob[] {
+  return PYTHON_OPERATOR_WORKFLOW_SPECS.map(spec => ({
     label: spec.name,
     name: spec.name,
     description: spec.description,
@@ -399,10 +399,10 @@ async function main(): Promise<void> {
   const ownerEmail = user.email || user.name;
 
   const generalWorkflows = await loadGeneralWorkflows();
-  // Code mode emits DataLoading / DataProcessing operators; the legacy
-  // PythonUDFV2 specs were retired with the operator the agent no longer writes.
-  const codeModeWorkflows = buildCodeModeWorkflows();
-  log(`loaded ${generalWorkflows.length} general + ${codeModeWorkflows.length} code-mode workflows`);
+  // Native operators compile to DataLoading / DataProcessing operators; the
+  // legacy PythonUDFV2 specs were retired with the operator the agent no longer writes.
+  const pythonOperatorWorkflows = buildPythonOperatorWorkflows();
+  log(`loaded ${generalWorkflows.length} general + ${pythonOperatorWorkflows.length} Python operator workflows`);
 
   const usage = collectDatasetUsage(generalWorkflows);
   log(`general workflows reference ${usage.size} dataset(s): ${[...usage.keys()].join(", ") || "(none)"}`);
@@ -437,7 +437,7 @@ async function main(): Promise<void> {
       rewriteDatasetPaths(generalWorkflows, remap);
     }
 
-    const allJobs = [...generalWorkflows, ...codeModeWorkflows];
+    const allJobs = [...generalWorkflows, ...pythonOperatorWorkflows];
     for (const job of allJobs) {
       try {
         const { wid, ok } = await runWorkflow(token, job, runId, cuid);

@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
-import { buildRichScenario, renderText } from "../context/summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, renderText } from "../context/summarize/fixtures";
 import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
 import { validateNativeSettings } from "./settings";
 
@@ -33,6 +33,39 @@ const removed = [
   "rowLineage",
   "statScopes",
 ];
+
+/** A loaded table whose result carries column statistics, and a failed step reading it. */
+function statsScenario() {
+  const scenario = buildScenario([
+    { id: "u1", stepId: 0, role: "user", messageId: "m1", content: "Total revenue per region?" },
+    {
+      id: "a1",
+      stepId: 1,
+      role: "agent",
+      messageId: "m1",
+      parentId: "u1",
+      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
+      toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
+    },
+  ]);
+  scenario.storage.createSnapshot(
+    "a1",
+    makeWorkflow(
+      [
+        { id: "sales", type: "CSVFileScan", properties: { fileName: "sales.csv" } },
+        { id: "by_region", type: "Aggregate", numInputPorts: 1 },
+      ],
+      [["sales", "by_region"]]
+    )
+  );
+  scenario.storage.setOperatorResult(
+    "a1",
+    "sales",
+    makeInfo(1000, { columnStats: { region: "(str): null=0, distinct=4", amount: "(numeric): null=12, mean=52.3" } })
+  );
+  scenario.storage.setOperatorResult("a1", "by_region", makeInfo(0, { error: "KeyError: 'region'" }));
+  return scenario;
+}
 
 test("the prompt's operator index lists every built-in once, signature first", () => {
   const entries = registeredCatalogText().split("\n\n");
@@ -54,10 +87,10 @@ for (const data of [false, true])
   for (const flow of [false, true]) {
     test(`explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
       const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
-      const expected = renderText(buildRichScenario(), options);
+      const expected = renderText(statsScenario(), options);
       for (const level of [0, 1, 2, 3]) {
         expect(
-          renderText(buildRichScenario(), {
+          renderText(statsScenario(), {
             ...options,
             flowLevel: level,
             dataLevel: level,

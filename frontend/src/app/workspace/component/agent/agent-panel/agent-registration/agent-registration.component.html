@@ -53,7 +53,7 @@
         (click)="selectModelType(modelType.id)">
         <div class="model-icon">
           <!-- Provider mark when we recognise the vendor, ant-design glyph
-               otherwise (local or self-hosted models). -->
+               otherwise (other vendors). -->
           <img
             *ngIf="providerIconSrc(modelType.id) as iconSrc; else glyphIcon"
             [src]="iconSrc"

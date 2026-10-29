@@ -248,6 +248,31 @@ describe("TexeraAgent — importReActSteps", () => {
     expect(agent.getAncestorPath()).toEqual(["s1", "s2", "s3"]);
   });
 
+  test("a call of a tool the agent does not have is skipped, and its step still loads", async () => {
+    const agent = makeAgent();
+    const steps: ReActStep[] = [
+      makeStep({ id: "s1", parentId: undefined, messageId: "m1", stepId: 0, role: "user", content: "u", timestamp: 1 }),
+      makeStep({
+        id: "s2",
+        parentId: "s1",
+        messageId: "m1",
+        stepId: 1,
+        role: "agent",
+        content: "a",
+        timestamp: 2,
+        toolCalls: [{ toolName: "retiredTool", toolCallId: "t1", input: { operatorId: "loader" } }],
+        toolResults: [{ toolCallId: "t1", output: "Added operator loader", isError: false }],
+      }),
+    ];
+
+    const { headId, importedCount } = await agent.importReActSteps(steps);
+
+    expect(importedCount).toBe(2);
+    expect(headId).toBe("s2");
+    expect(agent.getAllSteps().find(step => step.id === "s2")?.toolCalls?.[0]?.toolName).toBe("retiredTool");
+    expect(agent.getWorkflowState().getAllOperators()).toEqual([]);
+  });
+
   test("imports a branched tree; HEAD picks the latest-timestamp leaf", async () => {
     const agent = makeAgent();
     const steps: ReActStep[] = [

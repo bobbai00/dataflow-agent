@@ -1619,10 +1619,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         return "Add";
       case "modifyOperator":
         return "Modify";
-      case "createOrModifyOperator":
-        // CODE-mode unified tool — verb depends on whether the op already existed,
-        // which we can't tell from the call alone. "Edit" reads correctly for both.
-        return "Edit";
       case "deleteOperator":
         return "Delete";
       case "executeOperator":
@@ -1977,9 +1973,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the operator-doc setting. When enabled (native mode), the agent gives
-   * every operator a one-line doc saying what it does and why, which the
-   * canvas and the operator's panel show. The system prompt changes with it.
+   * Save the operator-doc setting. When enabled, the agent gives every
+   * operator a one-line doc saying what it does and why, which the canvas and
+   * the operator's panel show. The system prompt changes with it.
    */
   public saveOperatorDoc(): void {
     const enabled = this.settingsOperatorDoc === "enabled";

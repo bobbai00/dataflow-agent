@@ -184,7 +184,7 @@ describe("NativeOperatorEditorComponent", () => {
     const element = create();
     (element.querySelector(".code-toggle") as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(component.codeMode).toBe(true);
+    expect(component.statementView).toBe(true);
     expect(component.statementText).toBe(filterForm.statement);
     component.statementText = "set kept: filter(records, lambda row: True)";
     fixture.detectChanges();

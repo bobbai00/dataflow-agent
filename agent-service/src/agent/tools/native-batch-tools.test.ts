@@ -69,7 +69,7 @@ describe("receipt accounting", () => {
     expect(batchObservedIds(step([{ statements: "show function f", observe: [] }]))).toBeUndefined();
     const other = {
       ...read,
-      toolCalls: read.toolCalls!.map(call => ({ ...call, toolName: "createOrModifyOperator" })),
+      toolCalls: read.toolCalls!.map(call => ({ ...call, toolName: "deleteOperator" })),
     };
     expect(nativeBatchResults(other)).toEqual([]);
     expect(asNativeBatchResult({ kind: "native-batch", operators: [], observe: [] })).toBeUndefined();

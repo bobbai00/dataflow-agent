@@ -152,8 +152,8 @@ export class AgentRegistrationComponent implements OnInit, OnDestroy {
 
   /**
    * Vendor mark for a model id, or `null` when we do not recognise the vendor
-   * (local / self-hosted models keep the generic glyph). Matching is on the id
-   * the gateway reports, e.g. `claude-haiku-4.5`, `gpt-5.2`.
+   * (other vendors keep the generic glyph). Matching is on the id the gateway
+   * reports, e.g. `claude-haiku-4.5`, `gpt-5.2`.
    */
   private static readonly PROVIDER_ICONS: ReadonlyArray<{ test: RegExp; name: string; src: string }> = [
     { test: /^claude|^anthropic/i, name: "Anthropic Claude", src: "assets/ai_provider/claude.png" },

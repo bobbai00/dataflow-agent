@@ -745,9 +745,8 @@ export async function executeOperatorAndFormat(
 /**
  * Execute the entire workflow once and persist every per-operator result
  * (errors included) via `onResult`. Used by `TexeraAgent.initialize()` to
- * baseline a freshly loaded workflow before any user turn, and by the
- * post-tool execution step that runs after a batch of createOrModifyOperator
- * tool calls in the same turn.
+ * baseline a freshly loaded workflow before any user turn, by the post-step
+ * execution that runs a step's `dataflow` edits, and after an import.
  *
  * When `opsToViewResult` has multiple entries with disjoint upstream
  * closures, each independent subDAG is shipped as its own sync execution

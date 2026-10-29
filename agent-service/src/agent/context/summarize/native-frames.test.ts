@@ -31,11 +31,9 @@ const CTX = [
   "Thought: load the file",
   "",
   "Action:",
-  "- createOrModifyOperator",
-  "    operatorId: load_a",
-  "    code:",
-  "      def load():",
-  "        pass",
+  "- dataflow",
+  "    python: ",
+  "    statements: show result load_a",
   "",
   "Observation:",
   "- operator load_a added",
@@ -47,8 +45,9 @@ const CTX = [
   "Thought: now join",
   "",
   "Action:",
-  "- createOrModifyOperator",
-  "    operatorId: join_b",
+  "- dataflow",
+  "    python: ",
+  "    statements: show result join_b",
   "",
   "Observation:",
   "- operator join_b added",
@@ -58,7 +57,7 @@ const CTX = [
 function step(id: string, calls: Array<[string, string]>, outputs: Record<string, string> = {}): ReActStep {
   return {
     id, messageId: "m", stepId: 1, timestamp: 1, role: "agent", content: "", isBegin: true, isEnd: false,
-    toolCalls: calls.map(([tcid, op]) => ({ toolCallId: tcid, toolName: "createOrModifyOperator", input: { operatorId: op } })),
+    toolCalls: calls.map(([tcid, op]) => ({ toolCallId: tcid, toolName: "dataflow", input: { python: "", statements: `show result ${op}` } })),
     toolResults: calls.map(([tcid]) => ({ toolCallId: tcid, output: outputs[tcid] ?? "ok" })),
   } as ReActStep;
 }
@@ -97,13 +96,13 @@ describe("buildNativeFrames", () => {
     const parts = a.content as any[];
     const call = parts.find(p => p.type === "tool-call");
     expect(call.toolCallId).toBe("call_a");
-    expect(call.toolName).toBe("createOrModifyOperator");
-    expect(call.input).toEqual({ operatorId: "load_a" });
+    expect(call.toolName).toBe("dataflow");
+    expect(call.input).toEqual({ python: "", statements: "show result load_a" });
     // REGRESSION GUARD: the rendered `Action:` block must never appear as text
     // in an assistant turn — that is what taught the model to narrate calls.
     const text = parts.filter(p => p.type === "text").map(p => p.text).join("\n");
     expect(text).not.toContain("Action:");
-    expect(text).not.toContain("- createOrModifyOperator");
+    expect(text).not.toContain("- dataflow");
     expect(text).not.toContain("## Agent Event");
     expect(text).toContain("load the file");
   });

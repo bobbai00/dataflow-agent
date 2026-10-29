@@ -29,26 +29,7 @@ describe("computeOperatorAccess", () => {
     expect(computeOperatorAccess([], [])).toBeUndefined();
   });
 
-  test("code mode: createOrModifyOperator add → addedOperatorIds", () => {
-    const access = computeOperatorAccess(
-      [call("createOrModifyOperator", "t1", { operatorId: "load_csv", code: "..." })],
-      [result("t1", "Added operator load_csv, input ports: 0, output ports: 1")]
-    );
-    expect(access).toEqual({
-      0: { viewedOperatorIds: [], addedOperatorIds: ["load_csv"], modifiedOperatorIds: [] },
-    });
-  });
-
-  test("code mode: createOrModifyOperator modify → modifiedOperatorIds", () => {
-    const access = computeOperatorAccess(
-      [call("createOrModifyOperator", "t1", { operatorId: "load_csv", code: "..." })],
-      [result("t1", "Operator load_csv modified, created links: [a --> load_csv]")]
-    );
-    expect(access![0].modifiedOperatorIds).toEqual(["load_csv"]);
-    expect(access![0].addedOperatorIds).toEqual([]);
-  });
-
-  test("general mode: addOperator / modifyOperator / deleteOperator / executeOperator", () => {
+  test("older operator tools: addOperator / modifyOperator / deleteOperator / executeOperator", () => {
     const access = computeOperatorAccess(
       [
         call("addOperator", "a", { operatorId: "filter1", operatorType: "Filter" }),
@@ -116,10 +97,7 @@ describe("computeOperatorAccess", () => {
 
   test("errored tool calls record nothing except the viewed operator of a failed read", () => {
     const access = computeOperatorAccess(
-      [
-        call("createOrModifyOperator", "t1", { operatorId: "bad" }),
-        call("executeOperator", "t2", { operatorId: "bad" }),
-      ],
+      [call("addOperator", "t1", { operatorId: "bad" }), call("executeOperator", "t2", { operatorId: "bad" })],
       [result("t1", "[ERROR] syntax error", true), result("t2", "[ERROR] boom", true)]
     );
     expect(access![0]).toEqual({ viewedOperatorIds: [], addedOperatorIds: [], modifiedOperatorIds: [] });

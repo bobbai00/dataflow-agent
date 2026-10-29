@@ -43,7 +43,7 @@ function scenarioWith(resultForA: "ok" | "error" | "none"): Scenario {
       role: "agent",
       messageId: "m1",
       parentId: "u1",
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "scores" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
   ]);

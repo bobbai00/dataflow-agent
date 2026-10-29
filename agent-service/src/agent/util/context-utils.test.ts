@@ -127,7 +127,7 @@ function buildCanonicalScenario() {
       content: "I'll start with the source.",
       isBegin: true,
       isEnd: false,
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-t1", input: { operatorId: "src" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "tc-t1", input: {} }],
       toolResults: [{ toolCallId: "tc-t1", output: "ok", isError: false }],
     },
     {
@@ -139,7 +139,7 @@ function buildCanonicalScenario() {
       content: "Now the filter.",
       isBegin: false,
       isEnd: false,
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-t2", input: { operatorId: "filt" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "tc-t2", input: {} }],
       toolResults: [{ toolCallId: "tc-t2", output: "ok", isError: false }],
     },
     {
@@ -210,21 +210,18 @@ describe("assembleContext — Delta", () => {
 
     // The Δ operator (filt) is listed with its raw result.
     expect(after3).toContain("Observation:");
-    expect(after3).toContain("- operator filt added");
+    expect(after3).toContain("- operator filt updated");
     expect(after3).toContain("result:");
     // Unchanged operators (src, existing) aren't in this event's Δ → not listed.
     expect(after3).not.toContain("- operator src");
     expect(after3).not.toContain("- operator existing");
   });
 
-  test("delta Observation: Inputs is shown; Links/Used by/Summary are not", () => {
+  test("delta Observation: Links/Used by/Summary are not shown", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
     const c = render(steps, workflowState, storage);
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
-    // Inputs (DAG adjacency from the LEAF snapshot) renders on the op's
-    // most-recent edit — filt consumes src.
-    expect(after3).toContain("Inputs: src");
-    // The other operator-block structural decorations belong to snapshot blocks.
+    // The operator-block structural decorations belong to snapshot blocks.
     expect(after3).not.toContain("#### Links");
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
@@ -238,7 +235,6 @@ describe("assembleContext — Delta", () => {
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
     // data_level >= 1 ⇒ the Δ result carries the Schema line.
     expect(after3).toContain("Schema (");
-    expect(after3).toContain("Inputs: src");
     // Used by / Summary belong to snapshot blocks (not part of the data facet).
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
@@ -257,7 +253,7 @@ describe("assembleContext — Delta", () => {
         parentId: "u",
         messageId: "m1",
         content: "first",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc1", input: { operatorId: "a" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc1", input: {} }],
         toolResults: [{ toolCallId: "tc1", output: "ok", isError: false }],
       },
       {
@@ -269,7 +265,7 @@ describe("assembleContext — Delta", () => {
         content: "second",
         // Same operator already exists; toolcall here is just to make this
         // step action-bearing so a snapshot is created.
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc2", input: { operatorId: "a" } }],
+        toolCalls: [{ toolName: "modifyOperator", toolCallId: "tc2", input: { operatorId: "a" } }],
         toolResults: [{ toolCallId: "tc2", output: "ok", isError: false }],
         isEnd: true,
       },
@@ -287,11 +283,10 @@ describe("assembleContext — Delta", () => {
     // `#### Operators` result-summary block.
     const ev2 = c.slice(c.indexOf("## Agent Event 2"), c.indexOf("## Agent Event 3"));
     const ev3 = c.slice(c.indexOf("## Agent Event 3"));
-    expect(ev2).toContain("- operator a added");
+    expect(ev2).toContain("- operator a updated");
     expect(ev2).toContain("result:");
     // a2 is a no-op modify (same props, no new result) → empty Δ → "a" is not a
     // changed/re-executed operator, just a one-line "(no change)" outcome.
-    expect(ev3).not.toContain("- operator a added");
     expect(ev3).not.toContain("- operator a updated");
     expect(ev3).toContain("- operator a (no change): ok");
   });
@@ -347,8 +342,8 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
         messageId: "m",
         parentId: "u",
         isBegin: true,
-        content: "add src",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c1", input: { operatorId: "src" } }],
+        content: "Load the source table; every later step reads it.",
+        toolCalls: [{ toolName: "noop", toolCallId: "c1", input: {} }],
         toolResults: [{ toolCallId: "c1", output: "ok", isError: false }],
       },
       {
@@ -357,8 +352,8 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
         role: "agent",
         messageId: "m",
         parentId: "t1",
-        content: "add filt",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c2", input: { operatorId: "filt" } }],
+        content: "Filter the source down to the rows the question asks about.",
+        toolCalls: [{ toolName: "noop", toolCallId: "c2", input: {} }],
         toolResults: [{ toolCallId: "c2", output: "ok", isError: false }],
       },
       {
@@ -367,8 +362,8 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
         role: "agent",
         messageId: "m",
         parentId: "t2",
-        content: "fix filt v2",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c3", input: { operatorId: "filt" } }],
+        content: "The filter kept too many rows; tighten its condition.",
+        toolCalls: [{ toolName: "noop", toolCallId: "c3", input: {} }],
         toolResults: [{ toolCallId: "c3", output: "ok", isError: false }],
       },
       {
@@ -377,8 +372,8 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
         role: "agent",
         messageId: "m",
         parentId: "t3",
-        content: "fix filt v3",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "c4", input: { operatorId: "filt" } }],
+        content: "Still too many rows; tighten the condition once more.",
+        toolCalls: [{ toolName: "noop", toolCallId: "c4", input: {} }],
         toolResults: [{ toolCallId: "c4", output: "ok", isError: false }],
       },
     ]);
@@ -433,8 +428,7 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
     expect(c).toContain("earlier events omitted");
     expect(c).toContain("Output Table: 12 rows, 2 cols");
     expect(c).toContain("- operator filt updated");
-    expect(c).not.toContain("- operator filt added");
-    expect(c).not.toContain("- operator src added");
+    expect(c).not.toContain("- operator src");
     expect(c).not.toContain("Operator `src`");
   });
 
@@ -559,15 +553,13 @@ describe("assembleContext — invariants", () => {
     expect(c).toContain("## Agent Event 2");
     expect(c).toContain("## Agent Event 3");
     expect(c).toContain("## Agent Event 4");
-    // Standard tool-call Action: registered tool name + key:value params.
+    // Standard tool-call Action: the registered tool name.
     expect(c).toContain("Action:");
-    expect(c).toContain("- createOrModifyOperator");
-    expect(c).toContain("operatorId: src");
-    expect(c).toContain("operatorId: filt");
+    expect(c).toContain("- noop");
     // Observation lists the affected operators.
     expect(c).toContain("Observation:");
-    expect(c).toContain("- operator src added");
-    expect(c).toContain("- operator filt added");
+    expect(c).toContain("- operator src updated");
+    expect(c).toContain("- operator filt updated");
     expect(c).not.toContain("# Recent Agent Events");
   });
 
@@ -632,87 +624,6 @@ describe("assembleContext — invariants", () => {
  * ========================================================================= */
 
 describe("assembleContext — delta Action / Observation format", () => {
-  test('first createOrModifyOperator call on an op renders as `create operator "X"`', () => {
-    const { steps, storage, workflowState } = buildScenario([
-      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
-      {
-        id: "a",
-        stepId: 1,
-        role: "agent",
-        parentId: "u",
-        messageId: "m1",
-        content: "loading",
-        toolCalls: [
-          {
-            toolName: "createOrModifyOperator",
-            toolCallId: "tc",
-            // code and summary are intentionally included in the input but
-            // the new contract says they're NOT surfaced on the event line.
-            input: { operatorId: "src", code: "def load(): ...", summary: "Load customers.csv" },
-          },
-        ],
-        toolResults: [
-          { toolCallId: "tc", output: "Added operator src, input ports: 0, output ports: 1", isError: false },
-        ],
-        isEnd: true,
-      },
-    ]);
-    storage.createSnapshot("a", makeWorkflow(["src"]));
-
-    const cFull = render(steps, workflowState, storage);
-    // Standard tool-call Action: registered tool name + key:value params, code as a block.
-    expect(cFull).toContain("Action:");
-    expect(cFull).toContain("- createOrModifyOperator");
-    expect(cFull).toContain("operatorId: src");
-    expect(cFull).toContain("summary: Load customers.csv");
-    expect(cFull).toContain("code:");
-    expect(cFull).toContain("def load(): ..."); // code IS shown — the action is lossless
-    // The tool RESULT is not inlined into the action; it lives in the Observation.
-    expect(cFull).not.toContain(", result:");
-    // Observation lists the created operator.
-    expect(cFull).toContain("- operator src added");
-  });
-
-  test('subsequent createOrModifyOperator call on the same op renders as `modify operator "X"`', () => {
-    const { steps, storage, workflowState } = buildScenario([
-      { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
-      {
-        id: "a1",
-        stepId: 1,
-        role: "agent",
-        parentId: "u",
-        messageId: "m1",
-        content: "create",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "src" } }],
-        toolResults: [{ toolCallId: "t1", output: "Added operator src", isError: false }],
-      },
-      {
-        id: "a2",
-        stepId: 2,
-        role: "agent",
-        parentId: "a1",
-        messageId: "m1",
-        content: "rewrite",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t2", input: { operatorId: "src" } }],
-        toolResults: [{ toolCallId: "t2", output: "Updated operator src", isError: false }],
-        isEnd: true,
-      },
-    ]);
-    storage.createSnapshot("a1", makeWorkflow(["src"]));
-    storage.setOperatorResult("a1", "src", makeInfo("src", 3));
-    storage.createSnapshot("a2", makeWorkflow(["src"]));
-    // a2 re-executes src (new result sourced at a2) → src is in a2's Δ.
-    storage.setOperatorResult("a2", "src", makeInfo("src", 4));
-    const c = render(steps, workflowState, storage);
-    // Both calls render in standard tool-call form...
-    expect(c).toContain("- createOrModifyOperator");
-    expect(c).toContain("operatorId: src");
-    // ...and the create-vs-modify distinction shows in the Observation verb.
-    expect(c).toContain("- operator src added");
-    expect(c).toContain("- operator src updated");
-    expect(c).not.toContain(", result:");
-  });
-
   test('deleteOperator renders as `delete operator "X"`', () => {
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
@@ -722,24 +633,26 @@ describe("assembleContext — delta Action / Observation format", () => {
         role: "agent",
         parentId: "u",
         messageId: "m1",
-        content: "add and remove",
-        toolCalls: [
-          { toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "tmp" } },
-          { toolName: "deleteOperator", toolCallId: "t2", input: { operatorId: "tmp" } },
-        ],
-        toolResults: [
-          { toolCallId: "t1", output: "Added operator tmp", isError: false },
-          { toolCallId: "t2", output: "Deleted operator tmp", isError: false },
-        ],
+        content: "add",
+        toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
+        toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
+      },
+      {
+        id: "a2",
+        stepId: 2,
+        role: "agent",
+        parentId: "a1",
+        messageId: "m1",
+        content: "remove",
+        toolCalls: [{ toolName: "deleteOperator", toolCallId: "t2", input: { id: "tmp" } }],
+        toolResults: [{ toolCallId: "t2", output: "deleted operator `tmp`", isError: false }],
         isEnd: true,
       },
     ]);
-    storage.createSnapshot("a1", makeWorkflow([])); // empty after delete
+    storage.createSnapshot("a1", makeWorkflow(["tmp"]));
+    storage.createSnapshot("a2", makeWorkflow([])); // empty after delete
     const c = render(steps, workflowState, storage);
-    // Both tool calls render in standard form (tool name + params)...
-    expect(c).toContain("- createOrModifyOperator");
-    expect(c).toContain("- deleteOperator");
-    expect(c).toContain("operatorId: tmp");
+    expect(c).toContain("- delete operator `tmp`");
     // ...and the delete surfaces in the Observation.
     expect(c).toContain("- operator tmp deleted");
   });
@@ -757,15 +670,11 @@ describe("assembleContext — delta Action / Observation format", () => {
         role: "agent",
         parentId: "u",
         messageId: "m1",
-        content: "add a consumer, then try to delete its input",
-        toolCalls: [
-          { toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "src" } },
-          { toolName: "deleteOperator", toolCallId: "t2", input: { operatorId: "src" } },
-        ],
+        content: "try to delete an input that still has a consumer",
+        toolCalls: [{ toolName: "deleteOperator", toolCallId: "t1", input: { id: "src" } }],
         toolResults: [
-          { toolCallId: "t1", output: "Added operator src", isError: false },
           {
-            toolCallId: "t2",
+            toolCallId: "t1",
             output: "[ERROR] `src` still feeds `consumer`; re-point or delete those first.",
             isError: true,
           },
@@ -780,7 +689,8 @@ describe("assembleContext — delta Action / Observation format", () => {
     expect(c).toContain("- operator src (not deleted): [ERROR] `src` still feeds `consumer`");
   });
 
-  test("create → delete → re-create on same id reads as two separate `create`s", () => {
+  test("add → delete → re-add on same id reads as two separate adds", () => {
+    const add = (id: string) => ({ toolName: "addOperators", toolCallId: id, input: { operators: [{ id: "op" }] } });
     const { steps, storage, workflowState } = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       {
@@ -789,9 +699,9 @@ describe("assembleContext — delta Action / Observation format", () => {
         role: "agent",
         parentId: "u",
         messageId: "m1",
-        content: "create",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "op" } }],
-        toolResults: [{ toolCallId: "t1", output: "Added operator op", isError: false }],
+        content: "add",
+        toolCalls: [add("t1")],
+        toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
       },
       {
         id: "a2",
@@ -800,8 +710,8 @@ describe("assembleContext — delta Action / Observation format", () => {
         parentId: "a1",
         messageId: "m1",
         content: "delete",
-        toolCalls: [{ toolName: "deleteOperator", toolCallId: "t2", input: { operatorId: "op" } }],
-        toolResults: [{ toolCallId: "t2", output: "Deleted operator op", isError: false }],
+        toolCalls: [{ toolName: "deleteOperator", toolCallId: "t2", input: { id: "op" } }],
+        toolResults: [{ toolCallId: "t2", output: "deleted operator `op`", isError: false }],
       },
       {
         id: "a3",
@@ -809,9 +719,9 @@ describe("assembleContext — delta Action / Observation format", () => {
         role: "agent",
         parentId: "a2",
         messageId: "m1",
-        content: "recreate",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t3", input: { operatorId: "op" } }],
-        toolResults: [{ toolCallId: "t3", output: "Added operator op", isError: false }],
+        content: "re-add",
+        toolCalls: [add("t3")],
+        toolResults: [{ toolCallId: "t3", output: "ok", isError: false }],
         isEnd: true,
       },
     ]);
@@ -819,7 +729,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     storage.createSnapshot("a2", makeWorkflow([]));
     storage.createSnapshot("a3", makeWorkflow(["op"]));
     const c = render(steps, workflowState, storage);
-    // Both creations read as `added` in the Observation (delete reset the id), and
+    // Both adds read as `added` in the Observation (delete reset the id), and
     // the delete shows once. Two `- operator op added` lines (a1 and a3).
     const matches = c.match(/- operator op added/g) ?? [];
     expect(matches.length).toBe(2);
@@ -859,7 +769,7 @@ describe("assembleContext — delta Action / Observation format", () => {
         parentId: "u",
         messageId: "m1",
         content: "trying",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc", input: { operatorId: "x" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc", input: {} }],
         toolResults: [{ toolCallId: "tc", output: "[ERROR] something broke", isError: true }],
         isEnd: true,
       },
@@ -873,7 +783,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     expect(c).toContain("Action:");
     expect(c).not.toContain(", result:");
     const obs = c.slice(c.indexOf("Observation:"));
-    expect(obs).toContain("- operator x added");
+    expect(obs).toContain("- operator x updated");
     expect(obs).toContain("[ERROR] something broke");
     expect(obs).toContain("hint: try with encoding='latin-1'");
   });
@@ -888,13 +798,7 @@ describe("assembleContext — delta Action / Observation format", () => {
         parentId: "u",
         messageId: "m1",
         content: "trying",
-        toolCalls: [
-          {
-            toolName: "createOrModifyOperator",
-            toolCallId: "tc",
-            input: { operatorId: "x", code: "def process(df):\n    return df['missing']" },
-          },
-        ],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc", input: {} }],
         toolResults: [{ toolCallId: "tc", output: "[ERROR] KeyError", isError: true }],
         isEnd: true,
       },
@@ -906,8 +810,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     storage.setOperatorResult("a", "x", makeInfo("x", 0, engineError));
 
     // DELTA: the error result is self-contained — exception + line pointer + the
-    // `Operator code:` block (kept so the failing line is shown in context, even
-    // though the Action above also carries the code).
+    // `Operator code:` block (kept so the failing line is shown in context).
     const cDelta = render(steps, workflowState, storage);
     expect(cDelta).toContain("[ERROR] KeyError: 'missing'");
     expect(cDelta).toContain("at line 2 in `process`");
@@ -996,16 +899,8 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
         parentId: "user",
         content: "Loading climateMeasurements; then process to extract Potassium.",
         toolCalls: [
-          {
-            toolName: "createOrModifyOperator",
-            toolCallId: "tc-load",
-            input: { operatorId: "climateMeasurements" },
-          },
-          {
-            toolName: "createOrModifyOperator",
-            toolCallId: "tc-proc",
-            input: { operatorId: "processClimate" },
-          },
+          { toolName: "noop", toolCallId: "tc-load", input: {} },
+          { toolName: "noop", toolCallId: "tc-proc", input: {} },
         ],
         toolResults: [
           { toolCallId: "tc-load", output: "ok", isError: false },
@@ -1061,7 +956,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
         messageId: "m-task",
         parentId: "user",
         content: "build A→B→C",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc-a", input: {} }],
         toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
       },
     ]);
@@ -1107,7 +1002,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
         messageId: "m-task",
         parentId: "user",
         content: "join two failing sources",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc-a", input: {} }],
         toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
       },
     ]);
@@ -1154,7 +1049,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
         messageId: "m-task",
         parentId: "user",
         content: "load A; B is queued for later",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc-a", input: {} }],
         toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
       },
     ]);
@@ -1190,7 +1085,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
         messageId: "m-task",
         parentId: "user",
         content: "build A→B; both ran",
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "tc-a", input: { operatorId: "A" } }],
+        toolCalls: [{ toolName: "noop", toolCallId: "tc-a", input: {} }],
         toolResults: [{ toolCallId: "tc-a", output: "ok", isError: false }],
       },
     ]);

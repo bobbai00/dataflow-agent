@@ -18,7 +18,7 @@
  */
 
 /**
- * The context native graph edits run with, and the names of the operator tools
+ * The context native graph edits run with, and the name of the delete tool
  * older traces carry, whose calls computeOperatorAccess reads.
  */
 
@@ -44,5 +44,4 @@ export interface ToolContext {
   };
 }
 
-export const TOOL_NAME_CREATE_OR_MODIFY_OPERATOR = "createOrModifyOperator";
 export const TOOL_NAME_DELETE_OPERATOR = "deleteOperator";

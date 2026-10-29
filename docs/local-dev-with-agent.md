@@ -197,7 +197,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 |---|---|---|
 | `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
-| `operatorDoc` | bool (default `false`; agents made in the UI: `true`) | native mode: the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
+| `operatorDoc` | bool (default `false`; agents made in the UI: `true`) | the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `contextMode` | `delta` (the only value) | the full event trajectory as a tool-calling transcript, append-only for the provider cache |

@@ -18,8 +18,7 @@
  */
 
 /**
- * End-to-end tests for the code-mode operators the agent emits via
- * `createOrModifyOperator`:
+ * End-to-end tests for the Python operators native operators compile to:
  *   - `DataLoading`   (Python `def load() -> pd.DataFrame`, source)
  *   - `DataProcessing` (Python `def process(p1, p2, ...) -> pd.DataFrame`, N-to-1)
  *
@@ -47,7 +46,7 @@ import type {
 import type { OperatorInfo, SyncExecutionResult } from "../../src/types/execution";
 
 /* ============================================================================
- *  Operator-predicate builders (matching the agent's createOrModifyOperator)
+ *  Operator-predicate builders (matching the operators the agent compiles)
  * ========================================================================= */
 
 const DEFAULT_SETTINGS = { dataTransferBatchSize: 400 };
@@ -176,7 +175,7 @@ function assertColumns(rows: Record<string, unknown>[], expected: string[], what
  *  Spec type
  * ========================================================================= */
 
-export interface CodeModeWorkflowSpec {
+export interface PythonOperatorWorkflowSpec {
   name: string;
   description: string;
   /**
@@ -573,9 +572,9 @@ function validateW4(result: SyncExecutionResult): void {
  *  Spec list — picked up by run.ts
  * ========================================================================= */
 
-export const CODE_MODE_WORKFLOW_SPECS: CodeModeWorkflowSpec[] = [
+export const PYTHON_OPERATOR_WORKFLOW_SPECS: PythonOperatorWorkflowSpec[] = [
   {
-    name: "[CodeMode] W1 single-input chain",
+    name: "[PythonOps] W1 single-input chain",
     description:
       "DataLoading → DataProcessing(1-in) → DataProcessing(1-in). Validates that a single-input " +
       "processor reads its upstream and that one processor can feed another.",
@@ -583,7 +582,7 @@ export const CODE_MODE_WORKFLOW_SPECS: CodeModeWorkflowSpec[] = [
     validate: validateW1,
   },
   {
-    name: "[CodeMode] W2 three-input port mapping",
+    name: "[PythonOps] W2 three-input port mapping",
     description:
       "3 DataLoading sources → DataProcessing(3-in). Each source emits a unique sentinel; the " +
       "merge processor's per-parameter sentinel reading proves port i → i-th parameter mapping.",
@@ -591,7 +590,7 @@ export const CODE_MODE_WORKFLOW_SPECS: CodeModeWorkflowSpec[] = [
     validate: validateW2,
   },
   {
-    name: "[CodeMode] W3 five-input port mapping",
+    name: "[PythonOps] W3 five-input port mapping",
     description:
       "5 DataLoading sources → DataProcessing(5-in). Same port-to-param assertion as W2 but at " +
       "fan-in 5 — guards the dynamic-port path beyond the common-case arities.",
@@ -599,7 +598,7 @@ export const CODE_MODE_WORKFLOW_SPECS: CodeModeWorkflowSpec[] = [
     validate: validateW3,
   },
   {
-    name: "[CodeMode] W4 DAG with two-input merge",
+    name: "[PythonOps] W4 DAG with two-input merge",
     description:
       "1 DataLoading fans out to 2 DataProcessing branches that each stamp a distinct tag, then " +
       "a DataProcessing(2-in) merge asserts port 0 sees branchA-tagged rows and port 1 sees " +

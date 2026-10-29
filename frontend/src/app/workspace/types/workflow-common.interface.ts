@@ -97,7 +97,7 @@ export interface OperatorPredicate
     viewResult?: boolean;
     markedForReuse?: boolean;
     customDisplayName?: string;
-    /** Set when the dataflow agent defined the operator in native mode. */
+    /** Set when the dataflow agent defined the operator. */
     nativeOp?: NativeOperatorDefinition;
   }> {}
 

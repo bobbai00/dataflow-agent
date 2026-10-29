@@ -35,7 +35,7 @@
   <ng-container *ngIf="form">
     <!-- Form view: one field per argument of the statement. -->
     <div
-      *ngIf="!codeMode"
+      *ngIf="!statementView"
       class="editor-fields">
       <div
         *ngIf="form.inputs.length"
@@ -193,7 +193,7 @@
 
     <!-- Code view: the statement itself. -->
     <div
-      *ngIf="codeMode"
+      *ngIf="statementView"
       class="editor-fields">
       <div class="field">
         <label class="field-label">Statement</label>
@@ -221,7 +221,7 @@
     </div>
 
     <div
-      *ngIf="!codeMode"
+      *ngIf="!statementView"
       class="statement-preview">
       <span class="preview-label">Statement</span>
       <pre class="preview-code">{{ statement }}</pre>
@@ -257,8 +257,8 @@
         (click)="toggleCode()">
         <i
           nz-icon
-          [nzType]="codeMode ? 'form' : 'code'"></i>
-        {{ codeMode ? "Form" : "Edit as code" }}
+          [nzType]="statementView ? 'form' : 'code'"></i>
+        {{ statementView ? "Form" : "Edit as code" }}
       </button>
       <span class="spacer"></span>
       <button

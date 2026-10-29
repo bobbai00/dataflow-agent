@@ -276,7 +276,7 @@ async function main() {
         (await api(AGENT, "GET", `/api/agents/${agents[0].id}/workflow`)).json?.workflow?.operators ?? [];
       const fileName = path.split("/").pop();
       const answer = list.filter(s => s.role === "agent" && s.content).at(-1)?.content ?? "";
-      // Mode-agnostic: a native scan carries the path in its spec, a code-mode loader in its code.
+      // A native scan carries the path in its spec, which the operator's properties hold.
       check(
         "agent built an operator that reads the dropped file",
         operators.some(o => JSON.stringify(o.operatorProperties ?? {}).includes(fileName)),

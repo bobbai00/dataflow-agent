@@ -35,7 +35,7 @@ function pullScenario(): Scenario {
       messageId: "m",
       parentId: "u",
       content: "load",
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t1", input: { operatorId: "loader" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
       toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
     },
     {
@@ -61,7 +61,7 @@ function pullScenario(): Scenario {
       messageId: "m",
       parentId: "a2",
       content: "clean it",
-      toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: "t3", input: { operatorId: "clean" } }],
+      toolCalls: [{ toolName: "noop", toolCallId: "t3", input: {} }],
       toolResults: [{ toolCallId: "t3", output: "ok", isError: false }],
     },
   ]);

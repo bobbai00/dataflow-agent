@@ -86,7 +86,7 @@ const log = (...args: unknown[]) => console.log("[rt-schema-e2e]", ...args);
 const logErr = (...args: unknown[]) => console.error("[rt-schema-e2e]", ...args);
 
 /* ============================================================================
- *  Tiny assertion + operator-builder helpers (mirrored from code-mode-workflows.ts;
+ *  Tiny assertion + operator-builder helpers (mirrored from python-operator-workflows.ts;
  *  duplicated to keep this driver self-contained.)
  * ========================================================================= */
 

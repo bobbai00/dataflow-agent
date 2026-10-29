@@ -68,8 +68,8 @@ export interface AgentSettingsApi {
    *  facts (rows kept, keys matched). Wire name matches the agent-service knob
    *  (`AgentSettings.flowEvidence`). */
   flowEvidence?: boolean;
-  /** When true (native mode), every operator the agent sets carries a one-line
-   *  doc saying what it does and why. Wire name matches the agent-service knob
+  /** When true, every operator the agent sets carries a one-line doc saying
+   *  what it does and why. Wire name matches the agent-service knob
    *  (`AgentSettings.operatorDoc`). */
   operatorDoc?: boolean;
   /** Instructions for this session, appended to the system prompt. */

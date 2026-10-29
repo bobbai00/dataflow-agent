@@ -141,8 +141,8 @@ class CodeOperatorWorkflowsSpec extends AnyFunSuite {
         opResult.put("physicalOpBuilt", true)
         opResult.put("isPythonBased", phys.isPythonBased)
 
-        // Generated wrapper code — capture the contract slice 6 (CODE mode)
-        // depends on: framework base class + INPUT_PORTS + dispatch body.
+        // Generated wrapper code — capture the contract native operators
+        // depend on: framework base class + INPUT_PORTS + dispatch body.
         val generatedCode = phys.getCode
         opResult.put("generatedCodeLength", generatedCode.length)
         op match {
@@ -209,15 +209,14 @@ class CodeOperatorWorkflowsSpec extends AnyFunSuite {
         )
 
         // For DataProcessing, the input port at toIdx should be named after
-        // a parameter, and that parameter should be the source operator ID
-        // in CODE mode's convention.
+        // a parameter, and that parameter should be the source operator ID.
         target match {
           case dp: DataProcessingOpDesc =>
             val paramAtIdx = targetInfo.inputPorts(toIdx).displayName
             assert(
               paramAtIdx == from,
               s"link $from->$to:$toIdx — port displayName '$paramAtIdx' " +
-                s"does not match source operator id '$from' (CODE-mode convention)"
+                s"does not match source operator id '$from'"
             )
           case _ => // sources have no input ports
         }

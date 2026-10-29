@@ -45,9 +45,10 @@ import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
 import { requestEntries, sessionRequests, type SessionRequest } from "../request-catalog";
 
-/** The operator a tool call wrote: `operatorId` (code-mode tools) or `id`
- *  (native mode's deleteOperator). Undefined for read-only tools and for the
- *  `dataflow` program, which writes several operators (see its receipt). */
+/** The operator a tool call wrote: `operatorId` (the operator tools of older
+ *  traces) or `id` (native mode's deleteOperator). Undefined for read-only
+ *  tools and for the `dataflow` program, which writes several operators (see
+ *  its receipt). */
 export function writtenOperatorId(toolName: string | undefined, input: unknown): string | undefined {
   if (!input || typeof input !== "object") return undefined;
   const inp = input as Record<string, unknown>;
@@ -136,13 +137,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   } & ObservationFormatOptions;
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
-  /** DELTA `Inputs:` line (structure-consistent with the compacted deck). The
-   *  leaf snapshot supplies the current DAG adjacency (single source of truth via
-   *  formatOperatorAdjacency); the map gives each op's last-edit eventIndex so the
-   *  line renders once, on the op's most-recent edit, reflecting the latest wiring.
-   *  Set by renderAgentEvents; read in the DELTA observation. */
-  deltaInputsLeaf?: SnapshotData;
-  deltaLastEditByOp?: Map<string, number>;
 }
 
 /**
@@ -180,13 +174,9 @@ export function estimateTokens(text: string): number {
  * operators that changed at that event (delta), and each request stays at its
  * position among the events.
  *
- * Action rendering: each tool call inside an event renders as one
- * natural-language line — `- create operator "X", result: …` / `- modify
- * operator "X", result: …` / `- delete operator "X", result: …`. Create vs.
- * modify is decided by walking the path: an op id that hasn't been seen yet
- * (or that was deleted) reads as `create`, otherwise as `modify`. The
- * submitted `code` and `summary` are NOT included on event lines — the
- * snapshot below carries the relevant state.
+ * Action rendering: the tool calls of an event render in tool-call form (see
+ * serializeTurn), and the transcript replaces that text with the assistant
+ * turn's tool-call parts (buildNativeFrames).
  *
  * Snapshot trimming (paper §4.3): the Python code operators'
  * (`CODE_OPERATOR_TYPES`) computation function (`code`) is always dropped —
@@ -310,10 +300,7 @@ export function renderContextCore(
 
   const tasks = groupIntoTasks(path);
 
-  // Per-step create-vs-modify flags. Linear walk over the path: each
-  // `createOrModifyOperator` call records whether the op id was already
-  // known (modify) or fresh (create). `deleteOperator` removes from the
-  // known set so a later create-on-same-id reads as `create` again.
+  // Per-step create-vs-modify flags, from one linear walk over the path.
   const createFlagsByStep = buildCreateFlagsByStep(path);
   const windowTokens =
     options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
@@ -470,12 +457,12 @@ function groupIntoTasks(path: PathNode[]): TaskGroup[] {
 /* ============================================================================
  *  Create / modify / delete flag computation
  *
- *  A single linear walk over the full path classifies every
- *  `createOrModifyOperator` tool call as either "create" (the op id was not
- *  already known in the path's accumulated state) or "modify" (it was).
- *  `deleteOperator` calls remove the id from the known set so a later
- *  `createOrModifyOperator` on the same id reads as `create` again, which
- *  matches the workflow's actual lifecycle.
+ *  A single linear walk over the full path classifies every operator a step
+ *  landed as either "create" or "modify": a `dataflow` receipt says which, and
+ *  an `addOperators` batch's operator is a create when its id was not already
+ *  known in the path's accumulated state. `deleteOperator` calls remove the id
+ *  from the known set so a later add of the same id reads as `create` again,
+ *  which matches the workflow's actual lifecycle.
  *
  *  The output is keyed by `step.id` so renderers can look up per-event
  *  flags without re-walking the path each time.
@@ -511,15 +498,8 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
         }
         continue;
       }
-      const opId = typeof inp.operatorId === "string" ? inp.operatorId : typeof inp.id === "string" ? inp.id : "";
-      if (!opId) continue;
-      if (tc.toolName === "createOrModifyOperator") {
-        const isCreate = !known.has(opId);
-        eventFlags.set(opId, isCreate);
-        known.add(opId);
-      } else if (tc.toolName === "deleteOperator") {
-        known.delete(opId);
-      }
+      const opId = writtenOperatorId(tc.toolName, inp);
+      if (tc.toolName === "deleteOperator" && opId) known.delete(opId);
     }
     if (eventFlags.size > 0) result.set(node.step.id, eventFlags);
   }
@@ -788,24 +768,6 @@ function renderAgentEvents(
   createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
   const bodies: string[] = [];
-  // DELTA `Inputs:` line: the leaf snapshot is the single source of DAG
-  // adjacency; each op's last-edit event is where the line renders (once, on
-  // its most-recent edit, so it sits with the op's latest code and reflects
-  // the current wiring).
-  options.deltaInputsLeaf = lastSnapshotOf(tasks);
-  const lastEdit = new Map<string, number>();
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role !== "agent") continue;
-      for (const tc of node.step.toolCalls ?? []) {
-        const opId = writtenOperatorId(tc.toolName, tc.input);
-        if (typeof opId === "string" && opId && tc.toolName !== "deleteOperator") {
-          lastEdit.set(opId, node.eventIndex);
-        }
-      }
-    }
-  }
-  options.deltaLastEditByOp = lastEdit;
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
   for (const [taskIndex, task] of tasks.entries()) {
     const body = serializeTaskBody(
@@ -940,7 +902,7 @@ function serializeTaskBody(
       // `- operator <id> <added|updated|deleted>` followed by its result. On
       // error the result keeps the engine's exception + `at line N` pointer + the
       // `Operator code:` block (self-contained — the failing line shown in context;
-      // see renderRawResult), even though the Action above also carries the code.
+      // see renderRawResult).
       const prev = getPrev();
       const delta = computeDelta(prev, node.snapshot);
       const createFlags = createFlagsByStep.get(node.step.id);
@@ -989,8 +951,6 @@ function serializeTaskBody(
           } else {
             deletedOps.push(opId);
           }
-        } else if (tc.toolName === "createOrModifyOperator" && opId) {
-          actedVerb.set(opId, createFlags?.get(opId) ? "added" : "updated");
         } else if (batch) {
           // NATIVE `addOperators`: one verb per landed operator. A refused (or
           // partly refused) batch keeps its error as a one-line outcome, so the
@@ -1030,7 +990,7 @@ function serializeTaskBody(
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID) && !requestedResults?.has(op.operatorID)) continue;
         const currInfo = node.snapshot.results.get(op.operatorID)?.info;
-        // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
+        // `- filter operator \`id\` added` for typed operators, `- operator id added` for the others.
         obs.push(
           op.nativeOp
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${currInfo?.nativeError?.phase === "attempt" ? "edit rejected (not executed)" : currInfo?.nativeError?.diagnostic.stage === "dependency" ? "blocked (not executed)" : (actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated"))}`
@@ -1050,22 +1010,6 @@ function serializeTaskBody(
               : "  result: unavailable; result not requested"
           );
           continue;
-        }
-        // `Inputs:` line — structure-consistent with the compacted deck, from
-        // the LEAF snapshot's DAG (current wiring) via the same
-        // formatOperatorAdjacency the deck uses. Code mode: rendered
-        // once, on the op's most-recent edit (byte-parity with the golden
-        // renders). Typed operators: on EVERY event that changed the op — moving
-        // the line on a later edit rewrote an earlier observation and broke the
-        // prompt cache for everything after it. Skipped for ops no longer in the
-        // leaf.
-        const leaf = requestedResults ? node.snapshot : options.deltaInputsLeaf;
-        if (leaf && (op.nativeOp ? true : options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex)) {
-          const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
-          if (leafOp) {
-            const leafInfo = leaf.results.get(op.operatorID)?.info;
-            for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf)) obs.push(`  ${l}`);
-          }
         }
         const info = node.snapshot.results.get(op.operatorID)?.info;
         if (!requestedResults && retired.has(op.operatorID) && info && !info.error) continue;
@@ -1127,12 +1071,11 @@ function serializeUserEventInline(node: PathNode): string {
 
 /**
  * Render one agent event as `## Agent Event N` + optional `Thought:` +
- * optional `Action:` block. Each tool call is rendered in standard tool-call
- * form by `renderToolCall` — the registered tool name (`createOrModifyOperator`
- * / `deleteOperator`) plus every parameter as a `key: value` pair, with the
- * multi-line `code` parameter as an indented block. Lossless: exactly what the
- * model emitted. The execution outcome is rendered separately as the caller's
- * `Observation:` block.
+ * optional `Action:` block. A native tool call renders by
+ * `renderNativeToolCall`, any other in standard tool-call form by
+ * `renderToolCall` — the registered tool name plus every parameter as a
+ * `key: value` pair. Lossless: exactly what the model emitted. The execution
+ * outcome is rendered separately as the caller's `Observation:` block.
  */
 function serializeTurn(node: PathNode, options?: AssembleContextOptions, createFlags?: Map<string, boolean>): string {
   const step = node.step;
@@ -1146,7 +1089,7 @@ function serializeTurn(node: PathNode, options?: AssembleContextOptions, createF
   }
 
   // Action: the tool call(s) the model issued, in standard tool-call form via
-  // renderToolCall (tool name + `key: value` params + `code` block). Lossless.
+  // renderToolCall (tool name + `key: value` params). Lossless.
   // NATIVE typed tools render as one line, `- add filter operator \`id\`; inputs: …; properties: {…}`.
   if (step.toolCalls && step.toolCalls.length > 0) {
     lines.push("Action:");
@@ -1223,24 +1166,17 @@ function conciseOutcome(output: unknown): string {
 
 /**
  * Render one tool call in standard tool-call form for the DELTA `Action:` block:
- * `- <toolName>` followed by every parameter as an indented `key: value` pair,
- * with the multi-line `code` parameter rendered LAST as its own indented block.
- * Lossless — this is exactly what the model emitted (in CODE mode the operator's
- * predecessors are the `def process(<predecessors>)` arg names, so the `code`
- * block already carries them). Non-`code` string values are whitespace-collapsed
- * onto a single `key: value` line; non-strings are JSON-encoded.
+ * `- <toolName>` followed by every parameter as an indented `key: value` pair.
+ * Lossless — this is exactly what the model emitted. String values are
+ * whitespace-collapsed onto a single `key: value` line; non-strings are
+ * JSON-encoded.
  */
 function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
-    if (k === "code") continue; // rendered last as a block
     const val = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : JSON.stringify(v);
     lines.push(`    ${k}: ${val}`);
-  }
-  if (typeof inp.code === "string" && inp.code.length > 0) {
-    lines.push("    code:");
-    for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
   }
   return lines;
 }
@@ -1526,7 +1462,7 @@ function serializeOperatorFull(
   const opHash = "#".repeat(operatorLevel);
   const lines: string[] = [];
   // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
-  // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
+  // parameters are the summary. Other operators keep `### Operator \`id\` (Type)` + Summary.
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
   for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
@@ -1678,14 +1614,4 @@ function topoSortDag(workflow: WorkflowContent) {
     (a, b) => (topoOrder.get(a.operatorID) ?? 0) - (topoOrder.get(b.operatorID) ?? 0)
   );
   return { sortedOps, allLinks, topoOrder };
-}
-
-function lastSnapshotOf(tasks: TaskGroup[]): SnapshotData | undefined {
-  for (let i = tasks.length - 1; i >= 0; i--) {
-    const t = tasks[i];
-    for (let j = t.nodes.length - 1; j >= 0; j--) {
-      if (t.nodes[j].snapshot) return t.nodes[j].snapshot;
-    }
-  }
-  return undefined;
 }
