@@ -18,7 +18,6 @@
  */
 
 import { expect, spyOn, test } from "bun:test";
-import { ContextMode } from "../types/agent";
 import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { TexeraAgent } from "./texera-agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
@@ -32,23 +31,21 @@ function agent() {
   });
 }
 
-test("inspectResult cannot be enabled in any context mode or by live settings changes", async () => {
+test("inspectResult cannot be enabled by live settings changes", async () => {
   const subject = agent();
   expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-  for (const contextMode of [ContextMode.DELTA, ContextMode.LATEST, ContextMode.DELTA]) {
-    for (const enableInspectTool of [false, true]) {
-      subject.updateSettings({ contextMode, enableInspectTool });
-      expect(subject.getSettings().enableInspectTool).toBe(false);
-      const info = subject.getSystemInfo();
-      expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
-      expect(info.systemPrompt).not.toContain("inspectResult");
-      await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
-        "not found"
-      );
-      expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
-      subject.updateSettings({ maxSteps: 20 });
-      expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-    }
+  for (const enableInspectTool of [false, true]) {
+    subject.updateSettings({ enableInspectTool });
+    expect(subject.getSettings().enableInspectTool).toBe(false);
+    const info = subject.getSystemInfo();
+    expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
+    expect(info.systemPrompt).not.toContain("inspectResult");
+    await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
+      "not found"
+    );
+    expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
+    subject.updateSettings({ maxSteps: 20 });
+    expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
   }
 });
 
@@ -89,9 +86,7 @@ test("the model driver receives no result-inspection schema", async () => {
 });
 
 test("the prompt builder cannot advertise a removed tool", () => {
-  for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-    const prompt = buildRegisteredNativeSystemPrompt(mode);
-    expect(prompt).not.toContain("inspectResult");
-    expect(prompt).toContain("show result");
-  }
+  const prompt = buildRegisteredNativeSystemPrompt();
+  expect(prompt).not.toContain("inspectResult");
+  expect(prompt).toContain("show result");
 });

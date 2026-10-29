@@ -8,7 +8,7 @@
  *      agent starts its chat by itself (Bob, Claude Haiku 5.5), with a hint
  *      that files can be dropped on it; "Start a new chat" replaces the agent
  *   1. agent features: chat, streamed steps, hover→canvas highlight, snapshot
- *      tree, settings modal (context mode / data and flow evidence), clear
+ *      tree, settings modal (data and flow evidence, operator doc), clear
  *   2. versioning: checkout an earlier snapshot, branch from it with a new
  *      message, verify the tree forks and the canvas follows HEAD
  *   3. a new chat: "Start a new chat" replaces the agent, and the next chat
@@ -267,23 +267,6 @@ async function setSelectParam(page, modal, labelText, optionText) {
   await opt.first().click();
   await item.locator("button", { hasText: "Save" }).click();
 }
-async function selectOptions(page, modal, labelText) {
-  const item = paramItem(page, modal, labelText);
-  await item.locator("nz-select").click();
-  const dd = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
-  await dd.first().waitFor({ timeout: 10000 });
-  const opts = await dd
-    .first()
-    .locator(".ant-select-item-option")
-    .evaluateAll(els => els.map(e => e.getAttribute("title") ?? e.textContent ?? ""));
-  // Close by clicking the select again (Escape is unreliable for nz-select).
-  await item.locator("nz-select").click();
-  await dd
-    .first()
-    .waitFor({ state: "hidden", timeout: 5000 })
-    .catch(() => {});
-  return opts.map(s => s.trim());
-}
 
 // ---------- main ----------
 async function main() {
@@ -518,21 +501,12 @@ async function main() {
 
     // ===== settings modal =====
     let modal = await openSettingsModal(page);
-    const ctxOpts = await selectOptions(page, modal, "Context Mode");
-    check(
-      "Context Mode select offers exactly Latest/Delta (no Full)",
-      ctxOpts.length === 2 && ctxOpts.includes("Latest") && ctxOpts.includes("Delta"),
-      ctxOpts.join(",")
-    );
-    await setSelectParam(page, modal, "Context Mode", "Latest");
-    await sleep(500);
     await setSelectParam(page, modal, "Data Evidence", "Disabled");
     await sleep(500);
     await setSelectParam(page, modal, "Flow Evidence", "Enabled");
     await sleep(500);
     await closeModal(page);
     let s = (await api(AGENT, "GET", `/api/agents/${nativeAgent.id}/settings`)).json;
-    check("settings saved from UI: contextMode=latest", s.contextMode === "latest", `contextMode=${s.contextMode}`);
     check(
       "settings saved from UI: dataEvidence=false, flowEvidence=true",
       s.dataEvidence === false && s.flowEvidence === true,
@@ -551,8 +525,6 @@ async function main() {
     await sleep(500);
     await setSelectParam(page, modal, "Flow Evidence", "Disabled");
     await sleep(500);
-    await setSelectParam(page, modal, "Context Mode", "Delta");
-    await sleep(500);
     await setSelectParam(page, modal, "Operator Doc", "Enabled");
     await sleep(500);
     await closeModal(page);
@@ -565,7 +537,7 @@ async function main() {
     );
     check(
       "every settings save from the UI succeeded",
-      settingsSaves.length >= 6 && settingsSaves.every(save => /→2\d\d$/.test(save)),
+      settingsSaves.length >= 5 && settingsSaves.every(save => /→2\d\d$/.test(save)),
       settingsSaves.join(" ")
     );
     await shot("05-settings");

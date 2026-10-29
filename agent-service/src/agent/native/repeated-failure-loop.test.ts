@@ -75,12 +75,9 @@ function fixture(replyAt: (call: number) => Reply) {
     modelType: "test",
     driver: new VercelToolUseDriver({ model }),
     contextAssembler: ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
-      assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-        messageLayout: "native",
-        thoughtReplay: false,
-      }),
+      assembleContext(visibleSteps, workflowState, snapshotStorage, {}),
   });
-  agent.updateSettings({ maxSteps: 25, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 25 });
   // No engine in a unit test: every operator "executes" to one row.
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators())

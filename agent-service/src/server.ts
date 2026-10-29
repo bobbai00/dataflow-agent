@@ -111,7 +111,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentState, OperatorResultSerializationMode } from "./types/agent";
 
 /**
  * Pick the driver from an optional explicit choice or fall back to
@@ -177,11 +177,9 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     workflowState,
     snapshotStorage,
     settings,
-    compilationResult,
     turnNumberByMessageId,
   }) => {
     const legacyOptions: AssembleContextOptions = {
-      compilationResult,
       ...observationFormat(settings),
       nativeEvidence: {
         ...observationFormat(settings),
@@ -196,25 +194,14 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       flowEvidence: settings.flowEvidence,
       nativeChecks: settings.nativeChecks,
       resultSelection: settings.resultSelection,
-      includeOperatorProperties: settings.includeOperatorProperties,
-      thoughtReplay: settings.thoughtReplay,
-      agentTurns: settings.agentTurns,
       contextWindowTokens: settings.contextWindowTokens,
       compactionStrategy: settings.compactionStrategy,
       deckSampleRatio: settings.deckSampleRatio,
-      errorReflection: settings.errorReflection,
-      errorReflectionThreshold: settings.errorReflectionThreshold,
-      thoughtReplayK: settings.thoughtReplayK,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
       staticCompaction: settings.staticCompaction,
       // Request placement in multi-request sessions (cache).
       userTaskPlacement: settings.userTaskPlacement,
-      attemptReflection: settings.attemptReflection,
-      // Caching is not optional: unless an arm pins a layout, LATEST ships one
-      // message per operator block (opSplit) and DELTA ships the append-only
-      // tool-call transcript (native), the two framings gpt-5.6-* can credit.
-      messageLayout: settings.messageLayout ?? (settings.contextMode === ContextMode.LATEST ? "opSplit" : "native"),
       // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
       foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
       foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
@@ -235,7 +222,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
     };
 
     // Context policy precedence: learned model > LLM tuner > rule selector >
-    // base-preserving frontier decay > legacy contextMode.
+    // base-preserving frontier decay > the DELTA context.
     // Learned path (opt-in): the trained utility model scores each operator and
     // a budget knapsack assigns representation levels (omit≺shape≺sample+stats).
     if (settings.learnedConfig) {
@@ -244,8 +231,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
         const dossier = buildDossier(visibleSteps, snapshotStorage);
         const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
         params.nativeEvidence = evidenceSettings;
-        return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-          .messages;
+        return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
       }
       // No bundled model → fall through to the rule selector / legacy path.
     }
@@ -258,8 +244,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
         .tune(dossier, latestTaskText(visibleSteps))
         .then(({ params }) => {
           params.nativeEvidence = evidenceSettings;
-          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-            .messages;
+          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
         });
     }
     // Selector path (opt-in): the per-step RULE policy chooses summarize()
@@ -268,8 +253,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       const dossier = buildDossier(visibleSteps, snapshotStorage);
       const params = selectParams(dossier, settings.selectorConfig);
       params.nativeEvidence = evidenceSettings;
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
     }
     // BASE-PRESERVING OVERLAYS — the orthogonality contract: each overlay
     // (1) is independently flag-gated, (2) only LOWERS detail relative to the
@@ -283,23 +267,13 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       settings.frontierDecayConfig ||
       settings.probeRetirementConfig ||
       settings.rolePolicyConfig ||
-      settings.enableRenderPrefs ||
-      (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST)
+      settings.enableRenderPrefs
     ) {
       const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const legacyParams = mapLegacyToParams(settings.contextMode, legacyOptions);
-      const baseParams = settings.summarizeParams
+      const legacyParams = mapLegacyToParams(legacyOptions);
+      let params = settings.summarizeParams
         ? applySummarizeParamsPatch(legacyParams, settings.summarizeParams)
         : legacyParams;
-      let params = baseParams;
-      // Code-in-snapshot (LATEST-only): render every operator's current code as a
-      // `Code:` block. DELTA already carries code inline per event, so it is
-      // gated off above and never reaches this patch.
-      if (settings.enableCodeInSnapshot && settings.contextMode === ContextMode.LATEST) {
-        params = applySummarizeParamsPatch(params, {
-          operators: { defaults: { property: { includeCode: true } } },
-        });
-      }
       if (settings.frontierDecayConfig) params = applyFrontierDecay(params, dossier, settings.frontierDecayConfig);
       if (settings.probeRetirementConfig) {
         params = applyProbeRetirement(params, dossier, settings.probeRetirementConfig);
@@ -309,17 +283,16 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       // Write-time render prefs: latest landed version's outputSummary /
       // outputSummary becomes a per-operator sample override (LATEST).
       if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, compilationResult, dossier }, params)
-        .messages;
+      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
     }
-    return assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, legacyOptions);
+    return assembleContext(visibleSteps, workflowState, snapshotStorage, legacyOptions);
   };
 
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
     // each dialect's context matches the format its system prompt describes:
     //   - qwen-xml  → the SDK context (its prompt, `code-mode.md`, describes
-    //     `# User Task` / `# Current Dataflow`).
+    //     `# Agent Events`).
     //   - react-text → the legacy `# Event N` / Thought:/Actions: renderer that
     //     `prompts/local-react.txt` describes.
     // Read per-call from settings (toolDialect is mutable), mirroring how the
@@ -389,19 +362,11 @@ function applyInitialSettings(
     answerStatement: settings.answerStatement,
     nativeChecks: settings.nativeChecks,
     resultSelection: (settings as any).resultSelection,
-    contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
     parallelToolCalls: settings.parallelToolCalls,
-    includeOperatorProperties: settings.includeOperatorProperties,
-    thoughtReplay: settings.thoughtReplay,
-    agentTurns: settings.agentTurns,
     contextWindowTokens: settings.contextWindowTokens,
     compactionStrategy: settings.compactionStrategy,
     deckSampleRatio: settings.deckSampleRatio,
-    errorReflection: settings.errorReflection,
-    errorReflectionThreshold: settings.errorReflectionThreshold,
-    thoughtReplayK: settings.thoughtReplayK,
     maxResultRows: settings.maxResultRows,
-    attemptReflection: settings.attemptReflection,
     toolDialect: settings.toolDialect,
     summarizeParams: parseSummarizePatch(settings.summarizeParams),
     selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -412,10 +377,8 @@ function applyInitialSettings(
     learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
     enableInspectTool: (settings as any).enableInspectTool,
     enableRenderPrefs: (settings as any).enableRenderPrefs,
-    enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
     staticCompaction: (settings as any).staticCompaction,
     userTaskPlacement: (settings as any).userTaskPlacement,
-    messageLayout: (settings as any).messageLayout,
     multiRequest: (settings as any).multiRequest,
     catalogSource: (settings as any).catalogSource,
     catalogRecent: (settings as any).catalogRecent,
@@ -570,19 +533,12 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   answerStatement: t.Optional(t.Boolean()),
   nativeChecks: t.Optional(t.Boolean()),
   resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
-  contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
+  contextMode: t.Optional(t.Literal("delta")),
   parallelToolCalls: t.Optional(t.Boolean()),
-  includeOperatorProperties: t.Optional(t.Boolean()),
-  thoughtReplay: t.Optional(t.Boolean()),
-  agentTurns: t.Optional(t.Boolean()),
   contextWindowTokens: t.Optional(t.Number()),
   compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
   deckSampleRatio: t.Optional(t.Number()),
-  errorReflection: t.Optional(t.Boolean()),
-  errorReflectionThreshold: t.Optional(t.Number()),
-  thoughtReplayK: t.Optional(t.Number()),
   maxResultRows: t.Optional(t.Number()),
-  attemptReflection: t.Optional(t.Boolean()),
   toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
   // Deep-partial summarize() params patch; zod-validated in-handler
   // (the shape is too rich for a TypeBox mirror to earn its keep).
@@ -595,10 +551,8 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   learnedConfig: t.Optional(t.Any()),
   enableInspectTool: t.Optional(t.Boolean()),
   enableRenderPrefs: t.Optional(t.Boolean()),
-  enableCodeInSnapshot: t.Optional(t.Boolean()),
   staticCompaction: t.Optional(t.Boolean()),
   userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-  messageLayout: t.Optional(t.String()),
   multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
   catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
   catalogRecent: t.Optional(t.Integer()),
@@ -630,20 +584,12 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     resultSelection: agentSettings.resultSelection,
-    contextMode: agentSettings.contextMode,
-    messageLayout: agentSettings.messageLayout,
+    contextMode: "delta",
     parallelToolCalls: agentSettings.parallelToolCalls,
-    includeOperatorProperties: agentSettings.includeOperatorProperties,
-    thoughtReplay: agentSettings.thoughtReplay,
-    agentTurns: agentSettings.agentTurns,
     contextWindowTokens: agentSettings.contextWindowTokens,
     compactionStrategy: agentSettings.compactionStrategy,
     deckSampleRatio: agentSettings.deckSampleRatio,
-    errorReflection: agentSettings.errorReflection,
-    errorReflectionThreshold: agentSettings.errorReflectionThreshold,
-    thoughtReplayK: agentSettings.thoughtReplayK,
     maxResultRows: agentSettings.maxResultRows,
-    attemptReflection: agentSettings.attemptReflection,
     toolDialect: agentSettings.toolDialect,
     summarizeParams: agentSettings.summarizeParams,
     selectorConfig: agentSettings.selectorConfig,
@@ -654,7 +600,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
     enableRenderPrefs: agentSettings.enableRenderPrefs,
-    enableCodeInSnapshot: agentSettings.enableCodeInSnapshot,
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
     multiRequest: agentSettings.multiRequest,
@@ -1611,21 +1556,11 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         resultSelection: (settings as any).resultSelection,
-        contextMode: settings.contextMode ? (settings.contextMode as ContextMode) : undefined,
         parallelToolCalls: settings.parallelToolCalls,
-        includeOperatorProperties: settings.includeOperatorProperties,
-        thoughtReplay: settings.thoughtReplay,
-        // These four were accepted by the body schema but silently dropped
-        // before the summarize() refactor — forward them like the create path.
-        agentTurns: settings.agentTurns,
         contextWindowTokens: settings.contextWindowTokens,
         compactionStrategy: settings.compactionStrategy,
         deckSampleRatio: settings.deckSampleRatio,
-        errorReflection: settings.errorReflection,
-        errorReflectionThreshold: settings.errorReflectionThreshold,
-        thoughtReplayK: settings.thoughtReplayK,
         maxResultRows: settings.maxResultRows,
-        attemptReflection: settings.attemptReflection,
         toolDialect: settings.toolDialect,
         summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
         selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
@@ -1644,8 +1579,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         catalogRecent: settings.catalogRecent,
       });
 
-      // Settings can change context assembly (contextMode flips the selection
-      // policy) — re-broadcast the preview so clients stay in sync.
+      // Settings can change context assembly — re-broadcast the preview so
+      // clients stay in sync.
       broadcastNextContext(id, agent);
       traceStore?.agentSettings(id, settingsToApi(agent), settings);
 
@@ -1682,19 +1617,12 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
-        contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
+        contextMode: t.Optional(t.Literal("delta")),
         parallelToolCalls: t.Optional(t.Boolean()),
-        includeOperatorProperties: t.Optional(t.Boolean()),
-        thoughtReplay: t.Optional(t.Boolean()),
-        agentTurns: t.Optional(t.Boolean()),
         contextWindowTokens: t.Optional(t.Number()),
         compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
         deckSampleRatio: t.Optional(t.Number()),
-        errorReflection: t.Optional(t.Boolean()),
-        errorReflectionThreshold: t.Optional(t.Number()),
-        thoughtReplayK: t.Optional(t.Number()),
         maxResultRows: t.Optional(t.Number()),
-        attemptReflection: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
         // Deep-partial summarize() params patch; zod-validated in-handler.
         // Pass null to clear a previously-set patch.
@@ -2229,7 +2157,6 @@ function printStartupMessage(app: ReturnType<typeof buildApp>) {
   console.log("");
   console.log("Environment:");
   console.log(`  LLM_ENDPOINT: ${getBackendConfig().modelsEndpoint}`);
-  console.log(`  WORKFLOW_COMPILING_SERVICE_ENDPOINT: ${getBackendConfig().compileEndpoint}`);
   console.log(`  TEXERA_DASHBOARD_SERVICE_ENDPOINT: ${getBackendConfig().apiEndpoint}`);
   console.log("");
   console.log("Features:");

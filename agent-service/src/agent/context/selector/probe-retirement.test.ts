@@ -17,11 +17,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
 import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
 import { summarize } from "../summarize/summarize";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, snapshotParams, type Scenario } from "../summarize/fixtures";
 import { applyProbeRetirement, extractProbeValues, parseProbeRetirementConfig } from "./probe-retirement";
 
 const CODE_PROBE = "def load():\n    return pd.DataFrame({'sheet_name': pd.ExcelFile('data.xlsx').sheet_names})";
@@ -108,10 +107,7 @@ function retiredProbeScenario(loadCode = CODE_LOAD_ENCODED): Scenario {
 }
 
 function richLatestParams() {
-  return mapLegacyToParams(ContextMode.LATEST, {
-    compilationResult: null,
-    schemaInResult: true,
-  });
+  return snapshotParams({ schemaInResult: true });
 }
 
 describe("probe retirement", () => {
@@ -153,10 +149,7 @@ describe("probe retirement", () => {
   test("does not apply to the DELTA (interleaved) preset", () => {
     const scenario = retiredProbeScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const delta = mapLegacyToParams(ContextMode.DELTA, {
-      compilationResult: null,
-      schemaInResult: true,
-    });
+    const delta = mapLegacyToParams({ schemaInResult: true });
     expect(applyProbeRetirement(delta, dossier, parseProbeRetirementConfig({}))).toEqual(delta);
   });
 

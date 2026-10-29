@@ -17,10 +17,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
 import { applySummarizeParamsPatch, mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
-import { buildScenario, makeInfo, makeWorkflow } from "../summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, snapshotParams } from "../summarize/fixtures";
 import { extractFeatures } from "./features";
 import { applyRolePolicy, parseRolePolicyConfig } from "./role-policy";
 
@@ -60,10 +59,7 @@ function chainDossier() {
 }
 
 function latestBase() {
-  return mapLegacyToParams(ContextMode.LATEST, {
-    compilationResult: null,
-    schemaInResult: true,
-  });
+  return snapshotParams({ schemaInResult: true });
 }
 
 describe("role policy (Rule A: rich source / lean interior)", () => {
@@ -108,10 +104,7 @@ describe("role policy (Rule A: rich source / lean interior)", () => {
 
   test("no-op on an interleaved (DELTA) trajectory — per-op policy cannot bind", () => {
     const dossier = chainDossier();
-    const deltaBase = mapLegacyToParams(ContextMode.DELTA, {
-      compilationResult: null,
-      schemaInResult: true,
-    });
+    const deltaBase = mapLegacyToParams({ schemaInResult: true });
     expect(applyRolePolicy(deltaBase, dossier, parseRolePolicyConfig({}))).toBe(deltaBase);
   });
 
@@ -224,10 +217,7 @@ describe("applyRolePolicy — char-budget mode (C9/C10)", () => {
 describe("applyRolePolicy — char-budget mode binds on DELTA", () => {
   test("an interleaved trajectory still receives per-operator budgets", () => {
     const dossier = chainDossier();
-    const deltaBase = mapLegacyToParams(ContextMode.DELTA, {
-      compilationResult: null,
-      schemaInResult: true,
-    });
+    const deltaBase = mapLegacyToParams({ schemaInResult: true });
     // the rows/stats legs must still no-op on DELTA...
     const rowsLeg = applyRolePolicy(deltaBase, dossier, parseRolePolicyConfig({ sourceSampleRows: 12 }));
     expect(Object.keys(rowsLeg.operators.overrides)).toHaveLength(0);
@@ -242,10 +232,10 @@ describe("applyRolePolicy — char-budget mode binds on DELTA", () => {
   });
 });
 
-/** `latestBase()` leaves `property.includeCode` at its `false` default; the real
- *  code-on path is server.ts setting `defaults.property.includeCode = true` when
- *  `enableCodeInSnapshot` is set. The code leg only ever SUBTRACTS code (it must
- *  never force code on over a code-off arm), so its tests need that base. */
+/** `latestBase()` leaves `property.includeCode` at its `false` default; a
+ *  code-on arm sets `defaults.property.includeCode = true`. The code leg only
+ *  ever SUBTRACTS code (it must never force code on over a code-off arm), so its
+ *  tests need that base. */
 function codeOnBase() {
   return applySummarizeParamsPatch(latestBase(), {
     operators: { defaults: { property: { includeCode: true } } },

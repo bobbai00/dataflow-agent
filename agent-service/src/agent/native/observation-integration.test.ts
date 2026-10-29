@@ -18,7 +18,7 @@
  */
 
 import { beforeAll, expect, test } from "bun:test";
-import { ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
+import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -29,7 +29,7 @@ import { prepareActions, renderDataflowActionsResult } from "../tools/dataflow-a
 import { prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
 import { columnEntries, describeOperator, operatorBlock } from "./observation-format";
-import { splitOperators, buildNativeFrames } from "../context/summarize/native-frames";
+import { buildNativeFrames } from "../context/summarize/native-frames";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
@@ -330,13 +330,7 @@ test("operator blocks clip long definitions and never show revisions", () => {
   expect(block).not.toContain("revision");
 });
 
-test("new operator blocks split into independent messages and new receipts stay in tool results", () => {
-  const text =
-    "# Current Dataflow\n## Operators\n\n- **a** (scan, executed)\n  - result: 1 rows × 1 columns\nrecords: full\n| x |\n|---|\n| 1 |\n\n- **b** (project, not run)\n  - inputs: `a`\n  - result: not run";
-  const parts = splitOperators(text);
-  expect(parts).toHaveLength(3);
-  expect(parts[1]).toContain("**a**");
-  expect(parts[1]).not.toContain("**b**");
+test("new receipts stay in tool results", () => {
   const step = {
     id: "s",
     role: "agent",

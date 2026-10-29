@@ -187,10 +187,6 @@ export function learnedSelectParams(
   return SummarizeParamsSchema.parse({
     trajectory: { events: "none" },
     currentSnapshot: true,
-    compiledSchemas: false,
-    // Safety flow-alarms are opt-in (config.flowAlarms) — on small tables they can
-    // cost more than the rows the knapsack saves. v1 default = pure cost play.
-    flow: config.flowAlarms ? {} : {},
     operators: {
       // Default = cheapest legible: shape + schema. Overrides lift chosen ops.
       defaults: { result: { latest: { detail: "shape", column: { schema: true } } } },

@@ -52,7 +52,6 @@ export TEXERA_WEB_ADMIN_PORT=@P8081@
 export TEXERA_WEB_PORT=@P8080@
 export TEXERA_WORKFLOW_COMPILING_SERVICE_PORT=@P9090@
 export UDF_PYTHON_PATH=@TEXERA_HOME@/.venv/bin/python
-export WORKFLOW_COMPILING_SERVICE_ENDPOINT=http://localhost:@P9090@
 export WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:@P8085@
 # Model-written Python runs in bubblewrap: no repository, git history or reports (network is not isolated).
 export UDF_PYTHON_PATH=@TEXERA_HOME@/benchmark/retrieval/native_isolated_python.py

@@ -18,9 +18,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode, type ReActStep, type ResultSelection } from "../../types/agent";
+import type { ReActStep, ResultSelection } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
-import { assembleContext, latestNativeActionReceipt } from "../util/context-utils";
+import { assembleContext, latestNativeActionReceipt, type AssembleContextOptions } from "../util/context-utils";
+import { renderText, snapshotParams } from "../context/summarize/fixtures";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
@@ -92,16 +93,23 @@ function fixture() {
   return { state, steps, storage, record, result };
 }
 
-describe("dataflow receipts and observations in LATEST context", () => {
-  test("LATEST retains only the current task's last completed receipt", async () => {
+/** The current-snapshot layout (no events) for the fixture's steps. */
+const snapshotText = (
+  f: Pick<ReturnType<typeof fixture>, "steps" | "state" | "storage">,
+  options: AssembleContextOptions = {}
+) => renderText({ steps: f.steps, workflowState: f.state, storage: f.storage }, snapshotParams(options));
+
+describe("dataflow receipts and observations in the current-snapshot layout", () => {
+  test("the snapshot retains only the current task's last completed receipt", async () => {
     const f = fixture();
     await f.record("write", "", source);
     f.result("write", "source", "visible_after_pull");
     await f.record("read", "", "show result source", ["source"]);
-    const render = (mode: ContextMode) => JSON.stringify(assembleContext(f.steps, f.state, f.storage, mode, {}));
-    expect(render(ContextMode.LATEST)).toContain("Last completed action in this task:");
-    expect(render(ContextMode.LATEST)).toContain("visible_after_pull");
-    expect(render(ContextMode.DELTA)).not.toContain("Last completed action in this task:");
+    expect(snapshotText(f)).toContain("Last completed action in this task:");
+    expect(snapshotText(f)).toContain("visible_after_pull");
+    expect(JSON.stringify(assembleContext(f.steps, f.state, f.storage, {}))).not.toContain(
+      "Last completed action in this task:"
+    );
     const receipt = latestNativeActionReceipt(f.steps)!;
     expect(receipt).toContain("dataflow completed: 1. execute ok; 2. retrieve ok.");
     expect(receipt).not.toContain("data/test.csv");
@@ -111,7 +119,7 @@ describe("dataflow receipts and observations in LATEST context", () => {
     expect(latestNativeActionReceipt([{ ...f.steps[1]!, toolResults: [] }])).toBeUndefined();
   });
 
-  test("LATEST inspection receipt is bounded and does not echo diagnostic content", () => {
+  test("an inspection's receipt is bounded and does not echo diagnostic content", () => {
     const step: ReActStep = {
       id: "inspect",
       messageId: "m",
@@ -132,62 +140,53 @@ describe("dataflow receipts and observations in LATEST context", () => {
     expect(latestNativeActionReceipt([step])!.length).toBeLessThanOrEqual(1200);
   });
 
-  for (const messageLayout of [undefined, "native", "block"] as const) {
-    for (const resultSelection of ["all", "rule", "scoped"] as ResultSelection[]) {
-      test(`LATEST/${messageLayout ?? "default"}/${resultSelection}: upstream edits hide fresh descendants until shown`, async () => {
-        const { state, steps, storage, record, result } = fixture();
-        const text = () =>
-          JSON.stringify(
-            assembleContext(steps, state, storage, ContextMode.LATEST, {
-              resultSelection,
-              messageLayout,
-              flowEvidence: true,
-              dataEvidence: true,
-            })
-          );
+  for (const resultSelection of ["all", "rule", "scoped"] as ResultSelection[]) {
+    test(`${resultSelection}: upstream edits hide fresh descendants until shown`, async () => {
+      const f = fixture();
+      const { storage, record, result } = f;
+      const text = () => snapshotText(f, { resultSelection, flowEvidence: true, dataEvidence: true });
 
-        await record("s1", predicate, [total, selected(0), source, "show result total"].join("\n"), ["total"]);
-        result("s1", "source", "source_private_marker");
-        result("s1", "selected", "selected_old_private_marker");
-        result("s1", "total", "total_old_public_marker");
-        expect(text()).toContain("total_old_public_marker");
-        expect(text()).not.toContain("source_private_marker");
-        expect(text()).not.toContain("selected_old_private_marker");
+      await record("s1", predicate, [total, selected(0), source, "show result total"].join("\n"), ["total"]);
+      result("s1", "source", "source_private_marker");
+      result("s1", "selected", "selected_old_private_marker");
+      result("s1", "total", "total_old_public_marker");
+      expect(text()).toContain("total_old_public_marker");
+      expect(text()).not.toContain("source_private_marker");
+      expect(text()).not.toContain("selected_old_private_marker");
 
-        const revised = await record("s2", "", selected(10));
-        expect(revised.observe).toEqual([]);
-        // Snapshot invalidation follows the actual DAG, including unedited descendants.
-        expect(storage.getOperatorResult("s2", "selected")).toBeUndefined();
-        expect(storage.getOperatorResult("s2", "total")).toBeUndefined();
-        expect(storage.getOperatorResult("s2", "source")?.result).toEqual([{ value: "source_private_marker" }]);
-        // Even equal row counts are a new execution, not proof of unchanged contents.
-        result("s2", "selected", "selected_new_private_marker");
-        result("s2", "total", "total_new_private_marker");
-        const hidden = text();
-        expect(hidden).not.toContain("selected_new_private_marker");
-        expect(hidden).not.toContain("total_new_private_marker");
-        expect(hidden).not.toContain("total_old_public_marker");
-        expect(hidden).toContain("result not requested");
-        for (const id of ["source", "selected", "total"]) expect(hidden).toContain(id);
-        expect(hidden).toContain("'minimum': 10");
+      const revised = await record("s2", "", selected(10));
+      expect(revised.observe).toEqual([]);
+      // Snapshot invalidation follows the actual DAG, including unedited descendants.
+      expect(storage.getOperatorResult("s2", "selected")).toBeUndefined();
+      expect(storage.getOperatorResult("s2", "total")).toBeUndefined();
+      expect(storage.getOperatorResult("s2", "source")?.result).toEqual([{ value: "source_private_marker" }]);
+      // Even equal row counts are a new execution, not proof of unchanged contents.
+      result("s2", "selected", "selected_new_private_marker");
+      result("s2", "total", "total_new_private_marker");
+      const hidden = text();
+      expect(hidden).not.toContain("selected_new_private_marker");
+      expect(hidden).not.toContain("total_new_private_marker");
+      expect(hidden).not.toContain("total_old_public_marker");
+      expect(hidden).toContain("result not requested");
+      for (const id of ["source", "selected", "total"]) expect(hidden).toContain(id);
+      expect(hidden).toContain("'minimum': 10");
 
-        await record("s3", "", "show result total", ["total"]);
-        expect(storage.getOperatorResult("s3", "total")).toEqual(storage.getOperatorResult("s2", "total"));
-        expect(text()).toContain("total_new_private_marker");
-        expect(text()).not.toContain("selected_new_private_marker");
-        expect(text()).not.toContain("total_old_public_marker");
+      await record("s3", "", "show result total", ["total"]);
+      expect(storage.getOperatorResult("s3", "total")).toEqual(storage.getOperatorResult("s2", "total"));
+      expect(text()).toContain("total_new_private_marker");
+      expect(text()).not.toContain("selected_new_private_marker");
+      expect(text()).not.toContain("total_old_public_marker");
 
-        // A new request replaces the LATEST set.
-        await record("s4", "", "show result source", ["source"]);
-        expect(text()).toContain("source_private_marker");
-        expect(text()).not.toContain("total_new_private_marker");
-        expect(storage.getOperatorResult("s1", "total")?.result).toEqual([{ value: "total_old_public_marker" }]);
+      // A new request replaces the shown set.
+      await record("s4", "", "show result source", ["source"]);
+      expect(text()).toContain("source_private_marker");
+      expect(text()).not.toContain("total_new_private_marker");
+      expect(storage.getOperatorResult("s1", "total")?.result).toEqual([{ value: "total_old_public_marker" }]);
 
-        // Unrequested errors always remain actionable.
-        await record("s5", "", selected(20));
-        result("s5", "selected", "", "unrequested_execution_failure_marker");
-        expect(text()).toContain("unrequested_execution_failure_marker");
-      });
-    }
+      // Unrequested errors always remain actionable.
+      await record("s5", "", selected(20));
+      result("s5", "selected", "", "unrequested_execution_failure_marker");
+      expect(text()).toContain("unrequested_execution_failure_marker");
+    });
   }
 });

@@ -24,7 +24,6 @@ interface BackendConfig {
   fileEndpoint: string;
   computingUnitEndpoint: string;
   modelsEndpoint: string;
-  compileEndpoint: string;
   executionEndpoint: string;
 }
 
@@ -33,7 +32,6 @@ const currentConfig: BackendConfig = {
   fileEndpoint: env.TEXERA_FILE_SERVICE_ENDPOINT ?? env.TEXERA_DASHBOARD_SERVICE_ENDPOINT,
   computingUnitEndpoint: env.TEXERA_COMPUTING_UNIT_ENDPOINT ?? env.TEXERA_DASHBOARD_SERVICE_ENDPOINT,
   modelsEndpoint: env.LLM_ENDPOINT,
-  compileEndpoint: env.WORKFLOW_COMPILING_SERVICE_ENDPOINT,
   executionEndpoint: env.WORKFLOW_EXECUTION_SERVICE_ENDPOINT,
 };
 

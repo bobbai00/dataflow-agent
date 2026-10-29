@@ -286,7 +286,7 @@ name (`native/selection.ts`, `selectScopedShapes`):
 
 Formats:
 
-LATEST block (one user message per block, topological order):
+Current-snapshot block (topological order):
 
 ```
 ### aggregate operator `total`
@@ -352,8 +352,7 @@ message), so each step's prompt is the previous prompt plus the new turn. On a
 later user turn the new request is also rendered inline at its chronological
 position (after the previous turn's final answer), so the turn's first prompt
 ends with the request and the turn's later steps extend it. Earlier requests
-appear as `user` messages at their positions. In LATEST the blocks are in
-creation order for the same reason (append-only prompts).
+appear as `user` messages at their positions.
 
 Catalog (`versionedMode`) and session (`sessionTurns`) layouts use
 `messageLayout: "turnSplit"` by default: one user message per finished turn
@@ -372,7 +371,7 @@ notes (quoting, `TRY_CAST`, regex, dates, `NULL`, window functions); build
 rules (several operators per turn; no udf for what a tool does; ratios via
 cross join; preview before scan; non-delimited text via `whitespace` /
 `comment` / `fwf` / `lines`; binary via udf loader; fix in place with the same
-id; delete probes); the context layout for LATEST or DELTA; the result shapes
+id; delete probes); the context layout; the result shapes
 in force (`all`, `rule` or `scoped`); the result-table format; the key principles
 carried over from code mode minus the pandas-specific ones.
 
@@ -381,8 +380,7 @@ carried over from code mode minus the pandas-specific ones.
 | setting | values | default |
 |---|---|---|
 | `resultSelection` | `all`, `rule`, `scoped` | `all` |
-| `contextMode` | `latest`, `delta` | per request |
-| `messageLayout` | `opSplit` (LATEST), `native` (DELTA) | chosen from `contextMode` when unset |
+| `contextMode` | `delta` | `delta` |
 | `execution_timeout_minutes` (harness) | idle timeout of one execution | 4; native arms use 10 (one Python hop over 320k rows ≈ 120 s) |
 
 Harness arms (`benchmark/Kramabench/systems/dataflow_system.py`):

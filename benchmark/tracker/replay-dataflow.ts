@@ -206,7 +206,7 @@ async function jump(snapshots: number) {
 // read-only) is left as the agent has it. The end line lists both.
 const agentSettingKeys = new Set(Object.keys(await call("GET", `${api}/${agentId}/settings`)));
 const unknownSettings = new Set<string>();
-const unpatchable = new Set<string>(["enableCodeInSnapshot"]);
+const unpatchable = new Set<string>();
 async function patchSettings(patch: Record<string, unknown>) {
   for (;;) {
     try {

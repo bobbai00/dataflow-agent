@@ -124,8 +124,7 @@ function clampWide(detail: DetailLevel, isWide: boolean): DetailLevel {
 /**
  * Translate the teacher's per-operator decisions into a validated
  * `SummarizeParams`. Operators the teacher didn't mention default to "shape"
- * (cheap, keeps schema). Flow insurance stays on (renders nothing when the
- * pipeline is clean, so it is ~free). `wideOps` (operators with ≥
+ * (cheap, keeps schema). `wideOps` (operators with ≥
  * `wideClampColumns` columns) are clamped to at most `shape` — the mechanical
  * guardrail against the wide-table cost blow-up.
  */
@@ -140,10 +139,8 @@ export function translateTunerOutput(
     overrides[o.operatorId] = detailToOverride(clampWide(o.detail, wideOps.has(o.operatorId)), rows);
   }
   return SummarizeParamsSchema.parse({
-    trajectory: { events: "none", reasoningReplayK: output.reasoningReplayK ?? 8 },
+    trajectory: { events: "none" },
     currentSnapshot: true,
-    compiledSchemas: false,
-    flow: {},
     operators: {
       defaults: { result: { latest: { detail: "shape", column: { schema: true } } } },
       overrides,

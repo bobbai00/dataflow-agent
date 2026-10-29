@@ -37,7 +37,7 @@ import type { LLMDriver, ContextAssembler } from "../../../src/agent/llm-drivers
 import type { ReActStep } from "../../../src/types/agent";
 import { buildDossier } from "../../../src/agent/context/summarize/dossier";
 import { summarize } from "../../../src/agent/context/summarize/summarize";
-import { latestPreset } from "../../../src/agent/context/summarize/params";
+import { applySummarizeParamsPatch, deltaPreset } from "../../../src/agent/context/summarize/params";
 import { learnedSelectParams } from "../../../src/agent/context/learned/score";
 import { buildUtilityModel } from "../../../src/agent/context/learned/model";
 
@@ -89,7 +89,7 @@ async function readTaskText(dir: string): Promise<string> {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const model = buildUtilityModel(JSON.parse(await fs.readFile(MODEL_PATH, "utf-8")));
-  const latest = latestPreset();
+  const latest = applySummarizeParamsPatch(deltaPreset(), { trajectory: { events: "none" }, currentSnapshot: true });
 
   let dirs = (await fs.readdir(args.traces, { withFileTypes: true }))
     .filter(d => d.isDirectory())
@@ -125,7 +125,7 @@ async function main() {
       if (step.role !== "agent" || !(step.toolCalls && step.toolCalls.length > 0)) continue;
       const prefix = path0.slice(0, i + 1);
       const dossier = buildDossier(prefix, storage);
-      const base = { visibleSteps: prefix, workflowState: ws, snapshotStorage: storage, compilationResult: null, dossier };
+      const base = { visibleSteps: prefix, workflowState: ws, snapshotStorage: storage, dossier };
       try {
         tLatest += summarize(base, latest).breakdown.totalTokens;
         tLearned += summarize(

@@ -159,7 +159,16 @@ describe(`POST ${API}/agents`, () => {
     const created = await readJson<any>(await createAgent());
     const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
     // Removed settings and a misspelled one alike.
-    for (const key of ["agentMode", "maxOperatorResultCellCharLimit", "nativeTransport", "columnStats", "maxStep"]) {
+    for (const key of [
+      "agentMode",
+      "maxOperatorResultCellCharLimit",
+      "thoughtReplay",
+      "messageLayout",
+      "enableCodeInSnapshot",
+      "nativeTransport",
+      "columnStats",
+      "maxStep",
+    ]) {
       const response = await createAgent({ settings: { maxSteps: 7, [key]: true } });
       expect(response.status).toBe(400);
       expect(await readJson<any>(response)).toEqual({ error: `${key} is not a setting` });
@@ -177,7 +186,7 @@ describe(`POST ${API}/agents`, () => {
     expect(response.status).toBe(200);
     const created = await readJson<any>(response);
     expect(created.settings).toEqual(reported);
-    const fixedAtCreation = ["enableCodeInSnapshot", "staticCompaction"];
+    const fixedAtCreation = ["staticCompaction"];
     const patch = Object.fromEntries(Object.entries(reported).filter(([key]) => !fixedAtCreation.includes(key)));
     const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
     expect(patched.status).toBe(200);
@@ -195,7 +204,6 @@ describe(`POST ${API}/agents`, () => {
       { toolTimeoutSeconds: 120 },
       { executionTimeoutMinutes: 10 },
       { maxSteps: 10 },
-      { contextMode: "delta" },
       { parallelToolCalls: false },
       { dataEvidence: true },
       { flowEvidence: false },
@@ -207,16 +215,6 @@ describe(`POST ${API}/agents`, () => {
       expect(patched.status).toBe(200);
       expect(await readJson(patched)).toMatchObject(patch);
     }
-  });
-
-  test("explicit message layout is echoed in create, info and settings", async () => {
-    const response = await createAgent({ settings: { messageLayout: "native" } });
-    const created = await readJson<any>(response);
-    expect(created.settings.messageLayout).toBe("native");
-    const info = await readJson<any>(await getJson(`${API}/agents/${created.id}`));
-    expect(info.settings.messageLayout).toBe("native");
-    const settings = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
-    expect(settings.messageLayout).toBe("native");
   });
 
   test("provider parallel calls stay off through create and PATCH", async () => {
@@ -569,10 +567,14 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect((await patchJson(`${API}/agents/${created.id}/settings`, { instructions: 7 })).status).toBe(400);
   });
 
-  test("rejects contextMode values outside delta|latest with 400", async () => {
-    const created = await readJson<{ id: string }>(await createAgent());
-    const res = await patchJson(`${API}/agents/${created.id}/settings`, { contextMode: "full" });
-    expect(res.status).toBe(400);
+  test("takes contextMode delta, the one context, and rejects any other value with 400", async () => {
+    const created = await readJson<{ id: string; settings: { contextMode: string } }>(await createAgent());
+    expect(created.settings.contextMode).toBe("delta");
+    expect((await patchJson(`${API}/agents/${created.id}/settings`, { contextMode: "delta" })).status).toBe(200);
+    for (const contextMode of ["latest", "full"]) {
+      expect((await createAgent({ settings: { contextMode } })).status).toBe(400);
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, { contextMode })).status).toBe(400);
+    }
   });
 });
 

@@ -50,8 +50,6 @@ spec:
             # forwarding to LiteLLM (mirrors the single-node nginx routing).
             - name: LLM_ENDPOINT
               value: http://{{ .Values.accessControlService.name }}-svc:{{ .Values.accessControlService.service.port }}
-            - name: WORKFLOW_COMPILING_SERVICE_ENDPOINT
-              value: http://{{ .Values.workflowCompilingService.name }}-svc:{{ .Values.workflowCompilingService.service.port }}
             # Per-computing-unit execution endpoint; "{cuid}" is substituted with the
             # computing unit id at request time.
             - name: EXECUTION_ENDPOINT_TEMPLATE

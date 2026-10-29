@@ -17,10 +17,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
 import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
-import { buildScenario, makeInfo, makeWorkflow } from "../summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, snapshotParams } from "../summarize/fixtures";
 import { applyFrontierDecay, parseFrontierDecayConfig } from "./frontier-decay";
 
 function healthyChainDossier(sourceInfo = makeInfo(100)) {
@@ -474,10 +473,7 @@ function firstHealthyConsumerAfterRewriteDossier() {
 }
 
 function richLatestParams() {
-  return mapLegacyToParams(ContextMode.LATEST, {
-    compilationResult: null,
-    schemaInResult: true,
-  });
+  return snapshotParams({ schemaInResult: true });
 }
 
 describe("frontier decay", () => {
@@ -577,10 +573,7 @@ describe("frontier decay", () => {
   });
 
   test("does not apply the current-snapshot policy to delta history", () => {
-    const delta = mapLegacyToParams(ContextMode.DELTA, {
-      compilationResult: null,
-      schemaInResult: true,
-    });
+    const delta = mapLegacyToParams({ schemaInResult: true });
 
     expect(applyFrontierDecay(delta, healthyChainDossier(), parseFrontierDecayConfig({}))).toEqual(delta);
   });

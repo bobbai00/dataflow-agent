@@ -34,7 +34,6 @@ const EnvSchema = z.object({
   TEXERA_FILE_SERVICE_ENDPOINT: z.string().url().optional(),
   TEXERA_COMPUTING_UNIT_ENDPOINT: z.string().url().optional(),
   LLM_ENDPOINT: z.string().url().default("http://localhost:9096"),
-  WORKFLOW_COMPILING_SERVICE_ENDPOINT: z.string().url().default("http://localhost:9090"),
   WORKFLOW_EXECUTION_SERVICE_ENDPOINT: z.string().url().default("http://localhost:8085"),
   /** The trace database: a path, ":memory:", or "off". Unset: logs/agent-service/traces.db (see trace-store.ts). */
   AGENT_TRACE_DB: z.string().optional(),

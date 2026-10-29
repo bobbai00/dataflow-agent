@@ -18,7 +18,6 @@
  */
 import type { ModelMessage } from "ai";
 import type { ContextAssembler } from "./types";
-import { ContextMode } from "../../types/agent";
 
 /** An experimental service policy, disabled by default. This is a calibrated
  * estimate of the full input, not a provider tokenizer or total input+output cap. */
@@ -139,8 +138,6 @@ export function budgetContextAssembler(
 ): ContextAssembler {
   if (!policy.tokens) return assemble;
   return async input => {
-    if (input.settings.contextMode !== ContextMode.DELTA)
-      throw new Error("Full input budget experiment requires delta context");
     const fixed = fixedInput();
     const overhead = estimateFullInput(projectChatInput([], fixed), policy.scale);
     if (overhead >= policy.tokens) throw new InputBudgetError(overhead, policy.tokens);

@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import { createAgent, deleteAgent, getReActSteps, getSnapshot } from "../../src/api/agent-service-api";
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
 import { env } from "../../src/config/env";
-import { ContextMode, type RetrievalView } from "../../src/types/agent";
+import type { RetrievalView } from "../../src/types/agent";
 import { buildRegisteredNativeSystemPrompt } from "../../src/agent/prompts";
 import { WorkflowState } from "../../src/agent/workflow-state";
 import { renderDataflowActionsResult, type DataflowActionsResult } from "../../src/agent/tools/dataflow-actions";
@@ -181,7 +181,6 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
       views = retrievalViews;
       const settings = {
         contextMode: "delta" as const,
-        messageLayout: "native" as const,
         retrievalViews,
         nativeProfileCollection: true,
         nativeProfileScope: "full" as const,
@@ -212,7 +211,7 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
       save(`${cell}-resource.json`, resource);
       const info = await json(`${baseUrl}/api/agents/${agent.id}/system-info`);
       save(`${cell}-system-info.json`, info);
-      assert.equal(info.systemPrompt, buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings));
+      assert.equal(info.systemPrompt, buildRegisteredNativeSystemPrompt(settings));
       assert.equal(info.systemPrompt.includes("Column statistics in `sample_stats`"), data);
       assert.equal(info.systemPrompt.includes("Flow statistics report measured effects"), flow);
       assert.equal(info.systemPrompt.includes("sample_stats"), data);

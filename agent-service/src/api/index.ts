@@ -21,7 +21,6 @@ export * from "./backend-api";
 export * from "./execution-api";
 export * from "./workflow-api";
 export * from "./auth-api";
-export * from "./compile-api";
 export * from "./login-api";
 export * from "./dataset-api";
 export * from "./computing-unit-api";

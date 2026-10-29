@@ -245,7 +245,6 @@ CREATE TABLE IF NOT EXISTS steps (
   reasoning_tokens INTEGER,
   input_messages INTEGER,
   input_chars INTEGER,
-  compile_ms INTEGER,
   context_ms INTEGER,
   model_ms INTEGER,
   post_step_ms INTEGER,
@@ -459,8 +458,13 @@ export class TraceStore {
       for (const table of stale) this.db.run(`ALTER TABLE ${table} RENAME TO ${table}_unkeyed`);
       this.db.exec(SCHEMA);
       for (const table of stale) {
+        // Only the columns the current schema has are copied; the rest are dropped with the old table.
+        const current = new Set(
+          (this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(column => column.name)
+        );
         const columns = (this.db.query(`PRAGMA table_info(${table}_unkeyed)`).all() as Array<{ name: string }>)
           .map(column => column.name)
+          .filter(column => current.has(column))
           .join(", ");
         // An operator row belongs to the agent whose snapshot held it last.
         if (table === "snapshot_operators")
@@ -565,9 +569,9 @@ export class TraceStore {
         .query(
           `INSERT OR REPLACE INTO steps (id, agent_id, message_id, parent_id, step_number, role, source, correction, at,
              is_begin, is_end, end_reason, content, reasoning, tool_calls, input_tokens, output_tokens, total_tokens,
-             cached_input_tokens, reasoning_tokens, input_messages, input_chars, compile_ms, context_ms, model_ms,
-             post_step_ms, step)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             cached_input_tokens, reasoning_tokens, input_messages, input_chars, context_ms, model_ms, post_step_ms,
+             step)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           step.id,
@@ -592,7 +596,6 @@ export class TraceStore {
           count(usage?.reasoningTokens),
           inputMessages?.length ?? null,
           inputChars ?? null,
-          count(step.timing?.compileMs),
           count(step.timing?.contextMs),
           count(step.timing?.modelMs),
           count(step.timing?.postStepMs),

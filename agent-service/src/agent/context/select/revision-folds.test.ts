@@ -17,10 +17,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
-import { assembleContext } from "../../util/context-utils";
 import { buildDossier } from "../summarize/dossier";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../summarize/fixtures";
+import { mapLegacyToParams } from "../summarize/params";
+import { buildScenario, makeInfo, makeWorkflow, renderText, type Scenario } from "../summarize/fixtures";
 import { computeRevisionFolds, parseFoldResolvedRevisionsConfig } from "./revision-folds";
 
 const CODE_V1 = "def load():\n    return pd.read_csv('data/damage.csv', encoding='utf-8')";
@@ -416,25 +415,14 @@ describe("computeRevisionFolds", () => {
 describe("fold-resolved-revisions rendering (DELTA)", () => {
   test("flag off renders the superseded code verbatim; flag on folds it to the resolution fact", () => {
     const scenario = resolvedLoaderScenario();
-    const baseOptions = {
-      compilationResult: null,
-      includeOperatorProperties: true,
-      maxResultRows: 10,
-    } as const;
+    const baseOptions = { maxResultRows: 10 } as const;
 
-    const off = assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-      ...baseOptions,
-    });
-    const offText = String(off[0].content);
+    const offText = renderText(scenario, mapLegacyToParams(baseOptions));
     expect(offText).toContain("encoding='utf-8'");
     expect(offText).toContain("UnicodeDecodeError");
     expect(offText).not.toContain("(folded — superseded revision");
 
-    const on = assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-      ...baseOptions,
-      foldResolvedRevisions: true,
-    });
-    const onText = String(on[0].content);
+    const onText = renderText(scenario, mapLegacyToParams({ ...baseOptions, foldResolvedRevisions: true }));
     // The superseded v1 code body is folded; the resolving v2 code stays raw.
     expect(onText).not.toContain("encoding='utf-8'");
     expect(onText).toContain("encoding='cp1252'");
@@ -464,17 +452,9 @@ describe("fold-resolved-revisions rendering (DELTA)", () => {
     scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "loader", type: "DataLoading" }]));
     scenario.storage.setOperatorResult("a1", "loader", makeInfo(100));
 
-    const opts = { compilationResult: null, maxResultRows: 10 } as const;
-    const off = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, { ...opts })[0]
-        .content
-    );
-    const on = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-        ...opts,
-        foldResolvedRevisions: true,
-      })[0].content
-    );
+    const opts = { maxResultRows: 10 } as const;
+    const off = renderText(scenario, mapLegacyToParams(opts));
+    const on = renderText(scenario, mapLegacyToParams({ ...opts, foldResolvedRevisions: true }));
     expect(on).toBe(off);
   });
 });

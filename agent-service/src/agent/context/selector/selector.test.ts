@@ -35,10 +35,7 @@ function renderWith(config = DEFAULT_SELECTOR_CONFIG) {
   const params = selectParams(dossier, config);
   return {
     params,
-    text: summarize(
-      { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null, dossier },
-      params
-    ).text,
+    text: summarize({ visibleSteps: steps, workflowState, snapshotStorage: storage, dossier }, params).text,
   };
 }
 function opBlock(text: string, id: string): string {
@@ -109,12 +106,6 @@ describe("selectParams — per-operator allocation", () => {
     expect(p.result.latest.detail).toBe("sample");
     expect(Object.hasOwn(p.result.latest.column ?? {}, "stats")).toBe(false);
   });
-
-  test("flow insurance is on and error-reflection fires under thrash", () => {
-    expect(Object.hasOwn(params.flow ?? {}, "errorContext")).toBe(false);
-    expect(Object.hasOwn(params.flow ?? {}, "loaderHints")).toBe(false);
-    expect(params.flow.errorReflection).toBe(true);
-  });
 });
 
 /* ============================================================================
@@ -125,11 +116,6 @@ describe("SelectorConfig knobs move the policy", () => {
   test("raising thrashHistoryThreshold suppresses history", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ thrashHistoryThreshold: 10 }));
     expect(resolveOperatorParams(p, "by_region").property.codeHistory).toBe(0);
-  });
-  test("insurance=false drops the flow rungs", () => {
-    const p = selectParams(dossierOf(), parseSelectorConfig({ insurance: false }));
-    expect(Object.hasOwn(p.flow ?? {}, "loaderHints")).toBe(false);
-    expect(Object.hasOwn(p.flow ?? {}, "errorContext")).toBe(false);
   });
   test("frontierSampleRows flows through to the frontier op", () => {
     const p = selectParams(dossierOf(), parseSelectorConfig({ frontierSampleRows: 3 }));
@@ -225,11 +211,5 @@ describe("selector → summarize render", () => {
     // settled interior default is shape — but the rich fixture's leaf has no
     // pure-interior op; assert the near-frontier source still shows its table
     expect(opBlock(text, "sales")).toContain("Output Table: 1000 rows");
-  });
-
-  test("insurance flows section appears (needs-attention)", () => {
-    const { text } = renderWith();
-    expect(text).not.toContain("# Operators needing attention");
-    expect(text).toContain("# Reasoning (your recent steps)");
   });
 });

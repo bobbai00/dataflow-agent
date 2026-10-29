@@ -19,7 +19,6 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { ContextMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -65,14 +64,10 @@ function fixture(replies: Reply[]) {
     agentId: "turn-tool",
     modelType: "test",
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
-    contextAssembler: input =>
-      assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, ContextMode.DELTA, {
-        messageLayout: "native",
-      }),
+    contextAssembler: input => assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {}),
   });
   agent.updateSettings({
     maxSteps: 25,
-    thoughtReplay: false,
     retrievalViews: ["sample", "full"],
   });
   // No engine in a unit test: every operator "executes" to one row.

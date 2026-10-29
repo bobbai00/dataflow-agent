@@ -26,7 +26,7 @@ import type { OperatorInfo } from "../../types/execution";
 import { REPAIR_HINTS, formatNativeDiagnostic, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { assembleContext } from "../util/context-utils";
-import { ContextMode, type ReActStep } from "../../types/agent";
+import type { ReActStep } from "../../types/agent";
 
 const revision = "0123456789abcdef";
 test("a multi-file scan gets a repair hint that can be applied to its definition", () => {
@@ -270,7 +270,7 @@ test("a wrong-revision payload cannot borrow the current submitted source", () =
   expect(rendered).not.toContain("GENERATED_BOILERPLATE");
 });
 
-test("V2 process code/reflection and flow-error decorations use submitted code and bounded diagnostics", () => {
+test("V2 process code and flow-error decorations use submitted code and bounded diagnostics", () => {
   for (const failed of [false, true]) {
     const { op, info, state } = fixture();
     const steps: ReActStep[] = [];
@@ -304,13 +304,7 @@ test("V2 process code/reflection and flow-error decorations use submitted code a
         failed ? info : { state: "Completed", inputTuples: 1, outputTuples: 1, resultMode: "table", result: [{ x: 1 }] }
       );
     }
-    const rendered = JSON.stringify(
-      assembleContext(steps, state, storage, ContextMode.LATEST, {
-        attemptReflection: true,
-        opExtras: () =>
-          ({ detail: "shape", includeCode: true, column: {}, tuple: {}, codeHistory: [], resultHistory: [] }) as any,
-      })
-    );
+    const rendered = JSON.stringify(assembleContext(steps, state, storage, {}));
     expect(rendered.includes("GENERATED_BOILERPLATE")).toBe(false);
     expect(rendered).not.toContain("NATIVE_ERROR_V2:");
     if (failed) expect(rendered).toContain("CALLBACK_RUNTIME");

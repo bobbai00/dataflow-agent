@@ -21,7 +21,6 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { asSchema } from "ai";
-import { ContextMode } from "../src/types/agent";
 import { buildRegisteredNativeSystemPrompt } from "../src/agent/prompts";
 import { registeredCatalogText } from "../src/agent/native/registered";
 import { createDataflowTool } from "../src/agent/tools/turn-tool";
@@ -93,14 +92,14 @@ export function renderOperators(): string {
 
 export function renderAll(): Record<string, string> {
   return {
-    "../docs/native-registered-python-system-prompt.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA),
+    "../docs/native-registered-python-system-prompt.txt": buildRegisteredNativeSystemPrompt(),
     "SYSTEM_PROMPT.md": renderSystemPrompt(),
-    "SYSTEM_PROMPT.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA),
-    "SYSTEM_PROMPT_WITH_EVIDENCE.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+    "SYSTEM_PROMPT.txt": buildRegisteredNativeSystemPrompt(),
+    "SYSTEM_PROMPT_WITH_EVIDENCE.txt": buildRegisteredNativeSystemPrompt({
       ...EVIDENCE_OPTIONS,
       retrievalViews: [...EVIDENCE_OPTIONS.retrievalViews],
     }),
-    "SYSTEM_PROMPT_CATALOG.txt": buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { multiRequest: "catalog" }),
+    "SYSTEM_PROMPT_CATALOG.txt": buildRegisteredNativeSystemPrompt({ multiRequest: "catalog" }),
     "TOOLS.md": renderTools(),
     "OPERATORS.md": renderOperators(),
   };

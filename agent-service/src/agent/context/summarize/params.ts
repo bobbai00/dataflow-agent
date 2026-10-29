@@ -21,11 +21,10 @@
  * THE SUMMARIZE PARAMETER SPACE.
  *
  * `summarize(input, params)` is the single centralized context renderer; this
- * module defines its tunable parameter schema. The legacy LATEST / DELTA
- * context modes are nothing special here — they are two named PRESETS (two
- * points in this space), produced by `mapLegacyToParams` from the agent's
- * settings. A future tuner emits a `SummarizeParams` object instead of
- * choosing between hardcoded modes.
+ * module defines its tunable parameter schema. The agent's DELTA context is
+ * nothing special here — it is a named PRESET (a point in this space),
+ * produced by `mapLegacyToParams` from the agent's settings. A future tuner
+ * emits a `SummarizeParams` object instead.
  *
  * Design invariants:
  *  - ORTHOGONALITY: every combination of parameters is valid and renderable.
@@ -44,7 +43,6 @@
 
 import { observationFormat } from "../../native/observation-format";
 import { z } from "zod";
-import { ContextMode } from "../../../types/agent";
 import type { AssembleContextOptions } from "../../util/context-utils";
 
 /* ============================================================================
@@ -113,9 +111,6 @@ export type ResultRender = z.infer<typeof ResultRenderSchema>;
  * ========================================================================= */
 
 export const PropertyParamsSchema = z.object({
-  /** Render non-code `operatorProperties` as a `Properties:` line. (Python
-   *  code operators always strip the code blob from Properties.) */
-  includeProperties: z.boolean().default(true),
   /** Render the operator's CURRENT code as a `Code:` block. Off by default —
    *  errors already carry the code inline; this is the opt-in for healthy ops. */
   includeCode: z.boolean().default(false),
@@ -203,22 +198,12 @@ export type OperatorParamsOverride = z.infer<typeof OperatorParamsOverrideSchema
  * ========================================================================= */
 
 export const TrajectoryParamsSchema = z.object({
-  /** "none" ⇒ no events section (the legacy LATEST shape); "interleaved" ⇒
-   *  every event as Thought/Action[/Observation] in order (the legacy DELTA
-   *  shape). */
+  /** "none" ⇒ no events section, the current snapshot alone; "interleaved" ⇒
+   *  every event as Thought/Action[/Observation] in order (the DELTA shape). */
   events: z.enum(["none", "interleaved"]).default("none"),
   /** Per-event delta Observations under each interleaved event. "none" keeps
    *  Thought/Action only. */
   observations: z.enum(["delta", "none"]).default("delta"),
-  /** Thought-replay block: the last K agent events as thought + compressed
-   *  actions (`# Reasoning`), plus per-operator `Last edited:` back-pointers.
-   *  0 ⇒ off. Renders only when events === "none" (interleaved events already
-   *  show thoughts inline). */
-  reasoningReplayK: z.number().int().min(0).default(0),
-  /** `# Agent Turns`: the full Thought/Action trajectory section on top of the
-   *  current-snapshot core (fuller alternative to reasoningReplayK). Renders
-   *  only when events === "none". */
-  agentTurns: z.boolean().default(false),
   /** Token budget for the assembled context. 0 ⇒ unbounded. When exceeded and
    *  events are interleaved, compaction fires per `compaction`. */
   windowTokens: z.number().int().min(0).default(0),
@@ -251,18 +236,6 @@ export const TrajectoryParamsSchema = z.object({
 });
 export type TrajectoryParams = z.infer<typeof TrajectoryParamsSchema>;
 
-export const FlowParamsSchema = z
-  .object({
-    /** Fold per-operator attempt/error history into errored operators' blocks. */
-    errorReflection: z.boolean().default(false),
-    /** Consecutive same-op edits before the folded history shows. */
-    errorReflectionThreshold: z.number().int().min(1).default(3),
-    /** `Attempt reflection:` block on heavily-edited operators. */
-    attemptReflection: z.boolean().default(false),
-  })
-  .strict();
-export type FlowParams = z.infer<typeof FlowParamsSchema>;
-
 export const SummarizeParamsSchema = z.object({
   /** The two evidence controls and their shared result budget. */
   nativeEvidence: z
@@ -293,23 +266,16 @@ export const SummarizeParamsSchema = z.object({
    *  The legacy DELTA shape sets this false — state lives inline in the
    *  interleaved observations. */
   currentSnapshot: z.boolean().default(true),
-  /** Attach compiler-derived input/output schemas + compilation errors to the
-   *  current snapshot's operator blocks (needs a compilationResult input;
-   *  legacy: GENERAL mode only). */
-  compiledSchemas: z.boolean().default(false),
   /** Native-mode result selection for the current snapshot (see
    *  AgentSettings.resultSelection): "all" renders every result block,
    *  "rule" ships only what the data decided. */
   resultSelection: z.enum(["all", "rule", "scoped"]).default("all"),
-  flow: FlowParamsSchema.default({}),
   operators: z
     .object({
       defaults: OperatorParamsSchema.default({}),
       overrides: z.record(z.string(), OperatorParamsOverrideSchema).default({}),
     })
     .default({}),
-  /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
-  messageLayout: z.enum(["block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"]).optional(),
 });
 export type SummarizeParams = z.infer<typeof SummarizeParamsSchema>;
 
@@ -324,8 +290,6 @@ export function parseSummarizeParams(raw: unknown): SummarizeParams {
 export const SummarizeParamsPatchSchema = z.object({
   trajectory: TrajectoryParamsSchema.partial().optional(),
   currentSnapshot: z.boolean().optional(),
-  compiledSchemas: z.boolean().optional(),
-  flow: FlowParamsSchema.partial().optional(),
   operators: z
     .object({
       defaults: OperatorParamsOverrideSchema.optional(),
@@ -374,20 +338,17 @@ export function resolveOperatorParams(params: SummarizeParams, opId: string): Op
 }
 
 /* ============================================================================
- *  Legacy mapping — the two presets as points in the space
+ *  Legacy mapping — the agent's context as a point in the space
  * ========================================================================= */
 
 /**
- * Map the legacy `(ContextMode, AssembleContextOptions)` pair into the
- * summarize parameter space. This is the single source of truth for what the
- * legacy knobs MEAN: LATEST and DELTA come out as two presets; every other
- * legacy flag lands on exactly one parameter. Round-trip guarantee: rendering
- * with the mapped params is byte-identical to the legacy render (enforced by
- * the golden characterization tests).
+ * Map the legacy `AssembleContextOptions` into the summarize parameter space.
+ * This is the single source of truth for what the legacy knobs MEAN: the
+ * DELTA preset, with every other legacy flag landing on exactly one parameter.
+ * Round-trip guarantee: rendering with the mapped params is byte-identical to
+ * the legacy render (enforced by the golden characterization tests).
  */
-export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOptions): SummarizeParams {
-  const isLatest = mode === ContextMode.LATEST;
-
+export function mapLegacyToParams(options: AssembleContextOptions): SummarizeParams {
   return SummarizeParamsSchema.parse({
     nativeEvidence: options.nativeEvidence ?? {
       ...observationFormat(options),
@@ -397,10 +358,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       ...(options.nativeChecks === true ? { checks: true } : {}),
     },
     trajectory: {
-      events: isLatest ? "none" : "interleaved",
+      events: "interleaved",
       observations: "delta",
-      reasoningReplayK: options.thoughtReplay ? (options.thoughtReplayK ?? 10) : 0,
-      agentTurns: options.agentTurns ?? false,
       windowTokens: options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : 0,
       compaction: options.compactionStrategy ?? "compress",
       deckSampleRatio: options.deckSampleRatio ?? 0.1,
@@ -414,19 +373,11 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
     },
     // DELTA has no `# Current Dataflow` section: state lives inline in the
     // events' observations.
-    currentSnapshot: isLatest,
-    compiledSchemas: false,
+    currentSnapshot: false,
     resultSelection: options.resultSelection ?? "all",
-    messageLayout: options.messageLayout,
-    flow: {
-      errorReflection: options.errorReflection ?? false,
-      errorReflectionThreshold: options.errorReflectionThreshold ?? 3,
-      attemptReflection: options.attemptReflection ?? false,
-    },
     operators: {
       defaults: {
         property: {
-          includeProperties: options.includeOperatorProperties !== false,
           // DELTA's event log is where an operator's code lives.
           includeCode: false,
           codeHistory: 0,
@@ -448,22 +399,8 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
   });
 }
 
-/** The legacy LATEST context mode as a point in the parameter space, at the
- *  server's default agent settings (thoughtReplay on, K=10, properties on). */
-export function latestPreset(): SummarizeParams {
-  return mapLegacyToParams(ContextMode.LATEST, {
-    compilationResult: null,
-    includeOperatorProperties: true,
-    thoughtReplay: true,
-    thoughtReplayK: 10,
-  });
-}
-
-/** The legacy DELTA context mode as a point in the parameter space, at the
- *  server's default agent settings. */
+/** The DELTA context as a point in the parameter space, at the server's
+ *  default agent settings. */
 export function deltaPreset(): SummarizeParams {
-  return mapLegacyToParams(ContextMode.DELTA, {
-    compilationResult: null,
-    includeOperatorProperties: true,
-  });
+  return mapLegacyToParams({});
 }

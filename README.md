@@ -196,7 +196,7 @@ An agent created with no `settings` uses
 
 | Setting | Default | What it gives the model |
 |---|---|---|
-| `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
+| `contextMode` | `delta` (the only context) | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
@@ -210,15 +210,15 @@ An agent created with no `settings` uses
 | `maxSteps` | `100` | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `false` | provider-side parallel calls; always off |
-| `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 
 Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
 Increasing a retrieval budget does not recover records absent from an earlier
 execution. See [Retrieval views](docs/retrieval-views.md) for the tool contract,
 prompt behavior, result caching and experiment driver.
 A key that is not a setting, such as a retired one (`agentMode`,
-`nativeToolMode`, `allowedOperatorTypes`, the old level/statistics overlays), is
-refused with a 400 that names it (`<key> is not a setting`), not translated.
+`thoughtReplay`, `messageLayout`, `nativeToolMode`, `allowedOperatorTypes`, the
+old level/statistics overlays), is refused with a 400 that names it (`<key> is
+not a setting`), not translated.
 `inspectResult` is not a tool. For the evidence formulas, budgets and rendered
 examples of all four evidence configurations, see
 [Data and flow evidence](docs/data-flow-evidence.md).

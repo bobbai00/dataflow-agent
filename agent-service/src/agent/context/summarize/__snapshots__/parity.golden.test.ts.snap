@@ -1,81 +1,6 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`golden — LATEST default (thoughtReplay on, as DEFAULT_AGENT_SETTINGS) 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Reasoning (your recent steps)
-
-Step 2: "Inspect the raw file first to find the real header row."
-  created \`inspect_sales\` → ok
-Step 3: "Header is at row 2 — write the real loader; also stage the regions lookup."
-  created \`sales\` → ok
-  created \`orphan_load\` → ok
-Step 4: "Aggregate revenue by region and drop the inspection scaffold."
-  created \`by_region\` → ok
-  deleted \`inspect_sales\` → ok
-Step 5: "The groupby failed — fix the aggregation code."
-  modified \`by_region\` → ERROR Python syntax error: Line 1: invalid syntax
-Step 6: "Fix the syntax and add the sorted report downstream."
-  modified \`by_region\` → ok
-  created \`report\` → ok
-Step 8: "by_region is still failing on the 'region' column — I need to fix that before answering."
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Last edited: step 3
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  2	North	5.25	$5.25	2023-01-05
-  ...	...	...	...	...
-  997	South	42	$42.00	2023-12-27
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Last edited: step 3
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Last edited: step 6
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Last edited: step 6
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)"
-`;
-
-exports[`golden — LATEST plain (no reinjection rungs) 1`] = `
+exports[`golden — current snapshot no events, every operator's block 1`] = `
 "# User Task
 
 Also, which region has the max revenue?
@@ -122,209 +47,6 @@ Result:
   def process(sales):
       df = sales.copy()
       return df.groupby('region')['amount'].sum().reset_index()
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)"
-`;
-
-exports[`golden — LATEST agentTurns trajectory section 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Agent Turns
-
-## User Event 1
-
-Load data/sales.csv and compute total revenue per region.
-
-## Agent Event 2
-
-Thought: Inspect the raw file first to find the real header row.
-
-Action:
-- createOrModifyOperator
-    operatorId: inspect_sales
-    summary: Inspect first 30 raw rows of sales.csv
-    code:
-      def load():
-          return pd.read_csv('data/sales.csv', dtype=str, header=None, nrows=30)
-
-## Agent Event 3
-
-Thought: Header is at row 2 — write the real loader; also stage the regions lookup.
-
-Action:
-- createOrModifyOperator
-    operatorId: sales
-    summary: Load sales.csv skipping 2 preamble rows
-    code:
-      def load():
-          return pd.read_csv('data/sales.csv', skiprows=2)
-- createOrModifyOperator
-    operatorId: orphan_load
-    summary: Load regions_lookup.csv
-    code:
-      def load():
-          return pd.read_csv('data/regions_lookup.csv')
-
-## Agent Event 4
-
-Thought: Aggregate revenue by region and drop the inspection scaffold.
-
-Action:
-- createOrModifyOperator
-    operatorId: by_region
-    summary: From \`sales\`, sum \`amount\` by \`region\`
-    code:
-      def process(sales):
-          return sales.groupby('region')['amount'].sum().reset_index()
-- deleteOperator
-    operatorId: inspect_sales
-
-## Agent Event 5
-
-Thought: The groupby failed — fix the aggregation code.
-
-Action:
-- createOrModifyOperator
-    operatorId: by_region
-    summary: From \`sales\`, sum \`amount\` by \`region\`
-    code:
-      def process(sales)
-          return sales.groupby('region')['amount'].sum().reset_index()
-
-## Agent Event 6
-
-Thought: Fix the syntax and add the sorted report downstream.
-
-Action:
-- createOrModifyOperator
-    operatorId: by_region
-    summary: From \`sales\`, sum \`amount\` by \`region\`
-    code:
-      def process(sales):
-          df = sales.copy()
-          return df.groupby('region')['amount'].sum().reset_index()
-- createOrModifyOperator
-    operatorId: report
-    summary: From \`by_region\`, sort by \`amount\` desc
-    code:
-      def process(by_region):
-          return by_region.sort_values('amount', ascending=False)
-
-## Agent Event 8
-
-Thought: by_region is still failing on the 'region' column — I need to fix that before answering.
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  2	North	5.25	$5.25	2023-01-05
-  ...	...	...	...	...
-  997	South	42	$42.00	2023-12-27
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)"
-`;
-
-exports[`golden — LATEST reflection rungs (errorReflection + attemptReflection) 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  2	North	5.25	$5.25	2023-01-05
-  ...	...	...	...	...
-  997	South	42	$42.00	2023-12-27
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
-You have modified this operator 3 times; 1 failed with an error.
-Diff from your previous modification:
-  - def process(sales)
-  - return sales.groupby('region')['amount'].sum().reset_index()
-  + def process(sales):
-  + df = sales.copy()
-  + return df.groupby('region')['amount'].sum().reset_index()
-Attempt reflection: you have edited operator \`by_region\` 3 times; 2 prior variant(s) did not converge.
-Latest result: [ERROR] KeyError: 'region' at line 2 of your code
-Do NOT submit another near-variant. Change strategy: inspect this operator's UPSTREAM result/columns for a wrong assumption, try a DIFFERENT decomposition, or build the answer from a different operator.
 
 ### Operator \`report\` (DataProcessing)
 Summary: From \`by_region\`, sort by \`amount\` desc
@@ -333,11 +55,7 @@ Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)
 `;
 
 exports[`golden — DELTA default (lossless) 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Agent Events
+"# Agent Events
 
 ## User Event 1
 
@@ -477,17 +195,17 @@ Observation:
   Inputs: by_region
   result: (not executed)
 
+## User Event 7
+
+Also, which region has the max revenue?
+
 ## Agent Event 8
 
 Thought: by_region is still failing on the 'region' column — I need to fix that before answering."
 `;
 
 exports[`golden — DELTA Schema line in observations 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Agent Events
+"# Agent Events
 
 ## User Event 1
 
@@ -629,17 +347,17 @@ Observation:
   Inputs: by_region
   result: (not executed)
 
+## User Event 7
+
+Also, which region has the max revenue?
+
 ## Agent Event 8
 
 Thought: by_region is still failing on the 'region' column — I need to fix that before answering."
 `;
 
 exports[`golden — DELTA windowed — sliding compaction 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Agent Events
+"# Agent Events
 
 (… 3 earlier events omitted to fit the context budget …)
 
@@ -693,6 +411,10 @@ Observation:
 - operator report added
   Inputs: by_region
   result: (not executed)
+
+## User Event 7
+
+Also, which region has the max revenue?
 
 ## Agent Event 8
 
@@ -755,6 +477,10 @@ Inputs: by_region
 Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)
 
 # Agent Events (since the compacted snapshot above)
+
+## User Event 7
+
+Also, which region has the max revenue?
 
 ## Agent Event 8
 

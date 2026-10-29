@@ -18,11 +18,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
 import {
   deepMerge,
   deltaPreset,
-  latestPreset,
   mapLegacyToParams,
   parseSummarizeParams,
   resolveOperatorParams,
@@ -76,14 +74,7 @@ describe("SummarizeParams schema", () => {
   });
 });
 
-describe("mapLegacyToParams — the presets", () => {
-  test("LATEST maps to events:none + currentSnapshot", () => {
-    const p = latestPreset();
-    expect(p.trajectory.events).toBe("none");
-    expect(p.currentSnapshot).toBe(true);
-    expect(p.trajectory.reasoningReplayK).toBe(10); // server default thoughtReplay on
-  });
-
+describe("mapLegacyToParams — the DELTA preset", () => {
   test("DELTA maps to events:interleaved without a currentSnapshot section", () => {
     const p = deltaPreset();
     expect(p.trajectory.events).toBe("interleaved");
@@ -92,17 +83,13 @@ describe("mapLegacyToParams — the presets", () => {
   });
 
   test("legacy-mapped params never trigger the extras path (parity guarantee)", () => {
-    expect(needsExtras(latestPreset())).toBe(false);
     expect(needsExtras(deltaPreset())).toBe(false);
     // …including with every legacy knob turned on:
-    const maxed = mapLegacyToParams(ContextMode.LATEST, {
-      compilationResult: null,
-      thoughtReplay: true,
-      agentTurns: true,
-      errorReflection: true,
-      attemptReflection: true,
+    const maxed = mapLegacyToParams({
       maxResultRows: 5,
       contextWindowTokens: 1000,
+      staticCompaction: true,
+      schemaInResult: true,
     });
     expect(needsExtras(maxed)).toBe(false);
   });

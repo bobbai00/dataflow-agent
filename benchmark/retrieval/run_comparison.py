@@ -126,7 +126,7 @@ def main():
         "settings": {"contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
                      "fullResultCharLimit": 100000, "dataEvidenceCharLimit": 2000,
-                     "flowEvidenceCharLimit": 2000, "thoughtReplay": False, "enableCodeInSnapshot": False},
+                     "flowEvidenceCharLimit": 2000},
         "script_settings": {"max_steps": 25, "max_print_outputs_length": args.script_chars,
                             "use_custom_prompt": True, "use_fine_grained_prompt": False,
                             "use_pitfalls_prompt": False, "no_action_detail": False,

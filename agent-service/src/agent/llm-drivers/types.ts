@@ -21,23 +21,18 @@ import type { ModelMessage } from "ai";
 import type { ReActStep, TokenUsage, AgentSettings, LocalToolDialect } from "../../types/agent";
 import type { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
-import type { WorkflowCompilationResponse } from "../../api/compile-api";
 
 /**
  * Bag of agent state a context assembler reads from when rendering the
  * next prepareStep message. Each assembler ignores fields it doesn't need
  * — the SDK-driver assembler uses every field; the local-react assembler
  * uses only `visibleSteps`, `workflowState`, and `snapshotStorage`.
- *
- * `compilationResult` is `null` whenever the agent intentionally skipped
- * compilation (e.g. `getNextStepContext()` previews or empty workflows).
  */
 export interface ContextAssemblerInput {
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
-  compilationResult: WorkflowCompilationResponse | null;
   /** GLOBAL turn number per messageId (ask order over the whole session). */
   turnNumberByMessageId?: Map<string, number>;
 }

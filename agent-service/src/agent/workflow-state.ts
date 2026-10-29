@@ -22,9 +22,6 @@ import type {
   OperatorPredicate,
   OperatorLink,
   WorkflowContent,
-  LogicalPlan,
-  LogicalOperator,
-  LogicalLink,
   Point,
   CommentBox,
   WorkflowSettings,
@@ -48,7 +45,7 @@ const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
  * Holds operators, links, positions, comment boxes, and workflow settings,
  * and emits change events via RxJS so subscribers (auto-persist, websocket
  * broadcast) can react. Converts to/from the backend `WorkflowContent` wire
- * format and to the `LogicalPlan` shape used for compilation and execution.
+ * format.
  */
 export class WorkflowState {
   private operators: Map<string, OperatorPredicate> = new Map();
@@ -57,7 +54,6 @@ export class WorkflowState {
   private commentBoxes: CommentBox[] = [];
   private settings: WorkflowSettings = { ...DEFAULT_WORKFLOW_SETTINGS };
   private nativeNamespace: WorkflowContent["nativeNamespace"];
-  private operatorsToViewResult: Set<string> = new Set();
 
   private operatorIdCounter: number = 0;
   private linkIdCounter: number = 0;
@@ -137,7 +133,6 @@ export class WorkflowState {
       this.linkDeleteSubject.next({ deletedLink: link });
     }
 
-    this.operatorsToViewResult.delete(operatorId);
     this.operatorPositions.delete(operatorId);
     const deleted = this.operators.delete(operatorId);
 
@@ -502,44 +497,6 @@ export class WorkflowState {
     this.contentReplacedSubject.next();
   }
 
-  toLogicalPlan(targetOperatorId?: string): LogicalPlan {
-    const enabledOperators = this.getAllEnabledOperators();
-
-    const operators: LogicalOperator[] = enabledOperators.map(op => ({
-      operatorID: op.operatorID,
-      operatorType: op.operatorType,
-      ...op.operatorProperties,
-      inputPorts: op.inputPorts,
-      outputPorts: op.outputPorts,
-    }));
-
-    const operatorIds = new Set(operators.map(op => op.operatorID));
-
-    const links: LogicalLink[] = this.getAllLinks()
-      .filter(link => operatorIds.has(link.source.operatorID) && operatorIds.has(link.target.operatorID))
-      .map(link => {
-        const sourceOp = this.getOperator(link.source.operatorID)!;
-        const targetOp = this.getOperator(link.target.operatorID)!;
-
-        const fromPortIdx = sourceOp.outputPorts.findIndex(p => p.portID === link.source.portID);
-        const toPortIdx = targetOp.inputPorts.findIndex(p => p.portID === link.target.portID);
-
-        return {
-          fromOpId: link.source.operatorID,
-          fromPortId: { id: fromPortIdx >= 0 ? fromPortIdx : 0, internal: false },
-          toOpId: link.target.operatorID,
-          toPortId: { id: toPortIdx >= 0 ? toPortIdx : 0, internal: false },
-        };
-      });
-
-    return {
-      operators,
-      links,
-      opsToViewResult: Array.from(this.operatorsToViewResult).filter(id => operatorIds.has(id)),
-      opsToReuseResult: [],
-    };
-  }
-
   addSubscription(subscription: Subscription): void {
     this.subscriptions.push(subscription);
   }
@@ -551,7 +508,6 @@ export class WorkflowState {
     this.commentBoxes = [];
     this.settings = { ...DEFAULT_WORKFLOW_SETTINGS };
     this.nativeNamespace = undefined;
-    this.operatorsToViewResult.clear();
     this.validationErrors = Object.create(null);
     this.workflowEmpty = true;
   }

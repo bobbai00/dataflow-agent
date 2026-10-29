@@ -54,7 +54,12 @@ import type { LLMDriver, ContextAssembler } from "../../../src/agent/llm-drivers
 import type { ReActStep } from "../../../src/types/agent";
 import { buildDossier, type Dossier } from "../../../src/agent/context/summarize/dossier";
 import { summarize } from "../../../src/agent/context/summarize/summarize";
-import { deltaPreset, latestPreset, SummarizeParamsSchema, type OperatorParamsOverride } from "../../../src/agent/context/summarize/params";
+import {
+  applySummarizeParamsPatch,
+  deltaPreset,
+  SummarizeParamsSchema,
+  type OperatorParamsOverride,
+} from "../../../src/agent/context/summarize/params";
 import { extractFeatures } from "../../../src/agent/context/selector/features";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -122,7 +127,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   await fs.mkdir(args.out, { recursive: true });
   const delta = deltaPreset();
-  const heavy = latestPreset();
+  const heavy = applySummarizeParamsPatch(delta, { trajectory: { events: "none" }, currentSnapshot: true });
 
   let dirs = (await fs.readdir(args.traces, { withFileTypes: true })).filter(d => d.isDirectory()).map(d => d.name).sort();
   if (args.limit) dirs = dirs.slice(0, args.limit);
@@ -150,7 +155,7 @@ async function main() {
       if (step.role !== "agent" || !(step.toolCalls && step.toolCalls.length > 0)) continue;
       const prefix = path0.slice(0, i + 1);
       const dossier = buildDossier(prefix, storage);
-      const base = { visibleSteps: prefix, workflowState: ws, snapshotStorage: storage, compilationResult: null, dossier };
+      const base = { visibleSteps: prefix, workflowState: ws, snapshotStorage: storage, dossier };
       let deltaTok = 0, deckHeavy = 0, deckLean = 0;
       try {
         deltaTok = summarize(base, delta).breakdown.totalTokens;

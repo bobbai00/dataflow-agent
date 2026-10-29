@@ -712,7 +712,6 @@ if [[ -z "${UDF_PYTHON_PATH:-}" && -x "$REPO_ROOT/.venv/bin/python" ]]; then
 fi
 export UDF_PYTHON_PATH="${UDF_PYTHON_PATH:-$(command -v python3 2>/dev/null || command -v python 2>/dev/null)}"
 export TEXERA_DASHBOARD_SERVICE_ENDPOINT="${TEXERA_DASHBOARD_SERVICE_ENDPOINT:-http://localhost:8080}"
-export WORKFLOW_COMPILING_SERVICE_ENDPOINT="${WORKFLOW_COMPILING_SERVICE_ENDPOINT:-http://localhost:9090}"
 export WORKFLOW_EXECUTION_SERVICE_ENDPOINT="${WORKFLOW_EXECUTION_SERVICE_ENDPOINT:-http://localhost:8085}"
 export FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT="${FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT:-http://localhost:9092/api/dataset/presign-download}"
 export FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT="${FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT:-http://localhost:9092/api/dataset/did/upload}"

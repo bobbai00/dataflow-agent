@@ -114,7 +114,6 @@ try {
     computingUnitId: cuid,
     settings: {
       contextMode: "delta",
-      messageLayout: "native",
       retrievalViews: views,
       nativeProfileCollection: true,
       dataEvidence: true,

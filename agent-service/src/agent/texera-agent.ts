@@ -56,12 +56,7 @@ import type { LearnedConfig } from "./context/learned/score";
 import type { TunerConfig } from "./context/tuner/tuner";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
-import {
-  AgentState as AgentStateEnum,
-  ContextMode,
-  DEFAULT_AGENT_SETTINGS,
-  OperatorResultSerializationMode,
-} from "../types/agent";
+import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS, OperatorResultSerializationMode } from "../types/agent";
 import { buildRegisteredNativeSystemPrompt, withSessionInstructions } from "./prompts";
 import { TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
@@ -107,7 +102,6 @@ import {
   TOOL_NAME_EXECUTE_OPERATOR,
   type ExecutionConfig,
 } from "./tools/workflow-execution-tools";
-import { compileWorkflowAsync, type WorkflowCompilationResponse } from "../api/compile-api";
 import { createLogger } from "../logger";
 import type { Logger } from "pino";
 import { looksLikeAgentInput, parseDebugInput, type DebugAgentInput } from "./debug-parser";
@@ -162,9 +156,10 @@ export interface TexeraAgentConfig {
    *  agent uses this verbatim instead of the agent-mode-based builders —
    *  used by the local-react driver to inject the LLM's training-time
    *  system prompt unchanged. Receives the current tool-call dialect so the
-   *  prompt can match the dialect the parser expects, and the contextMode so
-   *  the described context format matches what the assembler renders. */
-  systemPromptBuilder?: (dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string;
+   *  prompt can match the dialect the parser expects, and whether compaction
+   *  can fire so the described context format matches what the assembler
+   *  renders. */
+  systemPromptBuilder?: (dialect: LocalToolDialect, compactionEnabled: boolean) => string;
   /** Where the agent's turns, steps, versions, executions and results are recorded as they happen. */
   trace?: TraceStore;
 }
@@ -326,9 +321,7 @@ export class TexeraAgent {
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
   private readonly modelInputBudget = readInputBudget(process.env);
-  private readonly systemPromptBuilder:
-    | ((dialect: LocalToolDialect, contextMode: ContextMode, compactionEnabled: boolean) => string)
-    | undefined;
+  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, compactionEnabled: boolean) => string) | undefined;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -596,13 +589,9 @@ export class TexeraAgent {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
       // distribution — and the tool-call dialect the parser expects.
-      this.systemPrompt = this.systemPromptBuilder(
-        this.settings.toolDialect,
-        this.settings.contextMode,
-        compactionEnabled
-      );
+      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, compactionEnabled);
     } else {
-      this.systemPrompt = buildRegisteredNativeSystemPrompt(this.settings.contextMode, {
+      this.systemPrompt = buildRegisteredNativeSystemPrompt({
         ...observationFormatPatch(this.settings),
         dataEvidence: this.settings.dataEvidence === true,
         flowEvidence: this.settings.flowEvidence === true,
@@ -942,19 +931,11 @@ export class TexeraAgent {
       answerStatement?: boolean;
       nativeChecks?: boolean;
       resultSelection?: ResultSelection;
-      contextMode?: ContextMode;
       parallelToolCalls?: boolean;
-      includeOperatorProperties?: boolean;
-      thoughtReplay?: boolean;
-      thoughtReplayK?: number;
-      agentTurns?: boolean;
       contextWindowTokens?: number;
       compactionStrategy?: CompactionStrategy;
       deckSampleRatio?: number;
-      errorReflection?: boolean;
-      errorReflectionThreshold?: number;
       maxResultRows?: number;
-      attemptReflection?: boolean;
       toolDialect?: LocalToolDialect;
       summarizeParams?: SummarizeParamsPatch | null;
       selectorConfig?: SelectorConfig | null;
@@ -965,10 +946,8 @@ export class TexeraAgent {
       learnedConfig?: LearnedConfig | null;
       enableInspectTool?: boolean;
       enableRenderPrefs?: boolean;
-      enableCodeInSnapshot?: boolean;
       staticCompaction?: boolean;
       userTaskPlacement?: "top" | "bottom";
-      messageLayout?: AgentSettings["messageLayout"];
       tunerConfig?: TunerConfig | null;
       multiRequest?: AgentSettings["multiRequest"];
       catalogSource?: AgentSettings["catalogSource"];
@@ -1086,34 +1065,12 @@ export class TexeraAgent {
       this.settings.resultSelection = updates.resultSelection;
       promptNeedsRebuild = true;
     }
-    if (updates.contextMode !== undefined && updates.contextMode !== this.settings.contextMode) {
-      this.settings.contextMode = updates.contextMode;
-      // Context mode now selects the prompt's Context-Format + Example sections
-      // (LATEST snapshot vs DELTA/FULL agent-events), so the prompt must rebuild.
-      promptNeedsRebuild = true;
-    } else if (updates.contextMode !== undefined) {
-      this.settings.contextMode = updates.contextMode;
-    }
     // Native mode asks the provider for one tool call per turn.
     this.settings.parallelToolCalls = false;
-    if (updates.includeOperatorProperties !== undefined) {
-      this.settings.includeOperatorProperties = updates.includeOperatorProperties;
-      // Pure render-time toggle — controls whether each operator's
-      // `Properties:` line is emitted in the assembled snapshot (code
-      // operators are always stripped regardless). Read at next assembly.
-    }
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
       promptNeedsRebuild = true;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
-    }
-    if (updates.thoughtReplay !== undefined) {
-      this.settings.thoughtReplay = updates.thoughtReplay;
-      // Pure render-time toggle — LATEST-mode thought-replay reinjection rung.
-    }
-    if (updates.agentTurns !== undefined) {
-      this.settings.agentTurns = updates.agentTurns;
-      // Pure render-time toggle — LATEST-mode `# Agent Turns` trajectory section.
     }
     if (updates.contextWindowTokens !== undefined) {
       // Crossing the 0/>0 boundary flips the DELTA prompt's `## History
@@ -1138,23 +1095,6 @@ export class TexeraAgent {
     if (updates.deckSampleRatio !== undefined) {
       this.settings.deckSampleRatio = updates.deckSampleRatio;
       // Pure render-time setting — compress-deck row-sample fraction.
-    }
-    if (updates.thoughtReplayK !== undefined) {
-      this.settings.thoughtReplayK = updates.thoughtReplayK;
-      // Pure render-time setting — how many recent events the # Reasoning block shows.
-    }
-    if (updates.errorReflection !== undefined) {
-      this.settings.errorReflection = updates.errorReflection;
-      // Pure render-time toggle — LATEST-mode error-reflection rung.
-    }
-    if (updates.errorReflectionThreshold !== undefined) {
-      this.settings.errorReflectionThreshold = updates.errorReflectionThreshold;
-      // Pure render-time setting — N consecutive refixes before folded history shows.
-    }
-    if (updates.attemptReflection !== undefined) {
-      this.settings.attemptReflection = updates.attemptReflection;
-      // Pure render-time toggle — injects an `Attempt reflection:` block on
-      // heavily-edited operators. Read at the next assembleContext.
     }
     if (updates.summarizeParams !== undefined) {
       // Pure render-time patch over the summarize() parameter space; applied
@@ -1196,20 +1136,12 @@ export class TexeraAgent {
       // Pure render-time: write-time render prefs, applied by the assembler per call.
       this.settings.enableRenderPrefs = updates.enableRenderPrefs;
     }
-    if (updates.enableCodeInSnapshot !== undefined) {
-      // Pure render-time: the includeCode render patch (LATEST-only), read by the assembler per call.
-      this.settings.enableCodeInSnapshot = updates.enableCodeInSnapshot;
-    }
     if (updates.staticCompaction !== undefined) {
       this.settings.staticCompaction = updates.staticCompaction;
     }
     if (updates.userTaskPlacement !== undefined) {
       // Pure render-time: where the `# User Task` block goes.
       this.settings.userTaskPlacement = updates.userTaskPlacement;
-    }
-    if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
-      this.settings.messageLayout = updates.messageLayout;
-      promptNeedsRebuild = true;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner
@@ -1422,7 +1354,6 @@ export class TexeraAgent {
       // each with its duration.
       let requestedAt = 0;
       let preparedAt = 0;
-      let compiledAt = 0;
       const turnStartStepIndex = stepIndex;
       let protocolFeedbackSteps = 0;
       let budgetFeedbackSteps = 0;
@@ -1491,21 +1422,6 @@ export class TexeraAgent {
               this.head = feedbackId;
               budgetFeedbackSteps++;
             }
-            let compilationResult: WorkflowCompilationResponse | null = null;
-            if (this.workflowState.getAllOperators().length > 0) {
-              try {
-                const logicalPlan = this.workflowState.toLogicalPlan();
-                compilationResult = await compileWorkflowAsync(logicalPlan, this.delegateConfig?.userToken, {
-                  abortSignal: this.abortController?.signal,
-                });
-              } catch (e: any) {
-                this.abortController?.signal.throwIfAborted();
-                this.log.warn({ err: e?.message || e }, "compilation failed; proceeding without schemas");
-              }
-            }
-            const compiled = Date.now();
-            compiledAt = compiled;
-
             const visibleSteps = this.contextSteps();
             // The assembler may be async (LLM context tuner). Await it here on the
             // prepareStep path; cache the rendered content for the sync preview.
@@ -1520,7 +1436,6 @@ export class TexeraAgent {
               workflowState: this.workflowState,
               snapshotStorage: this.snapshotStorage,
               settings: this.settings,
-              compilationResult,
               turnNumberByMessageId: this.turnNumberMap(),
             });
             lastPreparedMessages = processed;
@@ -1532,8 +1447,7 @@ export class TexeraAgent {
               {
                 messageId,
                 stepNumber,
-                compileMs: compiled - preparing,
-                contextMs: requestedAt - compiled,
+                contextMs: requestedAt - preparing,
                 contextChars: this.lastRenderedContext.length,
               },
               "requesting model"
@@ -1624,8 +1538,7 @@ export class TexeraAgent {
               timing: {
                 preparedAt,
                 requestedAt,
-                compileMs: compiledAt - preparedAt,
-                contextMs: requestedAt - compiledAt,
+                contextMs: requestedAt - preparedAt,
                 modelMs: finishing - requestedAt,
               },
             };
@@ -1902,11 +1815,7 @@ export class TexeraAgent {
   /**
    * Public preview of the next-step user-message content as a single string.
    *
-   * Same `assembleContext` code path that `prepareStep` uses, but synchronous
-   * — the workflow compiler is intentionally skipped because (a) the preview
-   * is broadcast on every step / settings change and we don't want to fire a
-   * compile on each frame, and (b) a compile result only adds the current
-   * snapshot's compilation errors, which the preview can go without.
+   * Same `assembleContext` code path that `prepareStep` uses, but synchronous.
    */
   getNextStepContext(): string {
     if (this.modelInputBudget.tokens > 0 && this.lastRenderedContext !== undefined) return this.lastRenderedContext;
@@ -1916,7 +1825,6 @@ export class TexeraAgent {
       workflowState: this.workflowState,
       snapshotStorage: this.snapshotStorage,
       settings: this.settings,
-      compilationResult: null,
       turnNumberByMessageId: this.turnNumberMap(),
     });
     // An async assembler (LLM tuner) can't be awaited in this sync preview —

@@ -77,8 +77,6 @@ export interface StepTiming {
   preparedAt?: number;
   /** When the model request went out, once the context was built. */
   requestedAt?: number;
-  /** Compiling the dataflow for schemas, before the context. */
-  compileMs?: number;
   /** Building the model's input. */
   contextMs?: number;
   /** The model request, to its full response. */
@@ -164,7 +162,7 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Which operator results the LATEST snapshot ships, and at what fidelity.
+ * Which operator results the context ships, and at what fidelity.
  *  - "all":  every executed operator renders its full result block (legacy).
  *  - "rule": ship only what the data decided (native mode): full blocks for
  *            Scan/Aggregate/Join/UDF outputs, for the input of any
@@ -178,12 +176,6 @@ export enum OperatorResultSerializationMode {
  *            upstream-caused re-execution as a one-line diff, not a table.
  */
 export type ResultSelection = "all" | "rule" | "scoped";
-
-/** Context layout and result sampling are independent of data/flow evidence. */
-export enum ContextMode {
-  DELTA = "delta",
-  LATEST = "latest",
-}
 
 /**
  * DELTA compaction strategy — how the assembler shrinks the trajectory once the
@@ -214,65 +206,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   nativeProfileScope?: "prefix" | "full";
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
-  contextMode: ContextMode;
   /** Whether the provider may emit several tool calls in one assistant turn.
    *  Native mode asks for one call per turn. */
   parallelToolCalls: boolean;
-  /**
-   * When true, each operator's `operatorProperties` are rendered as a
-   * `Properties:` line in the assembled snapshot — EXCEPT the Python code
-   * operators (PythonUDFV2 / DataLoading / DataProcessing), whose `code`
-   * blob is large and already surfaced on error, so it is always stripped.
-   * When false, no operator properties are rendered at all (the legacy
-   * paper-§4.3 strip-everything behavior). Enabled by default.
-   */
-  includeOperatorProperties: boolean;
-  /**
-   * When true, an operator that has been edited repeatedly (≥ the reflection
-   * threshold) gets an `Attempt reflection:` block in the current snapshot:
-   * its edit count, its current code (otherwise stripped from context), and a
-   * directive to change strategy instead of resubmitting near-variants. Targets
-   * operator-level thrashing (lever C/D + the Lineage & Flow direction) by
-   * giving the model the attempt history + code it cannot otherwise see.
-   * Disabled by default (no-op).
-   */
-  attemptReflection: boolean;
-  /**
-   * Stage-aware loader-remediation hint (goal.md lever D / Direction-1). When
-   * true, a load-stage operator (`DataLoading`, i.e. zero incoming links) that
-   * has an `info.error` gets an indented `Loader hint:` line appended to its
-   * Result block — a compact, GENERAL remediation directive keyed only on the
-   * exception class parsed from the error string (UnicodeDecodeError → try a
-   * non-UTF-8 encoding such as cp1252/latin-1; ParserError → sniff the
-   * delimiter / skip preamble rows / on_bad_lines='skip'; FileNotFoundError →
-   * use the exact provided path). The model already SEES the error + its code
-   * but loops without acting; this injects the remediation knowledge it lacks.
-   * No task/column/domain literals. Disabled by default (no-op).
-   */
-  /**
-   * When true, each non-error operator result gets a `Format hints:` line
-   * flagging string columns whose sample values look like currency `$1,234`,
-   * percent, thousands-separated, parenthesized-negatives, or leading-zero
-   * codes — with the cleaning to apply BEFORE numeric conversion. Targets the
-   * silent `to_numeric(errors='coerce')` dataloss accuracy killer. Keyed only
-   * on value shape (no task literals). Disabled by default (no-op).
-   */
-  /**
-   * Thought-replay reinjection rung (LATEST only). When true, the assembled
-   * context gains a `# Reasoning` block — the last `thoughtReplayK` agent events,
-   * each as its thought + the compressed actions it produced — and each operator
-   * carries a `Last edited: step N` back-pointer into it. Recovers the reasoning
-   * trajectory LATEST folds away. On by default.
-   */
-  thoughtReplay: boolean;
-  /** How many recent events the `# Reasoning` block shows (default 10). */
-  thoughtReplayK: number;
-  /** Agent-turns section (LATEST only). When true, the LATEST context gains a
-   *  `# Agent Turns` section: the full Thought/Action/Observation trajectory
-   *  rendered delta-style (the same serializer DELTA uses), on top of the
-   *  latest-state core. A fuller alternative to thoughtReplay's last-K
-   *  `# Reasoning`. Off by default. */
-  agentTurns: boolean;
   /** DELTA context-window budget, in tokens (estimated chars/4). Bounds the
    *  assembled trajectory user-message — the true model window minus the
    *  ~constant system prompt + response headroom, which the caller folds into
@@ -293,11 +229,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
    *  Default 0.10. */
   deckSampleRatio: number;
-  /** Error-reflection rung (LATEST only): show each churning operator's attempt
-   *  count + distinct errors + a blocked→change-strategy verdict. Off by default. */
-  errorReflection: boolean;
-  /** N consecutive same-operator refixes before the folded error/attempt history shows. */
-  errorReflectionThreshold: number;
   maxResultRows: number;
   /** Bounded, version-bound column/table facts on explicitly observed results. */
   dataEvidence: boolean;
@@ -372,14 +303,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    */
   enableRenderPrefs: boolean;
   /**
-   * Show each operator's CURRENT code as a `Code:` block in the LATEST snapshot,
-   * and tell the agent (tool-def + prompt + example) to write SHORT summaries
-   * since the code now carries the detail. LATEST-only (DELTA already renders
-   * code inline in each event). Off by default; when off, prompt/tool/render are
-   * byte-identical to legacy. Experiment: does seeing its own code help the agent?
-   */
-  enableCodeInSnapshot: boolean;
-  /**
    * Where the `# User Task` block goes.
    *
    * "top" (default, legacy) puts the newest request first. That is fine for a
@@ -419,9 +342,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * 0 (default): every earlier request is an entry.
    */
   catalogRecent: number;
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  messageLayout?: "block" | "blockSplit" | "native" | "opBlock" | "opSplit" | "turnSplit";
   /**
    * Static compaction rule (DELTA-only). When true, the assembler automatically
    * folds settled older events into the compact deck once the trajectory grows
@@ -464,26 +384,16 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   answerStatement: false,
   nativeChecks: false,
   resultSelection: "all",
-  // Replay event-owned observations.
-  contextMode: ContextMode.DELTA,
   parallelToolCalls: true,
-  includeOperatorProperties: true,
-  attemptReflection: false,
-  thoughtReplay: true,
-  thoughtReplayK: 10,
-  agentTurns: false,
   contextWindowTokens: 0,
   compactionStrategy: "compress",
   deckSampleRatio: 0.1,
-  errorReflection: false,
-  errorReflectionThreshold: 3,
   // Sample rows per `show result`: three keep a pattern or both ends in view
   // at about half the tokens of five (2026-10-11 cost study).
   maxResultRows: 3,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
   enableRenderPrefs: false,
-  enableCodeInSnapshot: true,
   staticCompaction: false,
   userTaskPlacement: "top",
   multiRequest: "off",
@@ -545,14 +455,14 @@ export interface AgentDelegateConfig {
 }
 
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
-  messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
-  contextMode?: "delta" | "latest";
+  /** The only context: each event replayed with the operators it changed. */
+  contextMode?: "delta";
   nativeProfileCollection?: boolean;
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
@@ -563,18 +473,11 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
-  includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
   resultSelection?: "all" | "rule" | "scoped";
-  attemptReflection?: boolean;
-  thoughtReplay?: boolean;
-  thoughtReplayK?: number;
-  agentTurns?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
-  errorReflection?: boolean;
-  errorReflectionThreshold?: number;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
@@ -595,8 +498,6 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
-  /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
-  enableCodeInSnapshot?: boolean;
   /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
@@ -641,7 +542,7 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
-  contextMode?: "delta" | "latest";
+  contextMode?: "delta";
   nativeProfileCollection?: boolean;
   nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
@@ -652,18 +553,11 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
-  includeOperatorProperties?: boolean;
   /** Native mode result selection: "all" (default), "rule" or "scoped". */
   resultSelection?: "all" | "rule" | "scoped";
-  attemptReflection?: boolean;
-  thoughtReplay?: boolean;
-  thoughtReplayK?: number;
-  agentTurns?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
-  errorReflection?: boolean;
-  errorReflectionThreshold?: number;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
@@ -684,8 +578,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   enableInspectTool?: boolean;
   /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
   enableRenderPrefs?: boolean;
-  /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
-  enableCodeInSnapshot?: boolean;
   /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */

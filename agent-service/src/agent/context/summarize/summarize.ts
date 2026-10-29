@@ -21,15 +21,15 @@
  * summarize() — THE centralized context renderer.
  *
  * One pure function from (agent data, parameters) to the assembled context
- * text. The legacy LATEST / DELTA context modes are implemented as two preset
- * parameter points (see params.ts `latestPreset` / `deltaPreset` /
- * `mapLegacyToParams`); `assembleContext` in context-utils delegates here, so
- * every context the agent ever sends flows through this function.
+ * text. The agent's DELTA context is a preset parameter point (see params.ts
+ * `deltaPreset` / `mapLegacyToParams`); `assembleContext` in context-utils
+ * delegates here, so every context the agent ever sends flows through this
+ * function.
  *
  *   Output: the trajectory (events + observations) and/or the current
  *           dataflow (operator list), per params — as one markdown text,
  *           plus a per-section token breakdown for cost attribution.
- *   Input:  data parameters (steps + snapshot tree + optional compilation),
+ *   Input:  data parameters (steps + snapshot tree),
  *           from which the DOSSIER derives per-operator code/result versions;
  *           and the tunable params (see params.ts).
  *
@@ -38,12 +38,11 @@
  */
 
 import type { ModelMessage } from "ai";
-import { ContextMode, type ReActStep } from "../../../types/agent";
+import type { ReActStep } from "../../../types/agent";
 import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
-import type { WorkflowCompilationResponse } from "../../../api/compile-api";
 import { estimateTokens, renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
-import { buildNativeFrames, splitTrailingState, splitOperators, splitTurns } from "./native-frames";
+import { buildNativeFrames } from "./native-frames";
 import { buildDossier, type CodeVersion, type Dossier, type ResultVersion } from "./dossier";
 import {
   resolveOperatorParams,
@@ -57,7 +56,6 @@ export interface SummarizeInput {
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
-  compilationResult?: WorkflowCompilationResponse | null;
   /** Optional prebuilt dossier. The selector builds the dossier to choose
    *  params, then passes it here so summarize() reuses it instead of rebuilding
    *  (a per-step saving on the hot path). Omit ⇒ summarize builds it lazily. */
@@ -75,7 +73,6 @@ export interface OperatorRenderExtras {
   detail: "omit" | "shape" | "sample";
   tuple: TupleParams;
   column: ColumnParams;
-  includeProperties: boolean;
   includeCode: boolean;
   /** Char budget for the `Code:` block; 0 ⇒ unlimited. */
   codeMaxChars: number;
@@ -95,15 +92,14 @@ export interface SummarizeSection {
 
 export interface SummarizeResult {
   text: string;
-  /** The wire shape `prepareStep` expects: one user message carrying `text`. */
+  /** The wire shape `prepareStep` expects: `text` as a tool-calling transcript. */
   messages: ModelMessage[];
   breakdown: { totalTokens: number; sections: SummarizeSection[] };
 }
 
 export function summarize(input: SummarizeInput, params: SummarizeParams): SummarizeResult {
   const interleaved = params.trajectory.events === "interleaved";
-  const mode = interleaved ? ContextMode.DELTA : ContextMode.LATEST;
-  const options = paramsToRenderOptions(params, input.compilationResult ?? null);
+  const options = paramsToRenderOptions(params);
 
   if (needsExtras(params)) {
     // Reuse a caller-supplied dossier (selector path); else build it lazily —
@@ -123,88 +119,19 @@ export function summarize(input: SummarizeInput, params: SummarizeParams): Summa
   // NATIVE FRAMES: collect which step produced each rendered event so the
   // transcript can carry that step's REAL tool calls (true toolCallIds).
   const stepByEvent = new Map<number, ReActStep>();
-  if (params.messageLayout === "native") {
-    options.eventStepSink = (eventIndex, step) => stepByEvent.set(eventIndex, step);
-  }
-  const text = renderContextCore(input.visibleSteps, input.workflowState, input.snapshotStorage, mode, options);
-  const messages: ModelMessage[] = buildMessages(params.messageLayout, text, stepByEvent);
+  options.eventStepSink = (eventIndex, step) => stepByEvent.set(eventIndex, step);
+  const text = renderContextCore(
+    input.visibleSteps,
+    input.workflowState,
+    input.snapshotStorage,
+    params.trajectory.events,
+    options
+  );
   return {
     text,
-    messages,
+    messages: buildNativeFrames(text, stepByEvent).messages,
     breakdown: computeBreakdown(text),
   };
-}
-
-/**
- * Frame the rendered context as wire messages.
- *
- *   block      one user message — the original shape. Uncacheable: the whole
- *              thing is re-rendered every step, so no prefix ever repeats.
- *   blockSplit same bytes, cut into [history][current state] so the history is
- *              a stable prefix a cache breakpoint can sit on.
- *   native     a real tool-calling transcript (see native-frames).
- *
- * blockSplit and native are cacheable for the same reason — an append-only
- * prefix with the volatile current-state section pushed last. They differ only
- * in whether the history is prose in a user turn or real assistant/tool turns,
- * which is what isolates "does the framing change accuracy" from "does it
- * change cost".
- */
-function buildMessages(layout: string | undefined, text: string, stepByEvent: Map<number, ReActStep>): ModelMessage[] {
-  if (layout === "native") return buildNativeFrames(text, stepByEvent).messages;
-  if (layout === "turnSplit") {
-    const parts = splitTurns(text);
-    if (parts.length > 1) {
-      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-      if (norm(parts.join("\n\n")) === norm(text)) {
-        return parts.map(content => ({ role: "user" as const, content }));
-      }
-    }
-    return [{ role: "user", content: text }];
-  }
-  // opBlock shares opSplit's cut points (`### <type> operator \`id\``); it
-  // differs in what the RENDERER puts inside each block, not in how the text
-  // is framed — see serializeOperatorFull's operator-block contract.
-  if (layout === "opSplit" || layout === "opBlock") {
-    // An empty dataflow (step 1) still ends with the `# Current Dataflow`
-    // header, so the first message is byte-identical from step 1 onwards.
-    if (
-      !/^# Current Dataflow$/m.test(text) &&
-      !/^### /m.test(text) &&
-      !/^- \*\*[A-Za-z_][A-Za-z0-9_]*\*\* \(/m.test(text)
-    ) {
-      return [{ role: "user", content: text.trimEnd() + "\n\n# Current Dataflow\n## Operators" }];
-    }
-    const parts = splitOperators(text);
-    // Same byte-parity contract as blockSplit: a framing change, never a
-    // content change. If the parts do not reconstruct the render, ship the
-    // single block rather than send the model something the renderer
-    // did not produce.
-    if (parts.length > 1) {
-      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-      if (norm(parts.join("\n\n")) === norm(text)) {
-        return parts.map(content => ({ role: "user" as const, content }));
-      }
-    }
-  }
-  if (layout === "blockSplit") {
-    const { head, tail } = splitTrailingState(text);
-    // Structure must be preserved EXACTLY: blockSplit is a wire-framing change
-    // for cache purposes, never a content change. If the two halves do not
-    // reconstruct the render byte-for-byte (ignoring the join whitespace), the
-    // split is wrong and we ship the original single block rather than send the
-    // model something the renderer did not produce.
-    if (tail) {
-      const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-      if (norm(head + "\n\n" + tail) === norm(text)) {
-        return [
-          { role: "user", content: head },
-          { role: "user", content: tail },
-        ];
-      }
-    }
-  }
-  return [{ role: "user", content: text }];
 }
 
 /* ============================================================================
@@ -217,21 +144,13 @@ function buildMessages(layout: string | undefined, text: string, stepByEvent: Ma
  * legacy options → params → options must render byte-identically (enforced by
  * the golden characterization tests).
  */
-export function paramsToRenderOptions(
-  params: SummarizeParams,
-  compilationResult: WorkflowCompilationResponse | null
-): AssembleContextOptions {
+export function paramsToRenderOptions(params: SummarizeParams): AssembleContextOptions {
   const d = params.operators.defaults;
   const col = d.result.latest.column;
   const interleaved = params.trajectory.events === "interleaved";
   return {
-    compilationResult,
     nativeEvidence: params.nativeEvidence,
     resultSelection: params.resultSelection,
-    // The renderer needs the layout for one decision: in the native transcript
-    // a later turn's request is also rendered inline (see renderAgentEvents).
-    messageLayout: params.messageLayout,
-    agentTurns: params.trajectory.agentTurns,
     contextWindowTokens: params.trajectory.windowTokens > 0 ? params.trajectory.windowTokens : undefined,
     compactionStrategy: params.trajectory.compaction,
     deckSampleRatio: params.trajectory.deckSampleRatio,
@@ -242,15 +161,9 @@ export function paramsToRenderOptions(
     foldGraceEvents: params.trajectory.foldGraceEvents,
     userTaskPlacement: params.trajectory.userTaskPlacement,
     renderPrefsEnabled: params.trajectory.renderPrefs,
-    includeOperatorProperties: d.property.includeProperties,
     schemaInResult: col.schema,
     maxResultRows: d.result.latest.tuple.sampleRows,
     maxResultChars: d.result.latest.tuple.maxChars,
-    thoughtReplay: params.trajectory.reasoningReplayK > 0,
-    thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
-    errorReflection: params.flow.errorReflection,
-    errorReflectionThreshold: params.flow.errorReflectionThreshold,
-    attemptReflection: params.flow.attemptReflection,
     // New orthogonal combinations (no legacy analog):
     omitObservations: params.trajectory.observations === "none",
     appendCurrentSnapshot: interleaved && params.currentSnapshot,
@@ -310,7 +223,6 @@ function resolveExtras(
     detail: op.result.latest.detail,
     tuple: op.result.latest.tuple,
     column: op.result.latest.column,
-    includeProperties: op.property.includeProperties,
     includeCode: op.property.includeCode,
     codeMaxChars: op.property.codeMaxChars,
     codeHistory,

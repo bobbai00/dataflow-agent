@@ -29,13 +29,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import {
-  ContextMode,
-  type CatalogSource,
-  type LocalToolDialect,
-  type MultiRequestMode,
-  type RetrievalSettings,
-} from "../types/agent";
+import type { CatalogSource, LocalToolDialect, MultiRequestMode, RetrievalSettings } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
@@ -130,10 +124,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   ].join(" ");
 }
 
-export function buildRegisteredNativeSystemPrompt(
-  contextMode: ContextMode = ContextMode.DELTA,
-  options: NativePromptLayoutOptions = {}
-): string {
+export function buildRegisteredNativeSystemPrompt(options: NativePromptLayoutOptions = {}): string {
   const views = availableRetrievalViews(options);
   const format = observationFormat(options);
   const table = options.tableFormat === "tsv" ? "a tab-separated table with a header line" : "a Markdown table";
@@ -151,17 +142,15 @@ export function buildRegisteredNativeSystemPrompt(
       ? "it holds only what that format asks for, with no account of the steps or checks behind it."
       : "it may span lines and contain Markdown.",
     CONTEXT_LAYOUT:
-      contextMode === ContextMode.LATEST
-        ? "Your context shows the current graph and available results. Earlier execution events may be collapsed; inspect definitions when relevant details are missing."
-        : multiRequest === "catalog"
-          ? ((options.catalogRecent ?? 0) > 0
-              ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
-              : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
-            (options.catalogSource === "docstring"
-              ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
-              : "the functions it registered or changed, with their signatures and source") +
-            "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
-          : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
+      multiRequest === "catalog"
+        ? ((options.catalogRecent ?? 0) > 0
+            ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
+            : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
+          (options.catalogSource === "docstring"
+            ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
+            : "the functions it registered or changed, with their signatures and source") +
+          "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
+        : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),
@@ -210,8 +199,8 @@ export function registeredReferenceText(request: { topic: "operators"; operator_
 //   - "qwen-xml"  — the template in `code-mode.md`, where every operator is
 //     one Python function written through `createOrModifyOperator`, plus the
 //     `<tools>`/`<tool_call>` appendix (`local-qwen-tools.txt`), composed
-//     below. It describes the `# User Task` / `# Current Dataflow` context →
-//     paired with the SDK assembler `assembleContext` (server.ts).
+//     below. It describes the `# Agent Events` context → paired with the SDK
+//     assembler `assembleContext` (server.ts).
 //   - "react-text" — the standalone `local-react.txt` (plain-text tool list +
 //     `Thought / Action / Action Input / Observation`, down to `Begin!`). It
 //     describes the `# Event N` context → paired with `assembleLocalReactContext`.
@@ -222,33 +211,25 @@ export function registeredReferenceText(request: { topic: "operators"; operator_
 // role-tagged messages — so NO framing/BOS tokens belong in these files.
 // ---------------------------------------------------------------------------
 const QWEN_XML_TEMPLATE: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
-// The template's context format and worked example describe the layout the
-// agent receives: the LATEST `# Current Dataflow` snapshot with each operator's
-// code, or the DELTA `# Agent Events` trajectory. The DELTA prompt describes the
-// `# Dataflow (compacted)` deck only when compaction can fire.
-const QWEN_XML_SECTIONS: Record<"latest" | "delta", { format: string; example: string }> = {
-  latest: { format: rd("context-format.latest.code.md"), example: rd("example.latest.code.md") },
-  delta: { format: rd("context-format.delta.md"), example: rd("example.delta.md") },
-};
+// The template's context format and worked example describe the `# Agent
+// Events` trajectory the agent receives, and the `# Dataflow (compacted)` deck
+// only when compaction can fire.
+const QWEN_XML_FORMAT: string = rd("context-format.delta.md");
+const QWEN_XML_EXAMPLE: string = rd("example.delta.md");
 const QWEN_XML_COMPACTION: string = rd("compaction.delta.md");
 const QWEN_TOOL_APPENDIX: string = readFileSync(new URL("./prompts/local-qwen-tools.txt", import.meta.url), "utf8");
 const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/local-react.txt", import.meta.url), "utf8");
 /**
  * Returns the local driver's system prompt for the given tool-call dialect.
- * `react-text` is standalone; `qwen-xml` is the `code-mode.md` template
- * (mode-aware, so it matches the SDK context assembler) plus the XML tool-call
+ * `react-text` is standalone; `qwen-xml` is the `code-mode.md` template (it
+ * describes the SDK context assembler's render) plus the XML tool-call
  * appendix.
  */
-export function buildLocalReactSystemPrompt(
-  dialect: LocalToolDialect,
-  contextMode: ContextMode = ContextMode.LATEST,
-  compactionEnabled = false
-): string {
+export function buildLocalReactSystemPrompt(dialect: LocalToolDialect, compactionEnabled = false): string {
   if (dialect === "react-text") return REACT_TEXT_SYSTEM_PROMPT;
-  const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
-  const prompt = QWEN_XML_TEMPLATE.replace("{{CONTEXT_FORMAT}}", QWEN_XML_SECTIONS[key].format)
-    .replace("{{COMPACTION}}", key === "delta" && compactionEnabled ? `\n${QWEN_XML_COMPACTION}\n` : "")
-    .replace("{{EXAMPLE}}", QWEN_XML_SECTIONS[key].example)
+  const prompt = QWEN_XML_TEMPLATE.replace("{{CONTEXT_FORMAT}}", QWEN_XML_FORMAT)
+    .replace("{{COMPACTION}}", compactionEnabled ? `\n${QWEN_XML_COMPACTION}\n` : "")
+    .replace("{{EXAMPLE}}", QWEN_XML_EXAMPLE)
     .replace(/\n{3,}/g, "\n\n");
   return `${prompt.trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 }

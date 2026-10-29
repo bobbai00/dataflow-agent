@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentState, ContextMode, type ReActStep } from "../types/agent";
+import { AgentState, type ReActStep } from "../types/agent";
 import { VercelToolUseDriver } from "./llm-drivers/vercel-tool-use-driver";
 import { TexeraAgent } from "./texera-agent";
 import { assembleContext } from "./util/context-utils";
@@ -70,12 +70,11 @@ function session(replies: Reply[]) {
     modelType: "test",
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
     contextAssembler: input =>
-      assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, ContextMode.DELTA, {
-        messageLayout: "native",
+      assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {
         turnNumberByMessageId: agent.turnNumberMap(),
       }),
   });
-  agent.updateSettings({ maxSteps: 10, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 10 });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators()) {
       const threshold = /> (\d+)/.exec(op.nativeOp?.source ?? "")?.[1];

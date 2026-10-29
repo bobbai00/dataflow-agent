@@ -33,8 +33,8 @@ three things on top of the upstream platform:
    functions, then runs and reads it with `execute` and `show`; see
    [docs/native-registered-python-design.md](docs/native-registered-python-design.md)) and
    **code** (every operator a free Python function) — plus a heavily
-   instrumented context-assembly layer (DELTA/LATEST modes, sampling budgets,
-   evidence — every knob is a runtime setting).
+   instrumented context-assembly layer (sampling budgets, evidence — every
+   knob is a runtime setting).
 2. **Engine extensions in `amber/`** — result/column-stats telemetry, UDF
    error reporting that points at user code, operator port-result caching,
    dynamic output schemas: the engine-side features the agent's context
@@ -201,12 +201,11 @@ created with no `settings` runs: **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: true`** and
 **`flowEvidence: false`**. Native retrieval choices control data-statistics
 exposure; `flowEvidence` independently adds flow metadata. Collection is
-compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
-`maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Provider parallel tool calls are off (one call carries the whole
-step). Graph inspection is built into `dataflow` (`show operator`,
-`show function`, `show builtin`, `show schema`). See [README.md §2](README.md)
-for the full table.
+compiled into each operator and cannot change on an existing workflow. Also:
+`maxSteps: 100`, `maxOperatorResultCharLimit: 2000`. Provider parallel tool
+calls are off (one call carries the whole step). Graph inspection is built into
+`dataflow` (`show operator`, `show function`, `show builtin`, `show schema`).
+See [README.md §2](README.md) for the full table.
 
 Measured `filter(t, predicate="name", settings={})` calls a registered predicate
 with a read-only row mapping and keyword settings. Boolean/null verdicts keep or
@@ -280,7 +279,7 @@ bin/bench.sh kb failed / cost / tokens / traces / reeval / compare ...
 
 A **system (SUT)** is a `DataflowSystem` subclass in
 `Kramabench/systems/dataflow_system.py` fixing one knob configuration
-(model, DELTA/LATEST, sampling budget, stats…). Only arms with recorded
+(model, sampling budget, stats…). Only arms with recorded
 results are kept; campaign reports with the numbers live in
 `Kramabench/judgment_runs/` — start with
 `mini_star/LUNA_TERRA_FINAL_TABLE.md` (Anchor/C1–C5 on gpt-5.6-luna/terra),

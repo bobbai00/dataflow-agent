@@ -21,7 +21,7 @@ import { expect, test } from "bun:test";
 import { asSchema } from "ai";
 import { spawnSync } from "node:child_process";
 import { buildRegisteredNativeSystemPrompt, registeredReferenceText } from "../prompts";
-import { ContextMode, type RetrievalView } from "../../types/agent";
+import type { RetrievalView } from "../../types/agent";
 import { createDataflowTool, prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
 import { compileNativeOp, inlineNativeRuntime, nativePython } from "./codegen";
@@ -37,7 +37,7 @@ const exampleReceipts = (prompt: string) =>
 
 test("example calls are valid dataflow calls for every view setting", () => {
   for (const retrievalViews of [["full"], ["sample"], ["sample_stats"], ["sample_stats", "full"]] as const) {
-    const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+    const prompt = buildRegisteredNativeSystemPrompt({
       retrievalViews: [...retrievalViews],
       flowEvidence: true,
     });
@@ -83,12 +83,12 @@ test("instructions describe receipts by statement, without cache bookkeeping", (
 });
 
 test("optional python and first-rows full views are described only when they are on", () => {
-  const base = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"] });
+  const base = buildRegisteredNativeSystemPrompt({ retrievalViews: ["full"] });
   expect(base).toContain('`python` (definitions, or `""`)');
   expect(exampleCalls(base).every(call => "python" in call)).toBe(true);
   expect(base).not.toContain("A larger table shows its first");
   const settings = { retrievalViews: ["full"] as RetrievalView[], optionalPython: true, fullPreviewRows: 5 };
-  const lean = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings);
+  const lean = buildRegisteredNativeSystemPrompt(settings);
   expect(lean).toContain("`python` (definitions, left out when there are none)");
   const calls = exampleCalls(lean);
   expect(calls.some(call => !("python" in call))).toBe(true);
@@ -98,23 +98,19 @@ test("optional python and first-rows full views are described only when they are
     "A larger table shows its first 5 rows (a table read from files shows as many as fit); to read further rows, `set <new id>: limit(<id>, n=..., offset=...)` and show that."
   );
   expect(
-    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+    buildRegisteredNativeSystemPrompt({
       retrievalViews: ["sample_stats", "full"],
       fullPreviewRows: 5,
     })
   ).toContain("only for a small table whose every row you need. A larger table shows its first 5 rows");
   // dataHygiene adds the rule to normalize keys; the default prompt does not carry it.
   expect(base).not.toContain("Before you group or join on a text key");
-  expect(
-    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], dataHygiene: true })
-  ).toContain(
+  expect(buildRegisteredNativeSystemPrompt({ retrievalViews: ["full"], dataHygiene: true })).toContain(
     "unexpected parsing failures should not silently become nulls. Before you group or join on a text key, check its values: one value can be written in several ways (spacing, case, punctuation) or repeat across files. Normalize a key only where its values actually differ, leave other text columns as the source has them unless the task asks for cleaning,"
   );
   // answerOnlyReply asks for the answer alone; by default a reply may carry more.
   expect(base).toContain("in the user's requested format; it may span lines and contain Markdown. There is no answer statement.");
-  expect(
-    buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { retrievalViews: ["full"], answerOnlyReply: true })
-  ).toContain(
+  expect(buildRegisteredNativeSystemPrompt({ retrievalViews: ["full"], answerOnlyReply: true })).toContain(
     "in the user's requested format; it holds only what that format asks for, with no account of the steps or checks behind it. There is no answer statement."
   );
   // Every prompt says what quotes around a displayed value mean.
@@ -160,7 +156,7 @@ for (const data of [false, true])
       });
       agent.updateSettings(settings);
       const info = agent.getSystemInfo();
-      const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, settings);
+      const prompt = buildRegisteredNativeSystemPrompt(settings);
       expect(info.systemPrompt).toBe(prompt);
       expect(prompt).not.toContain("{{");
       expect(prompt.includes("Column statistics in `sample_stats`")).toBe(data);
@@ -195,7 +191,7 @@ for (const data of [false, true])
   for (const flow of [false, true])
     test(`one protocol: calls prepare, sections follow the settings, size stays bounded: data=${data}, flow=${flow}`, () => {
       const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
-      const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, {
+      const prompt = buildRegisteredNativeSystemPrompt({
         retrievalViews,
         dataEvidence: data,
         flowEvidence: flow,
@@ -258,42 +254,41 @@ for (const data of [false, true])
       expect(prompt.length).toBeLessThan(18000);
     });
 
-test("every context mode, evidence setting and table format keeps the section order and closes every fence", () => {
-  for (const mode of [ContextMode.DELTA, ContextMode.LATEST])
-    for (const data of [false, true])
-      for (const flow of [false, true])
-        for (const tableFormat of ["markdown", "tsv"] as const) {
-          const views: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
-          const prompt = buildRegisteredNativeSystemPrompt(mode, {
-            retrievalViews: views,
-            flowEvidence: flow,
-            tableFormat,
-          });
-          const order = [
-            "## 1. Role and objective",
-            "## 2. Your resources",
-            "## 3. Working with Dataflows",
-            "### Built-in operators",
-            "### Python functions",
-            "### Reading results",
-            "## 4. Worked examples",
-          ];
-          expect(prompt.startsWith(order[0])).toBe(true);
-          for (let i = 1; i < order.length; i++)
-            expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
-          expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
-          expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
-          const receipts = exampleReceipts(prompt);
-          expect(/^\s*- flow\b/m.test(receipts)).toBe(false);
-          expect(/^statistics: full table/m.test(receipts)).toBe(data);
-          expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
-          for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, views).status).toBe("pending");
-        }
+test("every evidence setting and table format keeps the section order and closes every fence", () => {
+  for (const data of [false, true])
+    for (const flow of [false, true])
+      for (const tableFormat of ["markdown", "tsv"] as const) {
+        const views: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+        const prompt = buildRegisteredNativeSystemPrompt({
+          retrievalViews: views,
+          flowEvidence: flow,
+          tableFormat,
+        });
+        const order = [
+          "## 1. Role and objective",
+          "## 2. Your resources",
+          "## 3. Working with Dataflows",
+          "### Built-in operators",
+          "### Python functions",
+          "### Reading results",
+          "## 4. Worked examples",
+        ];
+        expect(prompt.startsWith(order[0])).toBe(true);
+        for (let i = 1; i < order.length; i++)
+          expect(prompt.indexOf(order[i - 1])).toBeLessThan(prompt.indexOf(order[i]));
+        expect(prompt).not.toMatch(/texera|\{\{|\}\}/i);
+        expect((prompt.match(/^```/gm) ?? []).length % 2).toBe(0);
+        const receipts = exampleReceipts(prompt);
+        expect(/^\s*- flow\b/m.test(receipts)).toBe(false);
+        expect(/^statistics: full table/m.test(receipts)).toBe(data);
+        expect(/^\|---/m.test(receipts)).toBe(tableFormat === "markdown");
+        for (const call of exampleCalls(prompt)) expect(prepareDataflowCall(call, views).status).toBe("pending");
+      }
 });
 
 test("with operator docs on, every example operator carries its doc, as a setting the parser stores; off, none does", async () => {
-  const on = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { operatorDoc: true });
-  const off = buildRegisteredNativeSystemPrompt(ContextMode.DELTA);
+  const on = buildRegisteredNativeSystemPrompt({ operatorDoc: true });
+  const off = buildRegisteredNativeSystemPrompt();
   expect(on).toContain("Give every operator, built-in or Python, a one-line `doc='...'`");
   expect(off).toContain("Routine operators need no boilerplate.");
   expect(on).not.toContain("Routine operators need no boilerplate.");
@@ -316,7 +311,7 @@ test("with operator docs on, every example operator carries its doc, as a settin
 });
 
 test("synthetic teaching edits compile and their calculations run in isolated Python operators", async () => {
-  const prompt = buildRegisteredNativeSystemPrompt(ContextMode.DELTA, { flowEvidence: true });
+  const prompt = buildRegisteredNativeSystemPrompt({ flowEvidence: true });
   let stage: RegisteredStageInput = { operators: {}, python: "", changes: "" };
   const compiled: Record<string, string> = {};
   for (const call of exampleCalls(prompt)) {

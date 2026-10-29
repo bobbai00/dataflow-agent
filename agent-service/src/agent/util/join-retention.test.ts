@@ -17,9 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../types/agent";
-import { assembleContext } from "./context-utils";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../context/summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, renderText, type Scenario } from "../context/summarize/fixtures";
 
 /**
  * The measured case: three inputs of 354/353/353 rows joined to 210, in six
@@ -59,14 +57,7 @@ function joinScenario(inputRows: number[], outputRows: number): Scenario {
   return s;
 }
 
-const render = (s: Scenario): string =>
-  String(
-    assembleContext(s.steps, s.workflowState, s.storage, ContextMode.LATEST, {
-      compilationResult: null,
-    } as any)
-      .map(m => m.content)
-      .join("\n")
-  );
+const render = (s: Scenario): string => renderText(s);
 
 describe("legacy join heuristics are not context evidence", () => {
   test("row-count differences must not invent unmatched-row counts", () => {

@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildNativeFrames, splitOperators, splitTrailingState, splitTurns } from "./native-frames";
+import { buildNativeFrames } from "./native-frames";
 import type { ReActStep } from "../../../types/agent";
 
 const CTX = [
@@ -303,7 +303,7 @@ describe("buildNativeFrames", () => {
     expect(ids.calls.sort()).toEqual(ids.results.sort());
   });
 
-  test("no events ⇒ single user block (LATEST untouched)", () => {
+  test("no events ⇒ single user block", () => {
     const flat = "# User Task\n\ndo it\n\n# Current Dataflow\n";
     const { messages, events } = buildNativeFrames(flat, new Map());
     expect(events).toBe(0);
@@ -322,50 +322,7 @@ describe("buildNativeFrames", () => {
   });
 });
 
-describe("splitTrailingState", () => {
-  const render = (events: number, state: string) =>
-    [
-      "# Task\nCompute the mean.",
-      ...Array.from({ length: events }, (_, i) => `## Agent Event ${i + 1}\nThought: step ${i + 1}\nObservation:\nrows=${i}`),
-      `# Current Dataflow\n${state}`,
-    ].join("\n\n");
-
-  test("cuts the volatile state section off the append-only history", () => {
-    const { head, tail } = splitTrailingState(render(2, "op_a: 10 rows"));
-    expect(tail).toContain("# Current Dataflow");
-    expect(head).not.toContain("# Current Dataflow");
-    expect(head).toContain("## Agent Event 2");
-  });
-
-  test("keeps the head byte-identical as steps accumulate (the cacheable prefix)", () => {
-    // Same guarantee the cache depends on: step N's head must be a prefix of
-    // step N+1's head, or Anthropic can never match the stored entry.
-    const a = splitTrailingState(render(2, "op_a: 10 rows")).head;
-    const b = splitTrailingState(render(3, "op_a: 99 rows")).head;
-    expect(b.startsWith(a)).toBe(true);
-  });
-
-  test("returns no tail when there is no trailing state section", () => {
-    const { head, tail } = splitTrailingState("# Task\nonly a task, no events");
-    expect(tail).toBe("");
-    expect(head).toContain("only a task");
-  });
-
-  test("loses no content — head + tail covers the whole render", () => {
-    const text = render(2, "op_a: 10 rows");
-    const { head, tail } = splitTrailingState(text);
-    expect((head + "\n\n" + tail).replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
-  });
-});
-
 describe("stable first message (prefix cache)", () => {
-  test("splitOperators splits a single operator too", () => {
-    const text = "# User Task\nQ\n\n# Current Dataflow\n## Operators\n\n### scan operator `a`\nProperties: {}\nResult: x";
-    const parts = splitOperators(text);
-    expect(parts.length).toBe(2);
-    expect(parts[0]).toBe("# User Task\nQ\n\n# Current Dataflow\n## Operators");
-    expect(parts[1].startsWith("### scan operator `a`")).toBe(true);
-  });
   test("buildNativeFrames drops the no-events placeholder so step 1 ends like every later prefix", () => {
     const r = buildNativeFrames("# User Task\nQ\n\n# Agent Events\n\n(no agent actions yet)", new Map());
     expect(r.messages).toEqual([{ role: "user", content: "# User Task\nQ\n\n# Agent Events" }]);
@@ -403,39 +360,5 @@ describe("multi-turn transcript", () => {
     expect(roles).toEqual(["user", "assistant", "tool", "user", "assistant", "tool"]);
     expect(r.messages[3].content).toBe("First follow-up question");
     expect(JSON.stringify(r.messages[2].content)).not.toContain("First follow-up question");
-  });
-});
-
-describe("turnSplit", () => {
-  test("one message per finished turn, per live step, and per top-level section", () => {
-    const text = [
-      "# Catalog",
-      "",
-      "## Turn 1",
-      "### Task",
-      "first",
-      "### Answer",
-      "42",
-      "",
-      "## Turn 2 (in progress)",
-      "### Task",
-      "second",
-      "",
-      "# Your Task",
-      "",
-      "Work on turn 2.",
-      "",
-      "### Steps",
-      "",
-      "#### Step 1",
-      "Action: - scan",
-      "Observation: ok",
-      "",
-      "#### Step 2",
-      "Action: - filter",
-    ].join("\n");
-    const parts = splitTurns(text);
-    expect(parts.map(p => p.split("\n")[0])).toEqual(["# Catalog", "## Turn 1", "## Turn 2 (in progress)", "# Your Task", "### Steps", "#### Step 1", "#### Step 2"]);
-    expect(parts.join("\n\n").replace(/\s+/g, " ").trim()).toBe(text.replace(/\s+/g, " ").trim());
   });
 });

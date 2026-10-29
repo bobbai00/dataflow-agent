@@ -28,7 +28,6 @@ export {
   parseSummarizeParams,
   applySummarizeParamsPatch,
   mapLegacyToParams,
-  latestPreset,
   deltaPreset,
   resolveOperatorParams,
 } from "./params";

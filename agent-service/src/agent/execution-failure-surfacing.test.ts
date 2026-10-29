@@ -32,9 +32,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../types/agent";
-import { assembleContext } from "./util/context-utils";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "./context/summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, renderText, type Scenario } from "./context/summarize/fixtures";
 
 function scenarioWith(resultForA: "ok" | "error" | "none"): Scenario {
   const s = buildScenario([
@@ -65,14 +63,7 @@ function scenarioWith(resultForA: "ok" | "error" | "none"): Scenario {
   return s;
 }
 
-const render = (s: Scenario): string =>
-  String(
-    assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, {
-      compilationResult: null,
-    } as any)
-      .map(m => m.content)
-      .join("\n")
-  );
+const render = (s: Scenario): string => renderText(s);
 
 describe("execution failure is visible to the model", () => {
   test("an engine refusal renders as an ERROR carrying the reason", () => {

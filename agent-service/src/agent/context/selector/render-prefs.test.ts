@@ -17,11 +17,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../../types/agent";
-import { assembleContext } from "../../util/context-utils";
 import { buildDossier } from "../summarize/dossier";
 import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../summarize/fixtures";
+import {
+  buildScenario,
+  makeInfo,
+  makeWorkflow,
+  renderText,
+  snapshotParams,
+  type Scenario,
+} from "../summarize/fixtures";
 import { applyRenderPrefs, buildRenderPrefRanges, latestRenderPrefs, renderPrefsAt } from "./render-prefs";
 
 const WIDE_ROWS = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, region: `R${i}`, value: `v${i}` }));
@@ -113,7 +118,6 @@ function prefsScenario(withPrefs = true): Scenario {
 }
 
 const DELTA_OPTS = {
-  compilationResult: null,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;
@@ -130,7 +134,7 @@ describe("render prefs — core semantics", () => {
     expect(renderPrefsAt(ranges, "loader", 3)).toBeUndefined();
   });
 
-  test("applyRenderPrefs (LATEST): lowers rows/stats only for the current version's prefs", () => {
+  test("applyRenderPrefs (current snapshot): lowers rows/stats only for the current version's prefs", () => {
     // Rebuild a scenario where the CURRENT version carries the prefs (one edit only).
     const scenario = buildScenario([
       { id: "u", stepId: 0, role: "user", messageId: "m", content: "go" },
@@ -154,10 +158,7 @@ describe("render prefs — core semantics", () => {
     scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "loader", type: "DataLoading" }]));
     scenario.storage.setOperatorResult("a1", "loader", makeInfo(12, { sampleRows: WIDE_ROWS }));
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const base = mapLegacyToParams(ContextMode.LATEST, {
-      compilationResult: null,
-      schemaInResult: true,
-    });
+    const base = snapshotParams({ schemaInResult: true });
     const params = applyRenderPrefs(base, dossier);
     const op = resolveOperatorParams(params, "loader");
     expect(op.result.latest.tuple.sampleRows).toBe(3);
@@ -167,10 +168,7 @@ describe("render prefs — core semantics", () => {
   test("never raises an existing tighter base cap", () => {
     const scenario = prefsScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const base = mapLegacyToParams(ContextMode.LATEST, {
-      compilationResult: null,
-      maxResultRows: 2,
-    });
+    const base = snapshotParams({ maxResultRows: 2 });
     // Current version has no prefs anyway; nothing changes.
     expect(applyRenderPrefs(base, dossier)).toEqual(base);
   });
@@ -179,12 +177,7 @@ describe("render prefs — core semantics", () => {
 describe("render prefs — DELTA event scoping (critical path)", () => {
   test("a version's prefs govern its own events; later default events render standard; old events never change", () => {
     const scenario = prefsScenario();
-    const on = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-        ...DELTA_OPTS,
-        renderPrefsEnabled: true,
-      })[0].content
-    );
+    const on = renderText(scenario, mapLegacyToParams({ ...DELTA_OPTS, renderPrefsEnabled: true }));
     // Event 2 (v1, prefs): minimal rows → row-gap marker for 12 rows @3, no stats block.
     const ev2 = on.slice(on.indexOf("## Agent Event 2"), on.indexOf("## Agent Event 3"));
     expect(ev2).toContain("Output Table: 12 rows");
@@ -201,27 +194,14 @@ describe("render prefs — DELTA event scoping (critical path)", () => {
 
   test("flag on + prefs never used ⇒ byte-identical to flag off", () => {
     const scenario = prefsScenario(/*withPrefs=*/ false);
-    const off = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-        ...DELTA_OPTS,
-      })[0].content
-    );
-    const on = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-        ...DELTA_OPTS,
-        renderPrefsEnabled: true,
-      })[0].content
-    );
+    const off = renderText(scenario, mapLegacyToParams(DELTA_OPTS));
+    const on = renderText(scenario, mapLegacyToParams({ ...DELTA_OPTS, renderPrefsEnabled: true }));
     expect(on).toBe(off);
   });
 
   test("flag off ignores declared prefs entirely", () => {
     const scenario = prefsScenario();
-    const off = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, {
-        ...DELTA_OPTS,
-      })[0].content
-    );
+    const off = renderText(scenario, mapLegacyToParams(DELTA_OPTS));
     const ev2 = off.slice(off.indexOf("## Agent Event 2"), off.indexOf("## Agent Event 3"));
     expect(ev2).not.toContain("Column Schema and stats");
     expect(ev2).toContain("v5");

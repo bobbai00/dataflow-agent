@@ -168,7 +168,7 @@ export function buildOverride(f: OperatorFeatures, cfg: SelectorConfig): Operato
 
 /**
  * The policy. Featurize the dossier, then emit a validated `SummarizeParams`:
- * a lean LATEST base + Tier-2 flow insurance + per-operator overrides.
+ * a lean current-snapshot base + per-operator overrides.
  */
 export function selectParams(dossier: Dossier, config: SelectorConfig = DEFAULT_SELECTOR_CONFIG): SummarizeParams {
   const feats = extractFeatures(dossier, {
@@ -183,17 +183,9 @@ export function selectParams(dossier: Dossier, config: SelectorConfig = DEFAULT_
     if (ov) overrides[opId] = ov;
   }
 
-  const flow = config.insurance
-    ? {
-        errorReflection: feats.trajectory.anyThrashing,
-      }
-    : { errorReflection: feats.trajectory.anyThrashing };
-
   return SummarizeParamsSchema.parse({
-    trajectory: { events: "none", reasoningReplayK: config.reasoningReplayK },
+    trajectory: { events: "none" },
     currentSnapshot: true,
-    compiledSchemas: false,
-    flow,
     operators: {
       // Default profile = settled interior: cheap shape + schema. Frontier /
       // source / terminal are lifted back up by their overrides.

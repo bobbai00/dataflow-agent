@@ -88,10 +88,6 @@ describe("translateTunerOutput → SummarizeParams", () => {
     expect(resolveOperatorParams(params, "report").result.latest.detail).toBe("shape");
   });
 
-  test("reasoningReplayK flows through", () => {
-    expect(params.trajectory.reasoningReplayK).toBe(5);
-  });
-
   test("unmentioned operators fall back to the cheap default (shape+schema)", () => {
     const other = resolveOperatorParams(params, "some_other_op");
     expect(other.result.latest.detail).toBe("shape");
@@ -122,10 +118,7 @@ describe("translateTunerOutput → SummarizeParams", () => {
   test("renders end-to-end: omitted ops drop their table, rich op shows code+stats", () => {
     const { steps, storage, workflowState } = buildRichScenario();
     const dossier = buildDossier(steps, storage);
-    const text = summarize(
-      { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null, dossier },
-      params
-    ).text;
+    const text = summarize({ visibleSteps: steps, workflowState, snapshotStorage: storage, dossier }, params).text;
     // legacy_data omitted → no Result table for it
     const legacyBlock = text.slice(text.indexOf("### Operator `legacy_data`"), text.indexOf("### Operator `sales`"));
     expect(legacyBlock).not.toContain("Output Table:");

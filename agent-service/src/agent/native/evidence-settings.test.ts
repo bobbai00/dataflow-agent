@@ -18,7 +18,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
+import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summarize/params";
 import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
 import { profileDiff } from "./selection";
@@ -43,7 +43,6 @@ test("the prompt's operator index lists every built-in once, signature first", (
 });
 
 test("nested rendering overrides cannot restore old evidence channels", () => {
-  expect(SummarizeParamsPatchSchema.safeParse({ flow: { graphAudit: true } }).success).toBe(false);
   expect(
     SummarizeParamsPatchSchema.safeParse({
       operators: { defaults: { result: { latest: { column: { stats: true } } } } },
@@ -80,32 +79,30 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, "dataflowReasoning")).toBe(false);
 });
 
-for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-  for (const data of [false, true])
-    for (const flow of [false, true]) {
-      test(`${mode}: explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
-        const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
-        const expected = mapLegacyToParams(mode, options as any);
-        expect(expected.nativeEvidence).toMatchObject({ data, flow, maxChars: 800, tableFormat: "markdown" });
-        for (const level of [0, 1, 2, 3]) {
-          expect(
-            mapLegacyToParams(mode, {
-              ...options,
-              flowLevel: level,
-              dataLevel: level,
-              columnStats: true,
-              loaderHint: true,
-              lineageErrorContext: true,
-              graphAudit: true,
-              valueFormatFlags: true,
-              tableStructureHint: true,
-              coercionTelemetry: true,
-            } as any)
-          ).toEqual(expected);
-        }
-      });
-    }
-}
+for (const data of [false, true])
+  for (const flow of [false, true]) {
+    test(`explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
+      const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
+      const expected = mapLegacyToParams(options as any);
+      expect(expected.nativeEvidence).toMatchObject({ data, flow, maxChars: 800, tableFormat: "markdown" });
+      for (const level of [0, 1, 2, 3]) {
+        expect(
+          mapLegacyToParams({
+            ...options,
+            flowLevel: level,
+            dataLevel: level,
+            columnStats: true,
+            loaderHint: true,
+            lineageErrorContext: true,
+            graphAudit: true,
+            valueFormatFlags: true,
+            tableStructureHint: true,
+            coercionTelemetry: true,
+          } as any)
+        ).toEqual(expected);
+      }
+    });
+  }
 
 for (const key of ["dataEvidence", "flowEvidence"]) {
   test(`${key} is a boolean, never a truthy level or string`, () => {
@@ -136,11 +133,4 @@ test("multiRequest is off, transcript or catalog", () => {
     expect(() => validateNativeSettings({ [key]: value })).toThrow(
       'multiRequest must be "off", "transcript" or "catalog"'
     );
-  // Entries replace earlier requests in the delta context's native transcript only.
-  expect(() => validateNativeSettings({ [key]: "catalog", contextMode: "delta" } as object)).not.toThrow();
-  for (const other of [{ contextMode: "latest" }, { messageLayout: "opSplit" }])
-    expect(() => validateNativeSettings({ [key]: "catalog", ...other } as object)).toThrow(
-      'multiRequest "catalog" needs contextMode "delta" and messageLayout "native"'
-    );
-  expect(() => validateNativeSettings({ [key]: "transcript", contextMode: "latest" } as object)).not.toThrow();
 });

@@ -31,14 +31,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../types/agent";
-import { assembleContext } from "../util/context-utils";
 import { buildDossier } from "./summarize/dossier";
 import { mapLegacyToParams } from "./summarize/params";
 import { applyFrontierDecay, parseFrontierDecayConfig } from "./selector/frontier-decay";
 import { applyProbeRetirement, parseProbeRetirementConfig } from "./selector/probe-retirement";
 import { applyRenderPrefs } from "./selector/render-prefs";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "./summarize/fixtures";
+import { buildScenario, makeInfo, makeWorkflow, renderText, snapshotParams, type Scenario } from "./summarize/fixtures";
 
 /**
  * One trajectory carrying every feature's raw material:
@@ -167,18 +165,15 @@ function kitchenSinkScenario(): Scenario {
 }
 
 const BASE = {
-  compilationResult: null,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;
 
 describe("feature orthogonality", () => {
-  test("all flags OFF ⇒ no feature marker appears in either mode's render", () => {
+  test("all flags OFF ⇒ no feature marker appears in the DELTA or the current-snapshot render", () => {
     const scenario = kitchenSinkScenario();
-    for (const mode of [ContextMode.LATEST, ContextMode.DELTA]) {
-      const text = String(
-        assembleContext(scenario.steps, scenario.workflowState, scenario.storage, mode, { ...BASE })[0].content
-      );
+    for (const params of [snapshotParams(BASE), mapLegacyToParams(BASE)]) {
+      const text = renderText(scenario, params);
       // renderPrefs off: the declared minimal prefs must not shrink anything —
       // probe's second row visible despite outputSummary:"minimal".
       expect(text).toContain("README-INFO");
@@ -204,13 +199,9 @@ describe("feature orthogonality", () => {
         delete inp.outputSummary;
       }
     }
-    for (const mode of [ContextMode.LATEST, ContextMode.DELTA]) {
-      const a = String(
-        assembleContext(withPrefs.steps, withPrefs.workflowState, withPrefs.storage, mode, { ...BASE })[0].content
-      );
-      const b = String(
-        assembleContext(stripped.steps, stripped.workflowState, stripped.storage, mode, { ...BASE })[0].content
-      );
+    for (const params of [snapshotParams(BASE), mapLegacyToParams(BASE)]) {
+      const a = renderText(withPrefs, params);
+      const b = renderText(stripped, params);
       // The Action lines render tool params losslessly, so the DELTA action
       // text differs by the declared params themselves; operator RESULT
       // rendering must be identical. Compare observation/result regions by
@@ -224,19 +215,19 @@ describe("feature orthogonality", () => {
     }
   });
 
-  test("overlays are base-preserving no-ops outside their mode", () => {
+  test("overlays are base-preserving no-ops on the DELTA context", () => {
     const scenario = kitchenSinkScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const delta = mapLegacyToParams(ContextMode.DELTA, { ...BASE });
+    const delta = mapLegacyToParams(BASE);
     expect(applyFrontierDecay(delta, dossier, parseFrontierDecayConfig({}))).toEqual(delta);
     expect(applyProbeRetirement(delta, dossier, parseProbeRetirementConfig({}))).toEqual(delta);
     expect(applyRenderPrefs(delta, dossier)).toEqual(delta);
   });
 
-  test("overlay composition: enabling all three on LATEST never raises detail anywhere", () => {
+  test("overlay composition: enabling all three on the current snapshot never raises detail anywhere", () => {
     const scenario = kitchenSinkScenario();
     const dossier = buildDossier(scenario.steps, scenario.storage);
-    const base = mapLegacyToParams(ContextMode.LATEST, { ...BASE });
+    const base = snapshotParams(BASE);
     let params = applyFrontierDecay(base, dossier, parseFrontierDecayConfig({}));
     params = applyProbeRetirement(params, dossier, parseProbeRetirementConfig({}));
     params = applyRenderPrefs(params, dossier);

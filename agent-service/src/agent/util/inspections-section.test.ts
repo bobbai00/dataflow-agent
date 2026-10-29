@@ -17,9 +17,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { ContextMode } from "../../types/agent";
 import { assembleContext } from "./context-utils";
-import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../context/summarize/fixtures";
+import { mapLegacyToParams } from "../context/summarize/params";
+import {
+  buildScenario,
+  makeInfo,
+  makeWorkflow,
+  renderText,
+  snapshotParams,
+  type Scenario,
+} from "../context/summarize/fixtures";
 
 const PULL_OUTPUT =
   "Inspection of `loader` (where nonnumeric:amount) — showing 2 of 2 matching sampled row(s), 3 column(s):\n" +
@@ -82,7 +89,7 @@ function pullScenario(): Scenario {
   return scenario;
 }
 
-const OPTS = { compilationResult: null, maxResultRows: 3 } as const;
+const OPTS = { maxResultRows: 3 } as const;
 
 describe("# Inspections persistence", () => {
   test("fresh error inspections never advertise a removed result tool", () => {
@@ -90,26 +97,17 @@ describe("# Inspections persistence", () => {
     const inspected = scenario.steps.find(step => step.id === "a2")!;
     inspected.toolCalls![0].toolName = "inspectError";
     inspected.toolResults![0].output = "CALLBACK_RUNTIME: diagnostic marker";
-    for (const contextMode of [ContextMode.LATEST, ContextMode.DELTA]) {
-      for (const messageLayout of ["native", "block"] as const) {
-        const text = JSON.stringify(
-          assembleContext(scenario.steps, scenario.workflowState, scenario.storage, contextMode, {
-            ...OPTS,
-            messageLayout,
-          })
-        );
-        expect(text).toContain("CALLBACK_RUNTIME: diagnostic marker");
-        expect(text).not.toContain("inspectResult");
-      }
+    for (const text of [
+      JSON.stringify(assembleContext(scenario.steps, scenario.workflowState, scenario.storage, { ...OPTS })),
+      renderText(scenario, snapshotParams(OPTS)),
+    ]) {
+      expect(text).toContain("CALLBACK_RUNTIME: diagnostic marker");
+      expect(text).not.toContain("inspectResult");
     }
   });
 
-  test("LATEST re-renders the pull on later steps, tail-positioned", () => {
-    const scenario = pullScenario();
-    const text = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, { ...OPTS })[0]
-        .content
-    );
+  test("the current-snapshot layout re-renders the pull on later steps, tail-positioned", () => {
+    const text = renderText(pullScenario(), snapshotParams(OPTS));
     expect(text).toContain("# Inspections (your on-demand inspectResult pulls)");
     expect(text).toContain("## Inspection @ Event 3 — `loader` (maxRows=20, where=nonnumeric:amount)");
     expect(text).toContain("N/A");
@@ -117,14 +115,12 @@ describe("# Inspections persistence", () => {
     expect(text.indexOf("# Inspections")).toBeGreaterThan(text.indexOf("# Current Dataflow"));
   });
 
-  test("DELTA appends the same section after the trajectory", () => {
-    const scenario = pullScenario();
-    const text = String(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, { ...OPTS })[0]
-        .content
-    );
-    expect(text).toContain("# Inspections (your on-demand inspectResult pulls)");
-    expect(text).toContain("n.a.");
+  test("DELTA keeps the pull's output at its event, not in a trailing section", () => {
+    const text = renderText(pullScenario(), mapLegacyToParams(OPTS));
+    const pull = text.slice(text.indexOf("## Agent Event 3"), text.indexOf("## Agent Event 4"));
+    expect(pull).toContain("- inspectResult output:");
+    expect(pull).toContain("n.a.");
+    expect(text).not.toContain("# Inspections");
   });
 
   test("no pulls ⇒ no section (byte-parity for tool-less arms)", () => {
@@ -143,11 +139,7 @@ describe("# Inspections persistence", () => {
     ]);
     scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "loader", type: "DataLoading" }]));
     scenario.storage.setOperatorResult("a1", "loader", makeInfo(10));
-    for (const mode of [ContextMode.LATEST, ContextMode.DELTA]) {
-      const text = String(
-        assembleContext(scenario.steps, scenario.workflowState, scenario.storage, mode, { ...OPTS })[0].content
-      );
-      expect(text).not.toContain("# Inspections");
-    }
+    for (const params of [mapLegacyToParams(OPTS), snapshotParams(OPTS)])
+      expect(renderText(scenario, params)).not.toContain("# Inspections");
   });
 });

@@ -19,9 +19,8 @@
 
 /**
  * Context-parameter sweep: run ONE simple agent task under several context
- * configurations (LATEST / DELTA, compaction budgets, deck sampling) and
- * assert each configuration still produces a working workflow + a non-empty
- * final answer.
+ * configurations (compaction budgets, deck sampling) and assert each
+ * configuration still produces a working workflow + a non-empty final answer.
  *
  * This is a smoke matrix for the context assembler, not an accuracy
  * benchmark: pass = the agent completed the turn, built >=1 operator, the
@@ -30,7 +29,6 @@
 
 import { createAgent, deleteAgent, getSnapshot, runAgentTurn } from "../../src/api/agent-service-api";
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
-import { ContextMode } from "../../src/types/agent";
 import type { AgentSettingsApi } from "../../src/types/agent";
 
 const USERNAME = process.env.TEXERA_USERNAME ?? "texera";
@@ -62,24 +60,14 @@ interface Variant {
 }
 
 const VARIANTS: Variant[] = [
-  { name: "latest-default", settings: { contextMode: ContextMode.LATEST } },
-  {
-    name: "latest-columnStats-thoughtReplayK3",
-    settings: { contextMode: ContextMode.LATEST, thoughtReplay: true, thoughtReplayK: 3 },
-  },
-  { name: "delta-unbounded", settings: { contextMode: ContextMode.DELTA } },
+  { name: "delta-unbounded", settings: {} },
   {
     name: "delta-compress-8k-deck25",
-    settings: {
-      contextMode: ContextMode.DELTA,
-      contextWindowTokens: 8000,
-      compactionStrategy: "compress",
-      deckSampleRatio: 0.25,
-    },
+    settings: { contextWindowTokens: 8000, compactionStrategy: "compress", deckSampleRatio: 0.25 },
   },
   {
     name: "delta-sliding-6k",
-    settings: { contextMode: ContextMode.DELTA, contextWindowTokens: 6000, compactionStrategy: "sliding" },
+    settings: { contextWindowTokens: 6000, compactionStrategy: "sliding" },
   },
 ];
 

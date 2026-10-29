@@ -19,8 +19,8 @@
 import { describe, expect, test } from "bun:test";
 import { clampTableChars } from "../../tools/result-formatting";
 import { summarize, type SummarizeInput } from "./summarize";
-import { deltaPreset, latestPreset, parseSummarizeParams } from "./params";
-import { buildScenario, makeInfo, makeWorkflow } from "./fixtures";
+import { deltaPreset, parseSummarizeParams } from "./params";
+import { buildScenario, makeInfo, makeWorkflow, snapshotParams } from "./fixtures";
 
 function scenario() {
   const rows = Array.from({ length: 40 }, (_, i) => ({ id: i, payload: `value-${i}-${"x".repeat(30)}` }));
@@ -37,10 +37,10 @@ function scenario() {
   );
   storage.setOperatorResult("a1", "src", makeInfo(40, { sampleRows: rows, truncated: true }));
   storage.setOperatorResult("a1", "proc", makeInfo(40, { sampleRows: rows, truncated: true }));
-  return { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null } as SummarizeInput;
+  return { visibleSteps: steps, workflowState, snapshotStorage: storage } as SummarizeInput;
 }
 
-function withParams(patch: object, preset = latestPreset) {
+function withParams(patch: object, preset = snapshotParams) {
   const base = preset();
   const merge = (a: any, b: any): any => {
     const out = { ...a };
@@ -125,7 +125,6 @@ describe("summarize — per-operator tuple.maxChars", () => {
       visibleSteps: steps,
       workflowState,
       snapshotStorage: storage,
-      compilationResult: null,
     } as SummarizeInput;
 
     const unclamped = summarize(

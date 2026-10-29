@@ -78,7 +78,7 @@ describe("TraceStore", () => {
       toolCalls: [{ toolName: "dataflow", toolCallId: "c1", input: { statements: "execute" } }],
       usage: { inputTokens: 1200, outputTokens: 40, totalTokens: 1240 },
       inputMessages: [{ role: "user", content: "x".repeat(100) }],
-      timing: { preparedAt: 1000, requestedAt: 1100, compileMs: 60, contextMs: 40, modelMs: 400 },
+      timing: { preparedAt: 1000, requestedAt: 1100, contextMs: 40, modelMs: 400 },
     });
     store.step("a1", agentStep);
     store.llmCall({
@@ -126,7 +126,7 @@ describe("TraceStore", () => {
       input_tokens: 1200,
       input_messages: 1,
       input_chars: 100,
-      compile_ms: 60,
+      context_ms: 40,
       model_ms: 400,
       post_step_ms: 250,
       tool_calls: 1,
@@ -384,7 +384,7 @@ describe("TraceStore", () => {
   test("keys a database made before by agent, keeping the rows it holds", () => {
     const dir = mkdtempSync(join(tmpdir(), "trace-store-"));
     const path = join(dir, "traces.db");
-    // The earlier schema: these tables keyed by their own ids alone.
+    // The earlier schema: these tables keyed by their own ids alone, and steps with a column since dropped.
     const legacy = new Database(path, { create: true });
     legacy.exec(`
       CREATE TABLE turns (message_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, channel TEXT NOT NULL, source TEXT,
@@ -413,8 +413,10 @@ describe("TraceStore", () => {
     `);
     legacy.close();
 
+    const columnsOf = (store: TraceStore, table: string) =>
+      (store as any).db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number }>;
     const keyOf = (store: TraceStore, table: string) =>
-      ((store as any).db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number }>)
+      columnsOf(store, table)
         .filter(column => column.pk)
         .sort((a, b) => a.pk - b.pk)
         .map(column => column.name);
@@ -423,6 +425,7 @@ describe("TraceStore", () => {
       const store = new TraceStore(path);
       expect(keyOf(store, "turns")).toEqual(["agent_id", "message_id"]);
       expect(keyOf(store, "steps")).toEqual(["agent_id", "id"]);
+      expect(columnsOf(store, "steps").map(column => column.name)).not.toContain("compile_ms");
       expect(keyOf(store, "snapshots")).toEqual(["agent_id", "id"]);
       expect(keyOf(store, "snapshot_operators")).toEqual(["agent_id", "snapshot_id", "position"]);
       expect(store.stepsOf("a1").map(s => s.content)).toEqual(["kept"]);

@@ -18,10 +18,11 @@
  */
 
 import { expect, test } from "bun:test";
-import { ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
+import { DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
 import { buildContextAssembler } from "../../server";
 import type { OperatorInfo } from "../../types/execution";
-import { assembleContext } from "../util/context-utils";
+import type { AssembleContextOptions } from "../util/context-utils";
+import { renderText, snapshotParams } from "../context/summarize/fixtures";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
@@ -33,9 +34,10 @@ import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
 /**
- * Evidence captured for the operators a call showed: what LATEST renders from
- * the captured observations, what capture freezes, and who owns a capture.
- * (DELTA renders each call's receipt instead; turn-receipt tests cover it.)
+ * Evidence captured for the operators a call showed: what the current-snapshot
+ * layout renders from the captured observations, what capture freezes, and who
+ * owns a capture. (DELTA renders each call's receipt instead; turn-receipt tests
+ * cover it.)
  */
 function fixture() {
   const state = new WorkflowState();
@@ -187,21 +189,19 @@ function fixture() {
   return { state, steps, storage, record, persist, capture };
 }
 
+/** The current-snapshot layout (no events) for the fixture's steps. */
+const snapshot = (f: ReturnType<typeof fixture>, options: AssembleContextOptions) =>
+  renderText({ steps: f.steps, workflowState: f.state, storage: f.storage }, snapshotParams(options));
+
 const predicate = "def positive(row, *, minimum=0):\n    return row['x'] > minimum";
 const source = "set source: scan(files='data/test.csv')";
 const selected = (minimum = 0) =>
   `set selected: filter(source, predicate='positive', settings={'minimum': ${minimum}})`;
 const graph = (...lines: string[]) => [source, selected(), ...lines].join("\n");
 
-test("shared flow LATEST: dedup only visible outputs in this frame", async () => {
+test("shared flow in the current snapshot: dedup only visible outputs in this frame", async () => {
   const f = fixture();
-  const render = () =>
-    assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-      messageLayout: "native",
-      dataEvidence: true,
-      flowEvidence: true,
-      maxOperatorResultCharLimit: 2000,
-    });
+  const render = () => snapshot(f, { dataEvidence: true, flowEvidence: true, maxOperatorResultCharLimit: 2000 });
   await f.record(
     "A",
     predicate,
@@ -219,7 +219,7 @@ test("shared flow LATEST: dedup only visible outputs in this frame", async () =>
     second: [10, 20, 30],
   });
   f.capture("A", ["first", "second"]);
-  const text = JSON.stringify(render());
+  const text = render();
   expect(text.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
   expect(text).toContain("- runtime stats: see");
   expect(text).not.toContain("Sample record: -100");
@@ -227,7 +227,7 @@ test("shared flow LATEST: dedup only visible outputs in this frame", async () =>
   const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
   await f.record("B", "", "show result second", ["second"]);
   f.capture("B", ["second"]);
-  const later = JSON.stringify(render());
+  const later = render();
   expect(later.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
   expect(later).not.toContain("- runtime stats: see");
   expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
@@ -235,7 +235,7 @@ test("shared flow LATEST: dedup only visible outputs in this frame", async () =>
 
 for (const dataEvidence of [false, true])
   for (const flowEvidence of [false, true]) {
-    test(`production LATEST: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
+    test(`production current snapshot: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
       const f = fixture();
       await f.record("A", predicate, graph("show result selected"), ["selected"]);
       f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
@@ -250,10 +250,9 @@ for (const dataEvidence of [false, true])
         visibleSteps: f.steps,
         workflowState: f.state,
         snapshotStorage: f.storage,
-        compilationResult: null,
         settings: {
           ...DEFAULT_AGENT_SETTINGS,
-          contextMode: ContextMode.LATEST,
+          summarizeParams: { trajectory: { events: "none" }, currentSnapshot: true },
           dataEvidence,
           flowEvidence,
         },
@@ -283,16 +282,9 @@ for (const dataEvidence of [false, true])
     });
   }
 
-test("upstream summaries LATEST: a shown result pins its hidden calculation, revisions do not leak", async () => {
+test("upstream summaries in the current snapshot: a shown result pins its hidden calculation, revisions do not leak", async () => {
   const f = fixture();
-  const render = () =>
-    JSON.stringify(
-      assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-        dataEvidence: false,
-        flowEvidence: true,
-        maxOperatorResultCharLimit: 2000,
-      })
-    );
+  const render = () => snapshot(f, { dataEvidence: false, flowEvidence: true, maxOperatorResultCharLimit: 2000 });
   await f.record("A", predicate, graph("set final: project(selected, keep=['x'])", "show result final"), ["final"]);
   f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
   f.capture("A", ["final"], false, true);
@@ -312,60 +304,50 @@ test("upstream summaries LATEST: a shown result pins its hidden calculation, rev
   expect(f.storage.getAssociatedSnapshot("A").nativeObservations!.final).toEqual(frozen);
 });
 
-for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSplit", "turnSplit"] as const) {
-  test(`V2 evidence LATEST/${messageLayout ?? "default"}: shown result, revision, error, cached read`, async () => {
-    const f = fixture();
-    let dataEvidence: boolean = true,
-      flowEvidence: boolean = true;
-    const render = () =>
-      JSON.stringify(
-        assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-          messageLayout,
-          dataEvidence,
-          flowEvidence,
-          maxOperatorResultCharLimit: 2000,
-        })
-      );
-    await f.record("A", predicate, graph("show result selected"), ["selected"]);
-    f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30] });
-    f.capture("A", ["selected"]);
-    expect(f.storage.getOperatorResult("A", "selected")?.tableProfile?.status).toBe("available");
-    const frame = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
-    expect(frame?.text).toContain("kept=3/5");
-    expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
-    expect(render()).toContain("kept=3/5");
-    expect(render()).toContain("statistics:");
+test("V2 evidence in the current snapshot: shown result, revision, error, cached read", async () => {
+  const f = fixture();
+  let dataEvidence: boolean = true,
+    flowEvidence: boolean = true;
+  const render = () => snapshot(f, { dataEvidence, flowEvidence, maxOperatorResultCharLimit: 2000 });
+  await f.record("A", predicate, graph("show result selected"), ["selected"]);
+  f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30] });
+  f.capture("A", ["selected"]);
+  expect(f.storage.getOperatorResult("A", "selected")?.tableProfile?.status).toBe("available");
+  const frame = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
+  expect(frame?.text).toContain("kept=3/5");
+  expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
+  expect(render()).toContain("kept=3/5");
+  expect(render()).toContain("statistics:");
 
-    await f.record("B", "", selected(10));
-    f.persist("B", { selected: [20, 30] }, "101");
-    f.capture("B", []);
-    expect(render()).not.toContain("kept=2/5");
-    expect(render()).toContain("result not requested");
-    expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
-    expect(render()).not.toContain("kept=3/5");
+  await f.record("B", "", selected(10));
+  f.persist("B", { selected: [20, 30] }, "101");
+  f.capture("B", []);
+  expect(render()).not.toContain("kept=2/5");
+  expect(render()).toContain("result not requested");
+  expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
+  expect(render()).not.toContain("kept=3/5");
 
-    await f.record("C", "", "show result selected", ["selected"]);
-    f.capture("C", ["selected"]);
-    expect(render()).toContain("kept=2/5");
-    expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
-    expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
-    dataEvidence = flowEvidence = false;
-    expect(render()).not.toContain("- runtime stats:");
-    expect(render()).not.toContain("statistics:");
+  await f.record("C", "", "show result selected", ["selected"]);
+  f.capture("C", ["selected"]);
+  expect(render()).toContain("kept=2/5");
+  expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
+  expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
+  dataEvidence = flowEvidence = false;
+  expect(render()).not.toContain("- runtime stats:");
+  expect(render()).not.toContain("statistics:");
 
-    await f.record("D", "", selected(20));
-    f.storage.setOperatorResult("D", "selected", {
-      state: "Failed",
-      inputTuples: 0,
-      outputTuples: 0,
-      resultMode: "error",
-      error: "CALLBACK_RETURN_TYPE: expected bool",
-    });
-    f.capture("D", []);
-    expect(render()).toContain("CALLBACK_RETURN_TYPE");
-    expect(f.storage.getOperatorResult("D", "selected")?.tableProfile).toBeUndefined();
+  await f.record("D", "", selected(20));
+  f.storage.setOperatorResult("D", "selected", {
+    state: "Failed",
+    inputTuples: 0,
+    outputTuples: 0,
+    resultMode: "error",
+    error: "CALLBACK_RETURN_TYPE: expected bool",
   });
-}
+  f.capture("D", []);
+  expect(render()).toContain("CALLBACK_RETURN_TYPE");
+  expect(f.storage.getOperatorResult("D", "selected")?.tableProfile).toBeUndefined();
+});
 
 test("a captured observation is frozen; capturing again cannot rewrite it with new settings", async () => {
   const f = fixture();
@@ -417,13 +399,7 @@ for (const data of [false, true]) {
       expect(output.includes("statistics:")).toBe(data);
       expect(output.includes("- runtime stats:")).toBe(flow);
       expect(output.length).toBeLessThanOrEqual(2000);
-      const rendered = JSON.stringify(
-        assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-          dataEvidence: data,
-          flowEvidence: flow,
-          maxOperatorResultCharLimit: 2000,
-        })
-      );
+      const rendered = snapshot(f, { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 2000 });
       expect(rendered.includes("statistics:")).toBe(data);
       expect(rendered.includes("- runtime stats:")).toBe(flow);
       expect(rendered).not.toContain("Column Schema and stats");

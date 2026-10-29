@@ -19,7 +19,7 @@
 import { expect, test } from "bun:test";
 import { generateText, jsonSchema, tool, type ModelMessage } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { DEFAULT_AGENT_SETTINGS, ContextMode } from "../../types/agent";
+import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import type { ContextAssemblerInput } from "./types";
 import {
   estimateFullInput,
@@ -75,8 +75,7 @@ const fixed = () => ({
   systemPrompt: "Constant role and rules",
   tools: [{ name: "dataflow", description: "Actions", inputSchema: { type: "object" }, strict: false, enabled: true }],
 });
-const input = () =>
-  ({ settings: { ...DEFAULT_AGENT_SETTINGS, contextMode: ContextMode.DELTA } }) as ContextAssemblerInput;
+const input = () => ({ settings: { ...DEFAULT_AGENT_SETTINGS } }) as ContextAssemblerInput;
 
 test("under-budget requests preserve the same message objects and fixed prefix", async () => {
   const messages: ModelMessage[] = [{ role: "user", content: "Short request" }];

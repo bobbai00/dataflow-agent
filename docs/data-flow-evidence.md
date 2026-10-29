@@ -52,7 +52,7 @@ Contents:
 5. [Using the surrounding DAG](#5-how-the-surrounding-dag-is-used)
 6. [Shared budget and combined selection](#6-how-the-shared-budget-and-combined-selection-work)
 7. [Exact result examples for all four configurations](#7-what-the-model-sees-in-the-four-configurations)
-8. [DELTA, LATEST, observation, and upstream changes](#8-where-results-appear-in-delta-and-latest)
+8. [DELTA, observation, and upstream changes](#8-where-results-appear-in-delta)
 9. [Error handling and unavailable evidence](#9-errors-and-unavailable-evidence)
 10. [Limitations and interpretation](#10-limitations-and-interpretation)
 11. [Verification and source map](#11-verification-and-source-map)
@@ -83,9 +83,8 @@ collection policy, layout, and budget, changing only these two booleans:
 }
 ```
 
-Change `contextMode` to `"latest"` to use the current-dataflow layout. The four
-evidence settings work in either layout. Python client spellings are
-`data_evidence`, `flow_evidence`, and `native_profile_collection`.
+Python client spellings are `data_evidence`, `flow_evidence`, and
+`native_profile_collection`.
 
 ### Important boundaries
 
@@ -138,7 +137,7 @@ Validate/merge profiles; bind output to exact producing input versions
 Explicit observe --> common table view + eligible data/flow facts
           |
           v
-One budgeted observation --> DELTA event or LATEST operator block
+One budgeted observation --> DELTA event
 ```
 
 There is no extra LLM call to calculate, select, or summarize these facts in
@@ -886,16 +885,15 @@ For a raw Scan preview, “complete table” means the complete **preview output
 not the complete underlying source. The Scan definition and, when enabled,
 the flow coverage fact identify that distinction.
 
-## 8. Where results appear in DELTA and LATEST
+## 8. Where results appear in DELTA
 
-The result body above is the shared renderer. Layout decides where it is
+The result body above is the shared renderer. The context decides where it is
 placed; it does not create separate data or flow calculations.
 
 ### 8.1 DELTA: event-owned observations
 
-With the normal service configuration, DELTA defaults to
-`messageLayout: "native"`. The context assembler reconstructs the ordinary
-user task, assistant tool calls, and matching tool-result messages. A dataflow
+The context assembler reconstructs the ordinary user task, assistant tool
+calls, and matching tool-result messages. A dataflow
 tool-result text contains its batch receipt followed by the event observation.
 It does **not** resend every current operator's successful table on each step.
 
@@ -939,49 +937,7 @@ Compaction is subtractive: it may remove sample rows or truncate the sequence
 of recorded chunks, but does not compute fresh facts, refill an old observation
 from today's profile, or choose evidence using a later DAG.
 
-### 8.2 LATEST: current dataflow
-
-LATEST normally defaults to `messageLayout: "opSplit"`: task/current-dataflow
-prefix plus separate operator-block messages, in creation order. It shows the
-current definitions and currently requested results rather than a replay of
-all past observations. A readable concatenation of the relevant blocks is:
-
-```text
-# User Task
-
-Keep positive x values.
-
-# Current Dataflow
-## Operators
-
-### scan operator `source`
-Inputs: none
-Properties: {"files":"data/example.csv"}
-Result: executed, 5 rows; result not requested
-
-### filter operator `selected`
-Properties: {"columns":["x"],"func":"def apply(row):\n    return row['x'] > 0"}
-Inputs: source
-Result:
-  Output Table: 3 rows, 1 cols
-  Columns: "x":int64
-  Sample stored row 1: 10
-  [the selected evidence lines from the chosen configuration]
-  View incomplete; unshown rows/columns or evidence omitted.
-```
-
-Again, the bracketed line stands for the chosen body, not actual text. The
-production render also appends a compact last-completed-action receipt,
-including the observe list and the qualification that tool completion does
-not prove every operator executed successfully. A cached read gets a receipt
-too, so its completion is not lost when LATEST replaces the previous view.
-
-LATEST uses current evidence settings for current observed results. Visibility
-is governed by the current batch observation, not a cumulative entitlement to
-show every table ever observed. Earlier observations are not the main LATEST
-context. Optional history/reasoning layouts are separate configuration choices.
-
-### 8.3 Explicit observation, batching, and changed ancestors
+### 8.2 Explicit observation, batching, and changed ancestors
 
 To retrieve a stored result without edits or re-execution:
 
@@ -1008,8 +964,7 @@ Newly earned downstream results enter that event's DELTA even if the model did
 not directly edit the downstream operator. **Their successful contents still
 require an explicit observe entry.** Otherwise the event keeps a receipt such
 as `re-executed ...; result not requested`, while prior DELTA observations
-remain historical facts. LATEST reflects the current DAG/result state and does
-not label the stale downstream result as a current valid measurement.
+remain historical facts.
 
 ## 9. Errors and unavailable evidence
 
@@ -1075,7 +1030,7 @@ costs to evaluate that outcome separately.
 
 The four result examples and the 500-character example were generated from
 the five-row CSV fixture using the actual Python runtime, worker collector,
-profile decoder, result-version binding, selector, and production DELTA/LATEST
+profile decoder, result-version binding, selector, and production DELTA
 context assembler. The only synthetic retrieval choice was retaining one
 output row in the display sample. No LLM call or backend restart is needed for
 this check.
@@ -1143,7 +1098,7 @@ this documentation change does not initiate a new benchmark run.
 | Immutable observations and invalidation         | [`workflow-snapshot-storage.ts`](../agent-service/src/agent/workflow-snapshot-storage.ts): `captureNativeObservations`, `setOperatorResult`                                                                                         |
 | Batch schema, observe, dependency scheduling    | [`native-batch-tools.ts`](../agent-service/src/agent/tools/native-batch-tools.ts)                                                                                                                                                   |
 | Successful-result/error rendering               | [`result-formatting.ts`](../agent-service/src/agent/tools/result-formatting.ts)                                                                                                                                                     |
-| DELTA/LATEST placement and provider framing     | [`context-utils.ts`](../agent-service/src/agent/util/context-utils.ts), [`native-frames.ts`](../agent-service/src/agent/context/summarize/native-frames.ts), [`server.ts`](../agent-service/src/server.ts): `buildContextAssembler` |
+| DELTA placement and provider framing            | [`context-utils.ts`](../agent-service/src/agent/util/context-utils.ts), [`native-frames.ts`](../agent-service/src/agent/context/summarize/native-frames.ts), [`server.ts`](../agent-service/src/server.ts): `buildContextAssembler` |
 | Model instructions for evidence and observation | [`native-python-mode.md`](../agent-service/src/agent/prompts/native-python-mode.md)                                                                                                                                                 |
 
 For removal/migration details, continue with

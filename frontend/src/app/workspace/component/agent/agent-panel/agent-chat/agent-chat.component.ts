@@ -332,7 +332,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   public settingsToolTimeoutSeconds = 120; // 2 minutes default
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
-  public settingsContextMode: "delta" | "latest" = "delta"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
   public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
@@ -790,7 +789,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         this.settingsToolTimeoutSeconds = settings.toolTimeoutSeconds ?? 120;
         this.settingsExecutionTimeoutMinutes = settings.executionTimeoutMinutes ?? 10;
         this.settingsMaxSteps = settings.maxSteps ?? 10;
-        this.settingsContextMode = settings.contextMode ?? "delta";
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
         this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
@@ -804,7 +802,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
         if (this.agentInfo.settings) {
-          this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
           this.agentInfo.settings.dataEvidence = settings.dataEvidence;
           this.agentInfo.settings.flowEvidence = settings.flowEvidence;
@@ -1963,29 +1960,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => this.notificationService.success("Max steps saved"),
-        error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
-   * Save the ReAct context-selection policy (Latest / Full / Delta).
-   *
-   * Affects the assembled context the LLM sees on the next prepareStep, but
-   * does not rebuild the system prompt (the prompt is mode-agnostic), so
-   * no need to call refreshSystemInfo() for prompt content. We still call
-   * it to keep the Parameters tab values in sync after a round-trip.
-   */
-  public saveContextMode(): void {
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        contextMode: this.settingsContextMode,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => {
-          this.notificationService.success(`Context mode set to ${this.settingsContextMode}`);
-          this.refreshSystemInfo();
-        },
         error: () => {}, // Error already handled by service
       });
   }

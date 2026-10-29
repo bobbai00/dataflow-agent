@@ -18,12 +18,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { assembleContext, computeDelta, deckRowCap, estimateTokens } from "./context-utils";
+import { computeDelta, deckRowCap, estimateTokens, type AssembleContextOptions } from "./context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { ContextMode, type ReActStep } from "../../types/agent";
+import type { ReActStep } from "../../types/agent";
 import type { WorkflowContent } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
+import { mapLegacyToParams } from "../context/summarize/params";
+import { renderText, snapshotParams } from "../context/summarize/fixtures";
 
 /* ============================================================================
  *  Fixtures
@@ -164,28 +166,40 @@ function buildCanonicalScenario() {
   return scenario;
 }
 
-function content(messages: ReturnType<typeof assembleContext>): string {
-  const first = messages[0];
-  if (!first) return "";
-  return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
+/** The DELTA context the renderer produces, before the transcript frames it. */
+function render(
+  steps: ReActStep[],
+  workflowState: WorkflowState,
+  storage: WorkflowSnapshotStorage,
+  options: AssembleContextOptions = {}
+): string {
+  return renderText({ steps, workflowState, storage }, mapLegacyToParams(options));
 }
 
-const opts = { compilationResult: null };
+/** The current-snapshot layout (no events) the context-tuning overlays start from. */
+function renderSnapshot(
+  steps: ReActStep[],
+  workflowState: WorkflowState,
+  storage: WorkflowSnapshotStorage,
+  options: AssembleContextOptions = {}
+): string {
+  return renderText({ steps, workflowState, storage }, snapshotParams(options));
+}
 
 /* ============================================================================
- *  Latest mode
+ *  Current-snapshot layout
  * ========================================================================= */
 
-describe("assembleContext — Latest", () => {
+describe("current-snapshot layout", () => {
   test("emits ONLY # User Task + # Current Dataflow (no events section at all)", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    const c = renderSnapshot(steps, workflowState, storage);
 
     // 1. # User Task block carries the latest user message verbatim.
     expect(c).toContain("# User Task");
     expect(c).toContain("Build me a pipeline.");
 
-    // 2. Latest mode renders NO events section — the LLM sees just the
+    // 2. The layout renders NO events section — the LLM sees just the
     // leaf snapshot. Neither the new `# Agent Events` header nor the legacy
     // `# Recent Agent Events` header should appear, and no `## Agent Event`
     // blocks either.
@@ -197,8 +211,8 @@ describe("assembleContext — Latest", () => {
 
     // 3. # Current Dataflow trailing block.
     expect(c).toContain("# Current Dataflow");
-    // No inline snapshot headers between events in Latest mode (there are
-    // no events at all here).
+    // No inline snapshot headers between events (there are no events at all
+    // here).
     expect(c).not.toContain("Completed dataflow after event");
     expect(c).not.toContain("Dataflow changes after event");
     // Trailing block: # Current Dataflow (H1) → ## Operators (H2) → ### Operator X (H3).
@@ -214,76 +228,9 @@ describe("assembleContext — Latest", () => {
     expect(c).not.toContain("Above is user's request");
   });
 
-  test("agentTurns: LATEST gains a # Agent Turns section (delta-style T/A/O) on top of the core", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    // Off by default → no turns section, just the core.
-    const plain = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    expect(plain).not.toContain("# Agent Turns");
-    expect(plain).not.toContain("## Agent Event");
-    // On → the full trajectory appears as `# Agent Turns` with the same
-    // delta-style per-event blocks, AND the latest-state core is retained.
-    const withTurns = content(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, agentTurns: true })
-    );
-    expect(withTurns).toContain("# Agent Turns");
-    expect(withTurns).toContain("## Agent Event");
-    expect(withTurns).toContain("Action:");
-    // Thought + Action only — the Observation/results would duplicate the
-    // `# Current Dataflow` core, so they are omitted from `# Agent Turns`.
-    const turnsSection = withTurns.slice(withTurns.indexOf("# Agent Turns"), withTurns.indexOf("# Current Dataflow"));
-    expect(turnsSection).not.toContain("Observation:");
-    expect(turnsSection).not.toContain("Output Table:"); // no result tables in the turns
-    expect(withTurns).toContain("# Current Dataflow"); // latest core retained (with results)
-  });
-
-  test("agentTurns: the Action keeps event details (operatorId + code); results stay only in # Current Dataflow", () => {
-    const sc = buildScenario([
-      {
-        id: "init",
-        stepId: 0,
-        role: "agent",
-        messageId: "m-init",
-        content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
-        toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
-      },
-      { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Count rows." },
-      {
-        id: "a1",
-        stepId: 1,
-        role: "agent",
-        messageId: "m",
-        parentId: "u",
-        isBegin: true,
-        content: "Load the CSV.",
-        toolCalls: [
-          {
-            toolName: "createOrModifyOperator",
-            toolCallId: "t1",
-            input: { operatorId: "load_csv", code: "def load():\n    return pd.read_csv('data.csv')" },
-          },
-        ],
-        toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
-      },
-    ]);
-    sc.storage.createSnapshot("a1", makeWorkflow(["load_csv"]));
-    sc.storage.setOperatorResult("a1", "load_csv", makeInfo("load_csv", 42));
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.LATEST, { ...opts, agentTurns: true })
-    );
-    const turns = c.slice(c.indexOf("# Agent Turns"), c.indexOf("# Current Dataflow"));
-    // event details are kept in the Action
-    expect(turns).toContain("operatorId: load_csv");
-    expect(turns).toContain("pd.read_csv('data.csv')");
-    // but the result/observation is NOT in the turns — it lives only in the core
-    expect(turns).not.toContain("Observation:");
-    expect(turns).not.toContain("Output Table:");
-    expect(c).toContain("Output Table: 42 rows, 2 cols"); // latest result, in # Current Dataflow
-  });
-
   test("empty path → empty content", () => {
     const { steps, storage, workflowState } = buildScenario([]);
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    const c = renderSnapshot(steps, workflowState, storage);
     // No user task and no snapshot — everything is empty.
     expect(c).not.toContain("# User Task");
     expect(c).not.toContain("# Agent Events");
@@ -314,7 +261,7 @@ describe("assembleContext — Latest", () => {
       settings: { dataTransferBatchSize: 400 },
     });
     storage.setOperatorResult("init", "baseline", makeInfo("baseline", 5));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
+    const c = renderSnapshot(steps, workflowState, storage);
     expect(c).not.toContain("# Event 0");
     expect(c).not.toContain("# Event 1");
     expect(c).not.toContain("- initialize");
@@ -331,7 +278,7 @@ describe("assembleContext — Latest", () => {
 describe("assembleContext — Delta", () => {
   test("event 3's Observation lists filt (changed) and omits unchanged src/existing", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // After init exclusion: t2 (was event 4) is now event 3. The Observation is a
     // minimal per-operator list; slice event 3's whole block.
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
@@ -345,14 +292,14 @@ describe("assembleContext — Delta", () => {
     expect(after3).not.toContain("- operator existing");
   });
 
-  test("delta Observation: Inputs is shown (structure-consistent with LATEST); Links/Used by/Summary stay LATEST-only", () => {
+  test("delta Observation: Inputs is shown; Links/Used by/Summary are not", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
-    // Inputs (DAG adjacency from the LEAF snapshot) now renders in DELTA too, on
-    // the op's most-recent edit — filt consumes src. Same formatter as LATEST.
+    // Inputs (DAG adjacency from the LEAF snapshot) renders on the op's
+    // most-recent edit — filt consumes src.
     expect(after3).toContain("Inputs: src");
-    // The other operator-block structural decorations remain LATEST's view only.
+    // The other operator-block structural decorations belong to snapshot blocks.
     expect(after3).not.toContain("#### Links");
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
@@ -362,15 +309,12 @@ describe("assembleContext — Delta", () => {
 
   test("delta Observation retains schema formatting independently of evidence", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(
-      assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, schemaInResult: true })
-    );
+    const c = render(steps, workflowState, storage, { schemaInResult: true });
     const after3 = c.slice(c.indexOf("## Agent Event 3"), c.indexOf("## Agent Event 4"));
-    // data_level >= 1 ⇒ the Δ result carries the same Schema line LATEST renders.
+    // data_level >= 1 ⇒ the Δ result carries the Schema line.
     expect(after3).toContain("Schema (");
-    // …and Inputs is symmetric with LATEST now too.
     expect(after3).toContain("Inputs: src");
-    // Used by / Summary remain LATEST-only (not part of the data facet).
+    // Used by / Summary belong to snapshot blocks (not part of the data facet).
     expect(after3).not.toContain("Used by:");
     expect(after3).not.toContain("Summary:");
   });
@@ -410,7 +354,7 @@ describe("assembleContext — Delta", () => {
     // a2's snapshot has the same op with the same properties and no new
     // sourceStepId result → empty Δ.
     storage.createSnapshot("a2", makeWorkflow(["a"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // Event numbering: user=1, a1=2, a2=3. a1 added op "a" → event 2's
     // Observation renders its result-summary `#### Operators` block. a2 re-issues
     // a no-op modify on "a" (same props, no new sourceStepId result) → empty Δ →
@@ -429,7 +373,7 @@ describe("assembleContext — Delta", () => {
 
   test("no trailing # Current Dataflow block", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     expect(c).not.toContain("# Current Dataflow");
   });
 });
@@ -539,7 +483,7 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 
   test("window 0 (off): unbounded lossless delta — no compaction", () => {
     const sc = fourEventScenario();
-    const c = content(assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, opts));
+    const c = render(sc.steps, sc.workflowState, sc.storage);
     expect(c).not.toContain("omitted");
     expect(c).not.toContain("# Dataflow (compacted");
     expect(c).toContain("Output Table: 50 rows, 2 cols");
@@ -547,13 +491,10 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 
   test("large window (>0, fits): raw delta, no compaction, Phase-A schema-only profile", () => {
     const sc = fourEventScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: 100000,
-        compactionStrategy: "compress",
-      })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, {
+      contextWindowTokens: 100000,
+      compactionStrategy: "compress",
+    });
     expect(c).not.toContain("# Dataflow (compacted");
     expect(c).not.toContain("omitted");
     expect(c).toContain("Output Table: 50 rows, 2 cols");
@@ -563,13 +504,7 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 
   test("sliding, tiny window: drops oldest events, keeps most recent, reseeds delta", () => {
     const sc = fourEventScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: 1,
-        compactionStrategy: "sliding",
-      })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, { contextWindowTokens: 1, compactionStrategy: "sliding" });
     expect(c).toContain("earlier events omitted");
     expect(c).toContain("Output Table: 12 rows, 2 cols");
     expect(c).toContain("- operator filt updated");
@@ -580,13 +515,10 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 
   test("compress, tiny window: folds prefix into a stats deck, PRESERVES folded operators", () => {
     const sc = fourEventScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: 1,
-        compactionStrategy: "compress",
-      })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, {
+      contextWindowTokens: 1,
+      compactionStrategy: "compress",
+    });
     expect(c).toContain("# Dataflow (compacted");
     expect(c).not.toContain("earlier events omitted");
     expect(c).toContain("Operator `src`");
@@ -596,37 +528,25 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 
   test("compress vs sliding contrast at the same window: compress keeps src, sliding drops it", () => {
     const a = fourEventScenario();
-    const slid = content(
-      assembleContext(a.steps, a.workflowState, a.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: 1,
-        compactionStrategy: "sliding",
-      })
-    );
+    const slid = render(a.steps, a.workflowState, a.storage, { contextWindowTokens: 1, compactionStrategy: "sliding" });
     const b = fourEventScenario();
-    const comp = content(
-      assembleContext(b.steps, b.workflowState, b.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: 1,
-        compactionStrategy: "compress",
-      })
-    );
+    const comp = render(b.steps, b.workflowState, b.storage, {
+      contextWindowTokens: 1,
+      compactionStrategy: "compress",
+    });
     expect(slid).not.toContain("Operator `src`");
     expect(comp).toContain("Operator `src`");
   });
 
   test("compress, partial fold: deck prefix + raw-delta suffix coexist", () => {
     const ref = fourEventScenario();
-    const lossless = content(assembleContext(ref.steps, ref.workflowState, ref.storage, ContextMode.DELTA, opts));
+    const lossless = render(ref.steps, ref.workflowState, ref.storage);
     const windowTokens = Math.floor(lossless.length / 4) - 1;
     const sc = fourEventScenario();
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        contextWindowTokens: windowTokens,
-        compactionStrategy: "compress",
-      })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, {
+      contextWindowTokens: windowTokens,
+      compactionStrategy: "compress",
+    });
     expect(c).toContain("# Dataflow (compacted");
     expect(c).toContain("Operator `src`");
     expect(c).toContain("# Agent Events (since the compacted snapshot above)");
@@ -691,9 +611,7 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
   test("folds settled operators; the frontier op stays raw (settled-framed header)", () => {
     // op1..op6 each edited once, then op7 is the frontier → op1..op6 settled.
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
     expect(c).toContain("# Current Dataflow (settled operators");
     expect(c).toContain("# Agent Events (your in-progress work since the settled snapshot above)");
     expect(c).toContain("op7"); // frontier op present raw in the suffix
@@ -703,18 +621,8 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     // Two trajectories: same 5 settled ops, then the frontier op edited 1× vs 3×.
     const base = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG);
     const more = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op6", "op6"], BIG);
-    const cBase = content(
-      assembleContext(base.steps, base.workflowState, base.storage, ContextMode.DELTA, {
-        ...opts,
-        staticCompaction: true,
-      })
-    );
-    const cMore = content(
-      assembleContext(more.steps, more.workflowState, more.storage, ContextMode.DELTA, {
-        ...opts,
-        staticCompaction: true,
-      })
-    );
+    const cBase = render(base.steps, base.workflowState, base.storage, { staticCompaction: true });
+    const cMore = render(more.steps, more.workflowState, more.storage, { staticCompaction: true });
     expect(cBase).toContain("# Current Dataflow (settled operators");
     // The compacted prefix (deck) is identical — cache-friendly; only the raw
     // suffix grows with the extra op6 attempts.
@@ -724,18 +632,8 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
   test("boundary ADVANCES when the agent switches to a new operator", () => {
     const before = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG); // frontier op6
     const after = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG); // frontier op7 → op6 settles
-    const cBefore = content(
-      assembleContext(before.steps, before.workflowState, before.storage, ContextMode.DELTA, {
-        ...opts,
-        staticCompaction: true,
-      })
-    );
-    const cAfter = content(
-      assembleContext(after.steps, after.workflowState, after.storage, ContextMode.DELTA, {
-        ...opts,
-        staticCompaction: true,
-      })
-    );
+    const cBefore = render(before.steps, before.workflowState, before.storage, { staticCompaction: true });
+    const cAfter = render(after.steps, after.workflowState, after.storage, { staticCompaction: true });
     // op6 was raw (frontier) before; after switching to op7 it joins the deck.
     expect(deckOf(cBefore)).not.toContain("op6");
     expect(deckOf(cAfter)).toContain("op6");
@@ -745,42 +643,26 @@ describe("assembleContext — staticCompaction editConvergence rule (DELTA)", ()
     // op7 is the frontier and errored — the settled prefix still folds; the
     // errored op is debuggable in the raw suffix.
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG, "op7");
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
     expect(c).toContain("# Current Dataflow (settled operators");
     expect(c.split("# Agent Events")[1]).toContain("op7");
   });
 
   test("below the token floor: no compaction (short evidence-dense trace protected)", () => {
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], 0);
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: true })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
     expect(c).not.toContain("# Current Dataflow (settled operators");
   });
 
-  test("flag off: stays lossless; LATEST ignores the flag", () => {
+  test("flag off: stays lossless", () => {
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const off = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, { ...opts, staticCompaction: false })
-    );
-    const latest = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.LATEST, { ...opts, staticCompaction: true })
-    );
+    const off = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: false });
     expect(off).not.toContain("# Current Dataflow (settled operators");
-    expect(latest).not.toContain("# Current Dataflow (settled operators");
   });
 
   test("token rule still selectable via compactionRule='token' (A/B)", () => {
     const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const c = content(
-      assembleContext(sc.steps, sc.workflowState, sc.storage, ContextMode.DELTA, {
-        ...opts,
-        staticCompaction: true,
-        compactionRule: "token",
-      })
-    );
+    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true, compactionRule: "token" });
     // token rule uses the generic (non-settled) header
     expect(c).toContain("# Dataflow (compacted");
   });
@@ -851,47 +733,41 @@ describe("computeDelta", () => {
 });
 
 /* ============================================================================
- *  Cross-mode invariants
+ *  Invariants of the two layouts
  * ========================================================================= */
 
-describe("assembleContext — cross-mode invariants", () => {
-  test("# User Task is hoisted in EVERY mode; events are present in Full/Delta but absent in Latest", () => {
+describe("assembleContext — invariants", () => {
+  test("DELTA keeps the request in place among the events; the current snapshot hoists it and has none", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
-    const ofMode = (m: ContextMode) => content(assembleContext(steps, workflowState, storage, m, opts));
 
-    // # User Task is universally present.
-    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-      const c = ofMode(mode);
-      expect(c).toContain("# User Task");
-      expect(c).toContain("Build me a pipeline.");
-    }
+    // Delta renders the events section, the request at its own position: each
+    // agent event + its standard tool-call Action + its Observation.
+    const c = render(steps, workflowState, storage);
+    expect(c).not.toContain("# User Task");
+    expect(c).toContain("## User Event 1\n\nBuild me a pipeline.");
+    expect(c).toContain("# Agent Events");
+    expect(c).toContain("## Agent Event 2");
+    expect(c).toContain("## Agent Event 3");
+    expect(c).toContain("## Agent Event 4");
+    // Standard tool-call Action: registered tool name + key:value params.
+    expect(c).toContain("Action:");
+    expect(c).toContain("- createOrModifyOperator");
+    expect(c).toContain("operatorId: src");
+    expect(c).toContain("operatorId: filt");
+    // Observation lists the affected operators.
+    expect(c).toContain("Observation:");
+    expect(c).toContain("- operator src added");
+    expect(c).toContain("- operator filt added");
+    expect(c).not.toContain("# Recent Agent Events");
 
-    // Delta renders the events section: each agent event + its standard tool-call
-    // Action + its Observation.
-    for (const mode of [ContextMode.DELTA]) {
-      const c = ofMode(mode);
-      expect(c).toContain("# Agent Events");
-      expect(c).toContain("## Agent Event 2");
-      expect(c).toContain("## Agent Event 3");
-      expect(c).toContain("## Agent Event 4");
-      // Standard tool-call Action: registered tool name + key:value params.
-      expect(c).toContain("Action:");
-      expect(c).toContain("- createOrModifyOperator");
-      expect(c).toContain("operatorId: src");
-      expect(c).toContain("operatorId: filt");
-      // Observation lists the affected operators.
-      expect(c).toContain("Observation:");
-      expect(c).toContain("- operator src added");
-      expect(c).toContain("- operator filt added");
-      expect(c).not.toContain("# Recent Agent Events");
-    }
-
-    // Latest mode renders NO events section at all.
-    const cLatest = ofMode(ContextMode.LATEST);
-    expect(cLatest).not.toContain("# Agent Events");
-    expect(cLatest).not.toContain("# Recent Agent Events");
-    expect(cLatest).not.toContain("## Agent Event");
-    expect(cLatest).not.toContain("Observation:");
+    // The current snapshot hoists the request and renders NO events section.
+    const cSnapshot = renderSnapshot(steps, workflowState, storage);
+    expect(cSnapshot).toContain("# User Task");
+    expect(cSnapshot).toContain("Build me a pipeline.");
+    expect(cSnapshot).not.toContain("# Agent Events");
+    expect(cSnapshot).not.toContain("# Recent Agent Events");
+    expect(cSnapshot).not.toContain("## Agent Event");
+    expect(cSnapshot).not.toContain("Observation:");
   });
 
   // Shared single-step scenario builder for the property-rendering tests:
@@ -920,46 +796,37 @@ describe("assembleContext — cross-mode invariants", () => {
     return { storage, stepsAll };
   }
 
-  test("Python code operators' code is always stripped, even with includeOperatorProperties on", () => {
+  test("Python code operators' code is always stripped", () => {
     // DataLoading (a CODE_OPERATOR_TYPE) carries a `code` property; assert no
-    // mode surfaces it even though the include flag is explicitly on.
+    // layout surfaces it, though other operators' properties render.
     const { storage, stepsAll } = propScenario(
       makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" })
     );
     const ws = new WorkflowState();
-    for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-      const c = content(assembleContext(stepsAll, ws, storage, mode, { ...opts, includeOperatorProperties: true }));
+    for (const c of [render(stepsAll, ws, storage), renderSnapshot(stepsAll, ws, storage)]) {
       expect(c).not.toContain("secret_payload");
       expect(c).not.toContain("Properties:");
     }
   });
 
-  test("non-code operator properties render in LATEST by default and hide when the flag is off", () => {
+  test("non-code operator properties render in the current snapshot", () => {
     const { storage, stepsAll } = propScenario(makeOp("flt", "Filter", { predicate: "age > 18" }));
     const ws = new WorkflowState();
 
-    // LATEST default (flag undefined ⇒ on): the operator block renders Properties.
-    const cOn = content(assembleContext(stepsAll, ws, storage, ContextMode.LATEST, opts));
+    const cOn = renderSnapshot(stepsAll, ws, storage);
     expect(cOn).toContain("Properties:");
     expect(cOn).toContain("age > 18");
 
-    // Flag off: legacy strip-everything behavior.
-    const cOff = content(
-      assembleContext(stepsAll, ws, storage, ContextMode.LATEST, { ...opts, includeOperatorProperties: false })
-    );
-    expect(cOff).not.toContain("Properties:");
-    expect(cOff).not.toContain("age > 18");
-
     // DELTA's minimal Observation never renders operator Properties — config rides
-    // on the Action's params (GENERAL-mode tools) or is LATEST's view, not here.
-    const cDelta = content(assembleContext(stepsAll, ws, storage, ContextMode.DELTA, opts));
+    // on the Action's params, not here.
+    const cDelta = render(stepsAll, ws, storage);
     expect(cDelta).not.toContain("Properties:");
   });
 
   test("empty-property operators never render a Properties line", () => {
     const { storage, stepsAll } = propScenario(makeOp("noprops", "Filter", {}));
     const ws = new WorkflowState();
-    const c = content(assembleContext(stepsAll, ws, storage, ContextMode.LATEST, opts));
+    const c = renderSnapshot(stepsAll, ws, storage);
     expect(c).not.toContain("Properties:");
   });
 });
@@ -996,7 +863,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
 
-    const cFull = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const cFull = render(steps, workflowState, storage);
     // Standard tool-call Action: registered tool name + key:value params, code as a block.
     expect(cFull).toContain("Action:");
     expect(cFull).toContain("- createOrModifyOperator");
@@ -1040,7 +907,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     storage.createSnapshot("a2", makeWorkflow(["src"]));
     // a2 re-executes src (new result sourced at a2) → src is in a2's Δ.
     storage.setOperatorResult("a2", "src", makeInfo("src", 4));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // Both calls render in standard tool-call form...
     expect(c).toContain("- createOrModifyOperator");
     expect(c).toContain("operatorId: src");
@@ -1072,7 +939,7 @@ describe("assembleContext — delta Action / Observation format", () => {
       },
     ]);
     storage.createSnapshot("a1", makeWorkflow([])); // empty after delete
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // Both tool calls render in standard form (tool name + params)...
     expect(c).toContain("- createOrModifyOperator");
     expect(c).toContain("- deleteOperator");
@@ -1112,7 +979,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     ]);
     // The operator SURVIVED the refused delete: that snapshot is the fact.
     storage.createSnapshot("a1", makeWorkflow(["src"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     expect(c).not.toContain("- operator src deleted");
     expect(c).toContain("- operator src (not deleted): [ERROR] `src` still feeds `consumer`");
   });
@@ -1155,7 +1022,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     storage.createSnapshot("a1", makeWorkflow(["op"]));
     storage.createSnapshot("a2", makeWorkflow([]));
     storage.createSnapshot("a3", makeWorkflow(["op"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // Both creations read as `added` in the Observation (delete reset the id), and
     // the delete shows once. Two `- operator op added` lines (a1 and a3).
     const matches = c.match(/- operator op added/g) ?? [];
@@ -1179,7 +1046,7 @@ describe("assembleContext — delta Action / Observation format", () => {
       },
     ]);
     storage.createSnapshot("a", makeWorkflow(["src"]));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // Any tool renders by its registered name + params; the affected op shows in the Observation.
     expect(c).toContain("- executeOperator");
     expect(c).toContain("operatorId: src");
@@ -1206,7 +1073,7 @@ describe("assembleContext — delta Action / Observation format", () => {
     // Observation renders it via the operator's Result block (T/A/O), and the
     // Action line stays result-free.
     storage.setOperatorResult("a", "x", makeInfo("x", 0, "something broke\n  hint: try with encoding='latin-1'"));
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     expect(c).toContain("Action:");
     expect(c).not.toContain(", result:");
     const obs = c.slice(c.indexOf("Observation:"));
@@ -1245,14 +1112,14 @@ describe("assembleContext — delta Action / Observation format", () => {
     // DELTA: the error result is self-contained — exception + line pointer + the
     // `Operator code:` block (kept so the failing line is shown in context, even
     // though the Action above also carries the code).
-    const cDelta = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const cDelta = render(steps, workflowState, storage);
     expect(cDelta).toContain("[ERROR] KeyError: 'missing'");
     expect(cDelta).toContain("at line 2 in `process`");
     expect(cDelta).toContain("Operator code:");
 
-    // LATEST also keeps the full error.
-    const cLatest = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, opts));
-    expect(cLatest).toContain("Operator code:");
+    // The current snapshot also keeps the full error.
+    const cSnapshot = renderSnapshot(steps, workflowState, storage);
+    expect(cSnapshot).toContain("Operator code:");
   });
 
   test("thought-only agent event renders no `Actions:` block", () => {
@@ -1269,7 +1136,7 @@ describe("assembleContext — delta Action / Observation format", () => {
         isEnd: true,
       },
     ]);
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     expect(c).toContain("## Agent Event 2");
     expect(c).toContain("Thought: thinking out loud, no tools");
     // No `Actions:` label, no event line, no `result:` text.
@@ -1288,38 +1155,18 @@ describe("assembleContext — action-less steps", () => {
       { id: "u", stepId: 0, role: "user", messageId: "m1", content: "hi" },
       { id: "a", stepId: 1, role: "agent", parentId: "u", messageId: "m1", content: "hi back", isEnd: true },
     ]);
-    const c = content(assembleContext(steps, workflowState, storage, ContextMode.DELTA, opts));
+    const c = render(steps, workflowState, storage);
     // No snapshots created → no inline snapshot headers (either flavour name).
     expect(c).not.toContain("Completed dataflow after event");
     expect(c).not.toContain("Dataflow changes after event");
-    // Latest user message hoisted to # User Task.
-    expect(c).toContain("# User Task");
-    expect(c).toContain("hi");
+    // The user message stays in place as ## User Event 1.
+    expect(c).not.toContain("# User Task");
+    expect(c).toContain("## User Event 1\n\nhi");
     // Agent thought rendered inline as ## Agent Event 2.
     expect(c).toContain("## Agent Event 2");
     expect(c).toContain("Thought: hi back");
   });
 });
-
-/* ============================================================================
- *  Per-operator before/after block trimming (Design C cap)
- *
- *  Mode-orthogonal: tested on every ContextMode below. The cap keeps only
- *  the most-recent modify result's before/after block for each operatorId
- *  intact in the rendered event list; older mods for that op get trimmed
- *  down to just their headline message (`Operator X modified`). ADDs are
- *  ignored — they don't carry a before/after block, so they don't compete
- *  with MODIFYs for the budget.
- * ========================================================================= */
-
-/* The per-operator before/after trim machinery has been removed — the
- * modify result is now just `Operator X modified` (plus the optional
- * no-op WARNING line), and per-action code is rendered via the
- * `recentEventsCap` / `includeCodeInRecentEvents` path tested below. */
-
-/* ============================================================================
- *  recentEventsCap + includeCodeInRecentEvents
- * ========================================================================= */
 
 /* ============================================================================
  *  Skipped-upstream Result placeholder
@@ -1389,9 +1236,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     );
     // intentionally no setOperatorResult for processClimate
 
-    const c = content(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
-    );
+    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
 
     // Upstream renders its [ERROR] block normally.
     expect(c).toContain("[ERROR]");
@@ -1441,9 +1286,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "RuntimeError: bad"));
     // B and C: no info → transitively blocked by A
 
-    const c = content(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
-    );
+    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
 
     // Both B and C should point at A as the root-cause ancestor.
     expect(c).toContain("Result: (skipped — upstream operator `A` errored; see [ERROR] above)");
@@ -1490,9 +1333,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
     // C: no info
 
-    const c = content(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
-    );
+    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
 
     // Both upstreams referenced together (plural "operators"); order
     // tracks the link discovery order.
@@ -1529,9 +1370,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 5));
     // B: no info, but A succeeded
 
-    const c = content(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
-    );
+    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
 
     expect(c).not.toContain("skipped");
     expect(c).not.toContain("Result: (skipped");
@@ -1567,85 +1406,12 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
 
-    const c = content(
-      assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.LATEST, opts)
-    );
+    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
 
     // No skipped marker — B has its own error block.
     expect(c).not.toContain("Result: (skipped");
     // But both error messages should be present.
     expect(c).toContain("A failed");
     expect(c).toContain("B failed");
-  });
-});
-
-/* ============================================================================
- *  Thought-replay reinjection rung (LATEST)
- * ========================================================================= */
-
-describe("assembleContext — thoughtReplay (LATEST)", () => {
-  test("renders # Reasoning block: event-grouped thoughts + compressed actions", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: true })
-    );
-    expect(c).toContain("# Reasoning (your recent steps)");
-    // Path drops the hidden init step, so the first real event is index 1 (user),
-    // and the two agent actions land at events 2 (src) and 3 (filt).
-    expect(c).toContain('Step 2: "I\'ll start with the source."');
-    expect(c).toContain("  created `src` → ok");
-    expect(c).toContain('Step 3: "Now the filter."');
-    expect(c).toContain("  created `filt` → ok");
-    // Thought-only step (no tool calls) is still an event.
-    expect(c).toContain('Step 4: "What should I do next?"');
-  });
-
-  test("each operator carries a Last edited back-pointer (latest-edit grain)", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: true })
-    );
-    const dataflow = c.slice(c.indexOf("# Current Dataflow"));
-    expect(dataflow).toContain("Last edited: step 2"); // src
-    expect(dataflow).toContain("Last edited: step 3"); // filt
-    // `existing` was loaded at init (no thought-bearing edit) ⇒ no pointer.
-    const existingBlock = dataflow.slice(dataflow.indexOf("Operator `existing`"));
-    const existingOnly = existingBlock.slice(0, existingBlock.indexOf("Operator `src`"));
-    expect(existingOnly).not.toContain("Last edited:");
-  });
-
-  test("thoughtReplayK caps the block and notes the omitted count", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
-        ...opts,
-        thoughtReplay: true,
-        thoughtReplayK: 1,
-      })
-    );
-    // events are {2: src, 3: filt, 4: thought-only}; K=1 keeps only the last.
-    expect(c).toContain("(… 2 earlier steps …)");
-    expect(c).toContain('Step 4: "What should I do next?"');
-    expect(c).not.toContain('Step 2: "I\'ll start with the source."');
-  });
-
-  test("OFF (default) ⇒ no # Reasoning, no Last edited, byte-identical to explicit false", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const cDefault = content(assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts }));
-    const cFalse = content(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, { ...opts, thoughtReplay: false })
-    );
-    expect(cDefault).toBe(cFalse);
-    expect(cDefault).not.toContain("# Reasoning");
-    expect(cDefault).not.toContain("Last edited:");
-  });
-
-  test("scoped to LATEST: DELTA ignores thoughtReplay (block + pointers absent)", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = content(
-      assembleContext(steps, workflowState, storage, ContextMode.DELTA, { ...opts, thoughtReplay: true })
-    );
-    expect(c).not.toContain("# Reasoning");
-    expect(c).not.toContain("Last edited:");
   });
 });

@@ -93,12 +93,9 @@ function fixture(statements: string[], reply: string, fail: ReadonlySet<string> 
     modelType: "test",
     driver: new VercelToolUseDriver({ model }),
     contextAssembler: ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
-      assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-        messageLayout: "native",
-        thoughtReplay: false,
-      }),
+      assembleContext(visibleSteps, workflowState, snapshotStorage, {}),
   });
-  agent.updateSettings({ maxSteps: 25, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 25 });
   // No engine in a unit test: an execution computes exactly the operators it is asked for.
   const executed: string[][] = [];
   (agent as any).executePostStepChanges = async (operatorIds: string[] = [], _onExecution: unknown, owner?: string) => {

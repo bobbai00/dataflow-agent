@@ -71,7 +71,6 @@ async function provision(name: string, settings: Record<string, unknown> = {}) {
     computingUnitId: cuid,
     settings: {
       contextMode: "delta",
-      messageLayout: "native",
       maxSteps: 12,
       dataEvidence: false,
       flowEvidence: false,

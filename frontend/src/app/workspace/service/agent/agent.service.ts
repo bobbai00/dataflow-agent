@@ -66,11 +66,6 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   /** Maximum number of steps per message */
   maxSteps?: number;
-  /** Snapshot-selection policy for ReAct context (paper §5): "delta"
-   *  interleaves snapshots with only changed operators rendered in full,
-   *  "latest" emits one trailing snapshot of the current state. The agent
-   *  service accepts exactly these two values. */
-  contextMode?: "delta" | "latest";
   /** Whether the model may emit multiple tool calls in one assistant turn;
    *  native mode asks for one. */
   parallelToolCalls?: boolean;

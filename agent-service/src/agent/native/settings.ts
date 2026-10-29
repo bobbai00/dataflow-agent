@@ -89,11 +89,6 @@ export function validateNativeSettings(settings: object = {}): void {
   const multiRequest = (settings as Record<string, unknown>).multiRequest;
   if (multiRequest !== undefined && !["off", "transcript", "catalog"].includes(String(multiRequest)))
     throw new NativeCatalogSettingsError('multiRequest must be "off", "transcript" or "catalog"');
-  // Catalog entries replace earlier requests in the replayed transcript, which
-  // only the delta context with the native message layout has.
-  const { contextMode, messageLayout } = settings as Record<string, unknown>;
-  if (multiRequest === "catalog" && ((contextMode ?? "delta") !== "delta" || (messageLayout ?? "native") !== "native"))
-    throw new NativeCatalogSettingsError('multiRequest "catalog" needs contextMode "delta" and messageLayout "native"');
   const { catalogSource, catalogRecent } = settings as Record<string, unknown>;
   if (catalogSource !== undefined && catalogSource !== "full" && catalogSource !== "docstring")
     throw new NativeCatalogSettingsError('catalogSource must be "full" or "docstring"');

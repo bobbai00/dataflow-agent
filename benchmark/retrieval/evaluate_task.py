@@ -66,10 +66,7 @@ class RetrievalSystem(_NativeExpressionBase):
         settings = {**manifest["settings"], **arm}
         save(base / "resources.json", {"agent_id": agent.agent_id, "workflow_id": agent._workflow_id,
                                       "computing_unit_id": agent._computing_unit_id})
-        # Code visibility is set by the inherited creation protocol and is not
-        # accepted by PATCH. Still verify its actual value below.
-        patch = {k: v for k, v in settings.items() if k != "enableCodeInSnapshot"}
-        response = requests.patch(endpoint + "/settings", json=patch, timeout=30)
+        response = requests.patch(endpoint + "/settings", json=settings, timeout=30)
         if not response.ok:
             agent.cleanup()
             raise RuntimeError(f"Retrieval settings rejected: {response.status_code} {response.text[:1200]}")

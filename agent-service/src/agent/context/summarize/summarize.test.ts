@@ -19,28 +19,28 @@
 
 import { describe, expect, test } from "bun:test";
 import { assembleContext } from "../../util/context-utils";
-import { ContextMode } from "../../../types/agent";
 import { summarize, type SummarizeInput } from "./summarize";
-import { deltaPreset, latestPreset, parseSummarizeParams } from "./params";
+import { deltaPreset, parseSummarizeParams } from "./params";
 import {
   buildRichScenario,
   buildScenario,
   contentOf,
   makeInfo,
   makeWorkflow,
+  snapshotParams,
   CODE_BY_REGION_V1,
   CODE_BY_REGION_V2,
 } from "./fixtures";
 
 function input(): SummarizeInput {
   const { steps, storage, workflowState } = buildRichScenario();
-  return { visibleSteps: steps, workflowState, snapshotStorage: storage, compilationResult: null };
+  return { visibleSteps: steps, workflowState, snapshotStorage: storage };
 }
 
-/** Params = the LATEST preset with a deep patch applied via parse (all tests
- *  drive summarize() the way an API caller would — through the schema). */
-function latestWith(patch: object) {
-  const base = latestPreset();
+/** Params = the current-snapshot layout with a deep patch applied via parse (all
+ *  tests drive summarize() the way an API caller would — through the schema). */
+function snapshotWith(patch: object) {
+  const base = snapshotParams();
   return parseSummarizeParams({
     ...base,
     ...patch,
@@ -49,7 +49,6 @@ function latestWith(patch: object) {
       overrides: (patch as any).operators?.overrides ?? {},
     },
     trajectory: { ...base.trajectory, ...(patch as any).trajectory },
-    flow: { ...base.flow, ...(patch as any).flow },
   });
 }
 
@@ -60,37 +59,17 @@ function deepMergePlain(a: any, b: any): any {
   return out;
 }
 
-describe("summarize — presets ≡ legacy modes", () => {
-  test("latestPreset renders byte-identically to assembleContext(LATEST, server defaults)", () => {
+describe("summarize — preset ≡ legacy context", () => {
+  test("deltaPreset renders identically to assembleContext at the server defaults", () => {
     const { steps, storage, workflowState } = buildRichScenario();
-    const legacy = contentOf(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
-        compilationResult: null,
-        includeOperatorProperties: true,
-        thoughtReplay: true,
-        thoughtReplayK: 10,
-      })
-    );
-    const viaParams = summarize(input(), latestPreset()).text;
-    expect(viaParams).toBe(legacy);
-  });
-
-  test("deltaPreset renders byte-identically to assembleContext(DELTA, server defaults)", () => {
-    const { steps, storage, workflowState } = buildRichScenario();
-    const legacy = contentOf(
-      assembleContext(steps, workflowState, storage, ContextMode.DELTA, {
-        compilationResult: null,
-        includeOperatorProperties: true,
-      })
-    );
-    const viaParams = summarize(input(), deltaPreset()).text;
-    expect(viaParams).toBe(legacy);
+    const legacy = assembleContext(steps, workflowState, storage, {});
+    expect(summarize(input(), deltaPreset()).messages).toEqual(legacy);
   });
 });
 
 describe("summarize — per-operator detail levels", () => {
   test("override detail:'omit' drops one operator's Result block, others keep theirs", () => {
-    const params = latestWith({ operators: { overrides: { sales: { result: { latest: { detail: "omit" } } } } } });
+    const params = snapshotWith({ operators: { overrides: { sales: { result: { latest: { detail: "omit" } } } } } });
     const text = summarize(input(), params).text;
     const salesBlock = text.slice(text.indexOf("### Operator `sales`"), text.indexOf("### Operator `orphan_load`"));
     expect(salesBlock).not.toContain("Result:");
@@ -100,7 +79,7 @@ describe("summarize — per-operator detail levels", () => {
   });
 
   test("override detail:'shape' keeps counts but drops the TSV rows", () => {
-    const params = latestWith({ operators: { overrides: { sales: { result: { latest: { detail: "shape" } } } } } });
+    const params = snapshotWith({ operators: { overrides: { sales: { result: { latest: { detail: "shape" } } } } } });
     const text = summarize(input(), params).text;
     const salesBlock = text.slice(text.indexOf("### Operator `sales`"), text.indexOf("### Operator `orphan_load`"));
     expect(salesBlock).toContain("Output Table: 1000 rows, 4 cols");
@@ -108,7 +87,7 @@ describe("summarize — per-operator detail levels", () => {
   });
 
   test("defaults detail:'shape' applies to every operator", () => {
-    const params = latestWith({ operators: { defaults: { result: { latest: { detail: "shape" } } } } });
+    const params = snapshotWith({ operators: { defaults: { result: { latest: { detail: "shape" } } } } });
     const text = summarize(input(), params).text;
     expect(text).toContain("Output Table: 1000 rows, 4 cols");
     expect(text).not.toContain("$12.50");
@@ -118,7 +97,7 @@ describe("summarize — per-operator detail levels", () => {
 
 describe("summarize — code inclusion & history", () => {
   test("includeCode renders a Code: block on healthy code operators only", () => {
-    const params = latestWith({ operators: { defaults: { property: { includeCode: true } } } });
+    const params = snapshotWith({ operators: { defaults: { property: { includeCode: true } } } });
     const text = summarize(input(), params).text;
     const salesBlock = text.slice(text.indexOf("### Operator `sales`"), text.indexOf("### Operator `orphan_load`"));
     expect(salesBlock).toContain("Code:");
@@ -130,7 +109,7 @@ describe("summarize — code inclusion & history", () => {
   });
 
   test("codeHistory renders prior versions with event indices + rejection tags", () => {
-    const params = latestWith({
+    const params = snapshotWith({
       operators: { overrides: { by_region: { property: { codeHistory: 2 } } } },
     });
     const text = summarize(input(), params).text;
@@ -146,7 +125,7 @@ describe("summarize — code inclusion & history", () => {
   });
 
   test("result history renders prior versions; errored versions render first-line only", () => {
-    const params = latestWith({
+    const params = snapshotWith({
       operators: { overrides: { by_region: { result: { history: { lastK: 1 } } } } },
     });
     const text = summarize(input(), params).text;
@@ -176,7 +155,7 @@ describe("summarize — code inclusion & history", () => {
 
 describe("summarize — column-level metric selection", () => {
   test("schemaTypes:false renders the Schema line without type tags", () => {
-    const params = latestWith({
+    const params = snapshotWith({
       operators: { defaults: { result: { latest: { column: { schema: true, schemaTypes: false } } } } },
     });
     const text = summarize(input(), params).text;
@@ -187,7 +166,7 @@ describe("summarize — column-level metric selection", () => {
 
 describe("summarize — tuple-level sample profiling", () => {
   test("sampleRows caps the TSV per-operator", () => {
-    const params = latestWith({
+    const params = snapshotWith({
       operators: { overrides: { sales: { result: { latest: { tuple: { sampleRows: 2 } } } } } },
     });
     const text = summarize(input(), params).text;
@@ -227,11 +206,11 @@ describe("summarize — tuple-level sample profiling", () => {
         ],
       })
     );
-    const params = latestWith({
+    const params = snapshotWith({
       operators: { defaults: { result: { latest: { tuple: { duplicates: true, fdHints: true } } } } },
     });
     const text = summarize(
-      { visibleSteps: sc.steps, workflowState: sc.workflowState, snapshotStorage: sc.storage, compilationResult: null },
+      { visibleSteps: sc.steps, workflowState: sc.workflowState, snapshotStorage: sc.storage },
       params
     ).text;
     expect(text).toContain("Sample duplicates (over 4 sampled rows): 1 duplicate row");
@@ -260,12 +239,7 @@ describe("summarize — trajectory combinations", () => {
   });
 
   test("events:'none' + currentSnapshot:false renders the task only", () => {
-    const base = latestPreset();
-    const params = parseSummarizeParams({
-      ...base,
-      currentSnapshot: false,
-      trajectory: { ...base.trajectory, reasoningReplayK: 0 },
-    });
+    const params = parseSummarizeParams({ ...snapshotParams(), currentSnapshot: false });
     const text = summarize(input(), params).text;
     expect(text).toContain("# User Task");
     expect(text).not.toContain("# Current Dataflow");
@@ -277,12 +251,10 @@ describe("summarizePatch — the settings-level door into the param space", () =
   test("assembleContext applies a deep-partial patch on top of the legacy-derived params", () => {
     const { steps, storage, workflowState } = buildRichScenario();
     const text = contentOf(
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
-        compilationResult: null,
-        includeOperatorProperties: true,
-        thoughtReplay: true,
-        thoughtReplayK: 10,
+      assembleContext(steps, workflowState, storage, {
         summarizePatch: {
+          trajectory: { events: "none" },
+          currentSnapshot: true,
           operators: {
             defaults: { property: { includeCode: true } },
             overrides: { sales: { result: { latest: { detail: "shape" } } } },
@@ -290,19 +262,18 @@ describe("summarizePatch — the settings-level door into the param space", () =
         },
       })
     );
-    // patch landed: default includeCode + per-op shape override
+    // patch landed: the current-snapshot layout, default includeCode + per-op shape override
+    expect(text).toContain("# Current Dataflow");
+    expect(text).not.toContain("## Agent Event");
     expect(text).toContain("Code:");
     expect(text).not.toContain("$12.50");
     expect(text).toContain("Output Table: 1000 rows, 4 cols");
-    // and the rest of the context is still the LATEST preset
-    expect(text).toContain("# Reasoning (your recent steps)");
   });
 
   test("an invalid patch throws a zod error", () => {
     const { steps, storage, workflowState } = buildRichScenario();
     expect(() =>
-      assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
-        compilationResult: null,
+      assembleContext(steps, workflowState, storage, {
         summarizePatch: { trajectory: { events: "bogus" } } as any,
       })
     ).toThrow();
@@ -311,7 +282,7 @@ describe("summarizePatch — the settings-level door into the param space", () =
 
 describe("summarize — breakdown", () => {
   test("sections attribute tokens per top-level heading", () => {
-    const res = summarize(input(), latestPreset());
+    const res = summarize(input(), snapshotParams());
     const titles = res.breakdown.sections.map(s => s.title);
     expect(titles).toContain("User Task");
     expect(titles).toContain("Current Dataflow");

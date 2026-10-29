@@ -155,7 +155,7 @@ without moving HEAD.
 cd agent-service
 bun run e2e          # static workflows through the execution path
 
-# context-parameter smoke matrix (LATEST/DELTA, compaction, index caps):
+# context-parameter smoke matrix (compaction budgets, deck sampling):
 bun run benchmark/e2e/context-tuning-run.ts
 
 # real-browser checks, from frontend/ (Playwright; each brings its own computing unit):
@@ -201,8 +201,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `respondToCanvasRuns` | bool (default `true`) | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn; the panel's "Canvas Runs" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
-| `contextMode` | `delta` (default) \| `latest` | DELTA = full event trajectory, append-only for the provider cache; LATEST = task + current snapshot |
-| `messageLayout` | `native` (default) \| `block` \| `blockSplit` \| `turnSplit` \| `opSplit` \| `opBlock` | how the transcript is split into messages; `opSplit`/`opBlock` are LATEST layouts with one message per operator |
+| `contextMode` | `delta` (the only value) | the full event trajectory as a tool-calling transcript, append-only for the provider cache |
 | `contextWindowTokens` | int (0 = unbounded) | DELTA budget; overflow triggers compaction |
 | `compactionStrategy` | `compress` \| `sliding` | fold old events into a stats deck vs. evict oldest |
 | `deckSampleRatio` | 0..1 (default 0.10) | fraction of folded operators' rows kept as a peek |
@@ -210,15 +209,15 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `maxSteps` | int (default 100) | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | int | per tool call / per workflow execution |
 | `parallelToolCalls` | bool | provider-side parallel tool calls; always off |
-| `thoughtReplay` / `thoughtReplayK` | bool / int | recent reasoning re-injected (default on, K=10) |
 | `disabledTools` | string[] | hide tools by name |
 
 A key that is not a setting is refused with a 400 that names it
 (`<key> is not a setting`) rather than mapped; that includes retired knobs such
-as `agentMode`, `nativeToolMode`, `allowedOperatorTypes`, `columnStats`,
-`flowLevel`/`dataLevel`, and the protocol and multi-task knobs removed with the
-JSON action tool and the text transport (`nativeTransport`, `taskContext`,
-`stateHistory`, `seedSources`, `enableRecallTool`, …).
+as `agentMode`, `thoughtReplay`, `messageLayout`, `nativeToolMode`,
+`allowedOperatorTypes`, `columnStats`, `flowLevel`/`dataLevel`, and the
+protocol and multi-task knobs removed with the JSON action tool and the text
+transport (`nativeTransport`, `taskContext`, `stateHistory`, `seedSources`,
+`enableRecallTool`, …).
 
 ## Troubleshooting
 

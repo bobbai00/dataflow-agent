@@ -109,7 +109,6 @@ try {
     computingUnitId: cuid,
     settings: {
       contextMode: "delta",
-      messageLayout: "native",
       maxSteps: 4,
       dataEvidence: false,
       flowEvidence: false,
