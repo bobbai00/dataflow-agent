@@ -934,63 +934,6 @@ class TestTableAsTuplesDedup:
         assert tuples[1]["x.1"] == 200
 
 
-class TestDetectTableStructure:
-    """Structural observations, without semantic key/eligibility heuristics."""
-
-    @staticmethod
-    def _hints(df):
-        return DataProcessor._detect_table_structure(df)
-
-    def test_empty_rows_and_cols(self):
-        df = _pd.DataFrame({"a": [1, None, 3], "b": [None, None, None]})
-        hints = self._hints(df)
-        assert "empty rows: 1 of 3 rows are entirely null" in hints
-        assert 'empty columns: ["b"] are entirely null' in hints
-
-    def test_duplicate_rows(self):
-        df = _pd.DataFrame({"a": [1, 1, 1, 1], "b": ["x", "x", "x", "x"]})
-        hints = self._hints(df)
-        assert hints == ["duplicate rows: 3 of 4 (75%)"]
-
-    def test_unique_column_does_not_claim_a_semantic_key(self):
-        df = _pd.DataFrame({"id": list(range(10)), "v": [1] * 10})
-        hints = self._hints(df)
-        assert hints == []
-
-    def test_binary_column_does_not_claim_an_eligibility_gate(self):
-        df = _pd.DataFrame({"excluded": (["No"] * 8) + (["Yes"] * 2), "x": list(range(10))})
-        hints = self._hints(df)
-        assert hints == []
-
-    def test_header_observation_identifies_partially_unnamed_columns(self):
-        df = _pd.DataFrame({"real": [1, 2, 3], "Unnamed: 1": [4, 5, 6], "Unnamed: 2": [7, 8, 9]})
-        hints = self._hints(df)
-        hdr = [h for h in hints if h.startswith("headers:")]
-        assert hdr, hints
-        assert '2 of 3 columns are unnamed ("Unnamed: 1", "Unnamed: 2")' in hdr[0], hdr
-        assert "skiprows=" not in hdr[0] and "header=" not in hdr[0], hdr
-
-    def test_header_hint_silent_when_no_placeholders(self):
-        df = _pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-        assert not any(h.startswith("headers:") for h in self._hints(df)), self._hints(df)
-
-    def test_header_hint_silent_when_all_placeholders(self):
-        # A fully headerless frame may be a deliberate header=None read; this
-        # observation only distinguishes partially unresolved headers.
-        df = _pd.DataFrame({"Unnamed: 0": [1, 2, 3], "Unnamed: 1": [4, 5, 6]})
-        assert not any(h.startswith("headers:") for h in self._hints(df)), self._hints(df)
-
-    def test_placeholder_cols_excluded_from_grain_partition(self):
-        # Unnamed columns must NOT appear in key/partition output (they are
-        # dropped from those, even though the header hint counts them).
-        df = _pd.DataFrame({"Unnamed: 0": list(range(10)), "real": [1] * 10})
-        hints = self._hints(df)
-        assert not any("Unnamed" in h for h in hints if h.startswith(("key:", "partition:", "groups:"))), hints
-
-    def test_empty_frame_returns_no_hints(self):
-        assert self._hints(_pd.DataFrame()) == []
-
-
 def test_any_pandas_string_dtype_maps_to_string_not_binary():
     # 2026-09-29: a shared-environment pandas change gave text columns a
     # string dtype this map did not name, and every cell was pickled.

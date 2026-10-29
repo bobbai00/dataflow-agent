@@ -19,7 +19,11 @@
 
 package org.apache.texera.amber.operator.udf.python.source
 
-import com.fasterxml.jackson.annotation.{JsonProperty, JsonPropertyDescription}
+import com.fasterxml.jackson.annotation.{
+  JsonIgnoreProperties,
+  JsonProperty,
+  JsonPropertyDescription
+}
 import com.kjetland.jackson.jsonSchema.annotations.JsonSchemaTitle
 import org.apache.texera.amber.core.executor.OpExecWithCode
 import org.apache.texera.amber.core.tuple.{Attribute, Schema}
@@ -28,6 +32,8 @@ import org.apache.texera.amber.core.workflow.{OutputPort, PhysicalOp, SchemaProp
 import org.apache.texera.amber.operator.metadata.{OperatorGroupConstants, OperatorInfo}
 import org.apache.texera.amber.operator.source.SourceOperatorDescriptor
 
+// Python UDFs saved before 2026-10-29 still carry dynamicOutputSchema.
+@JsonIgnoreProperties(value = Array("dynamicOutputSchema"))
 class PythonUDFSourceOpDescV2 extends SourceOperatorDescriptor {
 
   @JsonProperty(
@@ -66,25 +72,11 @@ class PythonUDFSourceOpDescV2 extends SourceOperatorDescriptor {
   @JsonPropertyDescription("The columns of the source")
   var columns: List[Attribute] = List.empty
 
-  @JsonProperty(required = true, defaultValue = "false")
-  @JsonSchemaTitle("Infer output schema at runtime")
-  @JsonPropertyDescription(
-    "When checked, the output schema is inferred from the first DataFrame " +
-      "yielded by produce(). Any columns declared above act as a minimum " +
-      "subset constraint. Requires worker count = 1."
-  )
-  var dynamicOutputSchema: Boolean = false
-
   override def getPhysicalOp(
       workflowId: WorkflowIdentity,
       executionId: ExecutionIdentity
   ): PhysicalOp = {
     require(workers >= 1, "Need at least 1 worker.")
-    require(
-      !dynamicOutputSchema || workers == 1,
-      "dynamicOutputSchema requires worker count = 1 (parallel workers can " +
-        "infer divergent schemas)."
-    )
 
     val pveName =
       if (defaultEnv) ""
@@ -101,7 +93,7 @@ class PythonUDFSourceOpDescV2 extends SourceOperatorDescriptor {
         workflowId,
         executionId,
         operatorIdentifier,
-        OpExecWithCode(code, "python", dynamicOutputSchema)
+        OpExecWithCode(code, "python")
       )
       .withInputPorts(operatorInfo.inputPorts)
       .withOutputPorts(operatorInfo.outputPorts)

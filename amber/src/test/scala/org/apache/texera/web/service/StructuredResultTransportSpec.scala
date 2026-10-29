@@ -98,7 +98,7 @@ class StructuredResultTransportSpec extends AnyFlatSpec with Matchers {
 
   "Profile transport" should "keep the profile envelopes and nothing else" in {
     val result = StructuredResultTransport.partitionStatistics(
-      Map(metadataKey -> envelope, "__table_hints__" -> "a")
+      Map(metadataKey -> envelope, "x" -> "a")
     )
     result.metadata shouldBe Map(metadataKey -> envelope)
     result.omissions shouldBe empty

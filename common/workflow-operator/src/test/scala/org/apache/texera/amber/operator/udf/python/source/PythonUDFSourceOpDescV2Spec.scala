@@ -113,4 +113,14 @@ class PythonUDFSourceOpDescV2Spec extends AnyFlatSpec with Matchers {
     p.envName shouldBe "venv"
     p.columns shouldBe List(new Attribute("a", AttributeType.STRING))
   }
+
+  it should "load a saved operator that still carries dynamicOutputSchema" in {
+    val saved =
+      """{"operatorType": "PythonUDFSourceV2", "operatorID": "PythonUDFSourceV2-1",
+        |"code": "yield", "workers": 1, "defaultEnv": true, "columns": [],
+        |"dynamicOutputSchema": true}""".stripMargin
+    val restored = objectMapper.readValue(saved, classOf[LogicalOp])
+    restored shouldBe a[PythonUDFSourceOpDescV2]
+    restored.asInstanceOf[PythonUDFSourceOpDescV2].code shouldBe "yield"
+  }
 }

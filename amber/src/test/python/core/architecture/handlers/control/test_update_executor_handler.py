@@ -31,12 +31,10 @@ from proto.org.apache.texera.amber.engine.architecture.rpc import (
 )
 
 
-def make_request(code: str, dynamic_output_schema=False) -> UpdateExecutorRequest:
+def make_request(code: str) -> UpdateExecutorRequest:
     """Build an UpdateExecutorRequest carrying inline Python code."""
     return UpdateExecutorRequest(
-        new_exec_init_info=OpExecInitInfo(
-            op_exec_with_code=OpExecWithCode(code=code, dynamic_output_schema=dynamic_output_schema)
-        )
+        new_exec_init_info=OpExecInitInfo(op_exec_with_code=OpExecWithCode(code=code))
     )
 
 
@@ -55,12 +53,11 @@ class TestUpdateExecutorHandler:
         result = asyncio.run(handler.update_executor(make_request("# code")))
         assert isinstance(result, EmptyReturn)
 
-    @pytest.mark.parametrize("dynamic_output_schema", [False, True])
-    def test_delegates_extracted_code_to_executor_manager(self, dynamic_output_schema):
+    def test_delegates_extracted_code_to_executor_manager(self):
         handler = make_handler(executor_is_source=False)
-        asyncio.run(handler.update_executor(make_request("user-code-v2", dynamic_output_schema)))
+        asyncio.run(handler.update_executor(make_request("user-code-v2")))
         handler.context.executor_manager.update_executor.assert_called_once_with(
-            "user-code-v2", False, dynamic_output_schema
+            "user-code-v2", False
         )
 
     def test_propagates_current_executor_is_source_not_request_field(self):
@@ -69,7 +66,7 @@ class TestUpdateExecutorHandler:
         # change that reads is_source from the request is reviewed.
         handler = make_handler(executor_is_source=True)
         asyncio.run(handler.update_executor(make_request("source-code")))
-        handler.context.executor_manager.update_executor.assert_called_once_with("source-code", True, False)
+        handler.context.executor_manager.update_executor.assert_called_once_with("source-code", True)
 
     def test_extracts_code_via_get_one_of_for_op_exec_with_code(self):
         # OpExecInitInfo is a sealed-oneof of {with_class_name, with_code,

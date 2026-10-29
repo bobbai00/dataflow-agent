@@ -35,7 +35,7 @@ three things on top of the upstream platform:
    **code** (every operator a free Python function) — plus a heavily
    instrumented context-assembly layer (sampling budgets, evidence — every
    knob is a runtime setting).
-2. **Engine extensions in `amber/`** — result/column-stats telemetry, UDF
+2. **Engine extensions in `amber/`** — table profiles (data statistics), UDF
    error reporting that points at user code, operator port-result caching,
    dynamic output schemas: the engine-side features the agent's context
    depends on.

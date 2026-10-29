@@ -83,7 +83,7 @@ class DataProcessorRPCHandlerInitializer(val dp: DataProcessor)
     dp.executor = execInitInfo match {
       case OpExecWithClassName(className, descString) =>
         ExecFactory.newExecFromJavaClassName(className, descString, workerIdx, workerCount)
-      case OpExecWithCode(code, _, _) =>
+      case OpExecWithCode(code, _) =>
         ExecFactory.newExecFromJavaCode(code)
       case OpExecInitInfo.Empty =>
         throw new IllegalArgumentException("Empty executor initialization info")

@@ -29,6 +29,7 @@ import { InputPortInfo, OperatorSchema, OutputPortInfo } from "../../../types/op
 import { Injectable } from "@angular/core";
 import { v4 as uuid } from "uuid";
 import Ajv from "ajv";
+import { omit } from "lodash";
 
 import { Observable, Subject } from "rxjs";
 import { Workflow, WorkflowContent } from "../../../../common/type/workflow";
@@ -238,6 +239,8 @@ export class WorkflowUtilService {
     return {
       ...op,
       operatorVersion: operatorSchema.operatorVersion,
+      // Python UDFs saved before 2026-10-29 carry dynamicOutputSchema, which their schema no longer allows.
+      operatorProperties: omit(op.operatorProperties, "dynamicOutputSchema"),
       inputPorts,
       outputPorts,
     };

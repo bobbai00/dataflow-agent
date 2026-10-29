@@ -104,7 +104,7 @@ class DataLoadingOpDesc extends SourceOperatorDescriptor {
         workflowId,
         executionId,
         operatorIdentifier,
-        OpExecWithCode(validatedCode, "python", true)
+        OpExecWithCode(validatedCode, "python")
       )
       .withInputPorts(operatorInfo.inputPorts)
       .withOutputPorts(operatorInfo.outputPorts)

@@ -15,8 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import os
-
 import pyarrow as pa
 from pyiceberg.catalog import Catalog
 from pyiceberg.schema import Schema
@@ -35,7 +33,7 @@ from core.storage.storage_config import StorageConfig
 # 0.5 s). Pending Arrow data is committed once it reaches COMMIT_BYTES and at
 # close. The cap stays far below pyiceberg's 512 MB target file size, so each
 # commit writes one data file and the files keep the rows' order.
-COMMIT_BYTES = int(os.environ.get("TEXERA_ICEBERG_COMMIT_BYTES", 64 * 1024 * 1024))
+COMMIT_BYTES = 64 * 1024 * 1024
 
 # Define a type variable for the data type T
 T = TypeVar("T")

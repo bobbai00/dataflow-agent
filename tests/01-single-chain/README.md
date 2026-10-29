@@ -11,7 +11,7 @@ iris_data (DataLoading) ──► filter_setosa (DataProcessing)
 - `DataLoading` descriptor with `def load()` parses the source signature.
 - `DataProcessing` descriptor with `def process(iris_data)` derives **1 input port** named `iris_data` (matching the upstream operator ID).
 - Generated Python wrapper imports `pytexera`, defines `GenerateOperator(UDFSourceOperator)` (for the source) and `ProcessTablesOperator(UDFMultiTableOperator)` (for the transform), and dispatches via `INPUT_PORTS = ["iris_data"]`.
-- Both descriptors construct PhysicalOp with `dynamic_output_schema=true` on `OpExecWithCode`, so slice 5's runtime inference kicks in.
+- Both descriptors construct a PhysicalOp with an `OpExecWithCode` executor.
 - `propagateSchema` returns an empty `Schema()` (runtime inference owns the output schema).
 
 **Dataset:** `bin/single-node/examples/datasets/iris-species/Iris.csv` (150 rows, 6 columns).

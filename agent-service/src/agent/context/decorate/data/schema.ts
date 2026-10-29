@@ -18,7 +18,6 @@
  */
 
 import type { OperatorInfo } from "../../../../types/execution";
-import { RESERVED_STATS_KEYS } from "./reserved-keys";
 
 /**
  * Wide-table cap for the schema line. A very wide table (e.g. biomedical
@@ -40,7 +39,7 @@ const MAX_SCHEMA_COLUMNS = 50;
  */
 export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
   const stats = opInfo.columnStats ?? {};
-  const statCols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
+  const statCols = Object.keys(stats);
   let cols: string[];
   if (statCols.length > 0) {
     cols = statCols;

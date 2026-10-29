@@ -41,29 +41,27 @@ def published(context):
     return [json.loads(value) for key, value in stats.items() if key.startswith(PROFILE_PREFIX)]
 
 
-def test_opt_in_profile_survives_legacy_stats_replacement_and_accumulates_yields():
+def test_opt_in_profile_accumulates_yields():
     context = Context("worker-a", InternalQueue())
     processor = DataProcessor(context)
-    processor._publish_column_stats(frame([1, 2, None]))
+    processor._publish_table_profile(frame([1, 2, None]))
     assert not published(context)[0]["coverage"]["complete"]
     second = frame([2, 3])
     second.attrs.clear()  # a later yield need not repeat the collection request
-    processor._publish_column_stats(second)
+    processor._publish_table_profile(second)
     processor.finish_table_profile()
     result = published(context)[0]
     assert result["coverage"]["complete"] and result["rowCount"] == 5
     assert result["columns"]["x"]["distinctCount"] == 3
     assert result["native"] is None
-    context.statistics_manager.set_result_statistics({"x": "legacy display"})
-    assert published(context)[0] == result
 
 
-def test_a_table_gets_no_display_stats_and_no_profile_unless_collection_is_on():
+def test_a_table_gets_no_profile_unless_collection_is_on():
     a, b = Context("a", InternalQueue()), Context("b", InternalQueue())
     disabled, plain = frame([1, None], False), frame([1, None], False)
     plain.attrs.clear()
-    DataProcessor(a)._publish_column_stats(disabled)
-    DataProcessor(b)._publish_column_stats(plain)
+    DataProcessor(a)._publish_table_profile(disabled)
+    DataProcessor(b)._publish_table_profile(plain)
     assert a.statistics_manager.get_statistics().result_statistics == {}
     assert "x" not in b.statistics_manager.get_statistics().result_statistics
     assert published(a) == [] and published(b) == []
@@ -75,7 +73,7 @@ def test_worker_keys_do_not_collide_under_the_existing_map_transport():
     for worker in ("a", "b"):
         context = Context(worker, InternalQueue())
         processor = DataProcessor(context)
-        processor._publish_column_stats(frame([1]))
+        processor._publish_table_profile(frame([1]))
         processor.finish_table_profile()
         combined.update(context.statistics_manager.get_statistics().result_statistics)
     profiles = [json.loads(v) for k, v in combined.items() if k.startswith(PROFILE_PREFIX)]
@@ -90,7 +88,7 @@ def test_profiler_failure_is_unavailable_metadata_not_a_data_execution_failure(m
     monkeypatch.setattr(
         ProfileAccumulator, "add", lambda *args: (_ for _ in ()).throw(RuntimeError("private input value"))
     )
-    processor._publish_column_stats(frame([1, 2]))
+    processor._publish_table_profile(frame([1, 2]))
     processor.finish_table_profile()
     result = published(context)[0]
     assert result["status"] == "unavailable" and not result["coverage"]["complete"]
@@ -116,9 +114,9 @@ def test_optional_collector_unavailable_does_not_break_data_or_disabled_path(mon
     monkeypatch.setattr(builtins, "__import__", missing)
     context = Context("a", InternalQueue())
     processor = DataProcessor(context)
-    processor._publish_column_stats(frame([1], False))
+    processor._publish_table_profile(frame([1], False))
     assert attempts == []
-    processor._publish_column_stats(frame([2], True))
+    processor._publish_table_profile(frame([2], True))
     assert len(attempts) == 1
-    # No collector, so no profile; a native table has no display stats either.
+    # No collector, so no profile.
     assert context.statistics_manager.get_statistics().result_statistics == {}

@@ -148,9 +148,8 @@ class DataProcessingOpDesc extends LogicalOp {
           PythonCodeValidator.generatePythonCodeForRaisingException(ex)
       }
 
-    // Schema is always empty - runtime inference handles actual schema.
-    // dynamic_output_schema=true on OpExecWithCode signals data_processor.py
-    // to infer output schema from the first emitted DataFrame.
+    // Schema is always empty: data_processor.py infers the output schema from
+    // the first emitted DataFrame.
     val propagateSchema = (_: Map[PortIdentity, Schema]) => {
       Map(operatorInfo.outputPorts.head.id -> Schema())
     }
@@ -160,7 +159,7 @@ class DataProcessingOpDesc extends LogicalOp {
         workflowId,
         executionId,
         operatorIdentifier,
-        OpExecWithCode(validatedCode, "python", true)
+        OpExecWithCode(validatedCode, "python")
       )
       .withParallelizable(false)
 

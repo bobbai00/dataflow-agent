@@ -28,10 +28,7 @@ class InitializeExecutorHandler(ControlHandler):
     async def initialize_executor(self, req: InitializeExecutorRequest) -> EmptyReturn:
         op_exec_with_code: OpExecWithCode = get_one_of(req.op_exec_init_info)
         self.context.executor_manager.initialize_executor(
-            op_exec_with_code.code,
-            req.is_source,
-            op_exec_with_code.language,
-            op_exec_with_code.dynamic_output_schema,
+            op_exec_with_code.code, req.is_source, op_exec_with_code.language
         )
         # Loop-back write addresses; see the proto field doc on loopStartStateUris.
         self.context.loop_start_state_uris = dict(req.loop_start_state_uris)

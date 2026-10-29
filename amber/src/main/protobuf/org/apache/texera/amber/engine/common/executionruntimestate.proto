@@ -78,8 +78,8 @@ message OperatorStatistics{
   int64 control_processing_time = 5;
   int64 idle_time = 6;
   // Aggregated result statistics across this operator's workers, forwarded
-  // from WorkerStatistics.result_statistics: each worker's table profile and
-  // diagnostics, under reserved keys.
+  // from WorkerStatistics.result_statistics: each worker's table profile,
+  // under its reserved key.
   map<string, string> result_statistics = 7;
 }
 

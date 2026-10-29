@@ -178,22 +178,9 @@ class DataProcessor(Runnable, Stoppable):
         then enters EXCEPTION_PAUSE, so anything queued after the switch
         would arrive at the coordinator only after the worker resumes.
         """
-        joined = False
-        coerced = False
         try:
             executor = self._context.executor_manager.executor
             port_id = self._context.tuple_processing_manager.get_input_port_id()
-            # Lever 4: instrument to_numeric/to_datetime coerce for every
-            # operator — coercion dataloss can happen in any UDF (load or
-            # process). Guarded; can never break the user's conversion.
-            coerced = self._install_coercion_telemetry()
-            # A7: record which files this operator actually read (multi-file
-            # loads only). Guarded; never alters the read result.
-            try:
-                from core.util import file_io_telemetry
-                file_io_telemetry.install()
-            except Exception:
-                pass
             with replace_print(
                 self._context.worker_id,
                 self._context.console_message_manager.print_buf,
@@ -213,30 +200,7 @@ class DataProcessor(Runnable, Stoppable):
             # sees its own code + line, not engine internals.
             self._report_exception(exc_info)
         finally:
-            if coerced:
-                try:
-                    from core.util import coercion_telemetry
-                    coercion_telemetry.uninstall()
-                except Exception:
-                    pass
-            try:
-                from core.util import file_io_telemetry
-                file_io_telemetry.uninstall()
-            except Exception:
-                pass
             self._switch_context()
-
-    @staticmethod
-    def _install_coercion_telemetry() -> bool:
-        """Install the transparent to_numeric/to_datetime coerce instrumentation
-        (lever 4) for every operator — coercion dataloss is common and can occur
-        in any UDF. Guarded; returns True iff installed."""
-        try:
-            from core.util import coercion_telemetry
-        except Exception:
-            return False
-        coercion_telemetry.install()
-        return True
 
     def _set_output_tuple(self, output_iterator: Iterator[Optional[TupleLike]]) -> None:
         """
@@ -341,7 +305,7 @@ class DataProcessor(Runnable, Stoppable):
                         f"Schema inferred from DataFrame dtypes: {inferred}"
                     )
 
-        self._publish_column_stats(df)
+        self._publish_table_profile(df)
 
     @staticmethod
     def _numeric_mismatch_is_bridgeable(
@@ -503,53 +467,12 @@ class DataProcessor(Runnable, Stoppable):
         logger.debug(f"Unknown pandas dtype {dtype_str!r}, defaulting to BINARY")
         return AttributeType.BINARY
 
-    def _publish_column_stats(self, df: pandas.DataFrame) -> None:
-        """
-        Publish the yielded table's diagnostics via
-        StatisticsManager.set_result_statistics, under reserved keys, so they
-        ride out on the next WorkerStatistics emission; then add the table to
-        its native profile (`_publish_table_profile`).
-        """
-        # A native operator's table carries its own typed profile
-        # (_publish_table_profile), and the agent renders only that: table
-        # hints are never read for it.
-        native = isinstance(df.attrs.get("native_v2"), dict)
-        stats: Dict[str, str] = {}
-        # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
-        try:
-            from core.util import coercion_telemetry
-            cdiags = coercion_telemetry.drain()
-            if cdiags:
-                stats["__coercion_telemetry__"] = " || ".join(cdiags)
-        except Exception:
-            pass
-        # Table-structure hints (#25/#26/#27): pre-emptive grain / partition /
-        # dirty-load signals, attached under a reserved key like the telemetry
-        # above. Always computed (cheap, one pass); the agent-service strips this
-        # key from schema/stats rendering and surfaces it only when the gated
-        # `tableStructureHint` flag is on, so this is a no-op by default.
-        try:
-            table_hints = [] if native else self._detect_table_structure(df)
-            if table_hints:
-                stats["__table_hints__"] = " || ".join(table_hints)
-        except Exception:
-            pass
-        # A7: multi-file load provenance — the file list the agent's own glob
-        # matched, which the rendered result otherwise never shows. Fact only,
-        # no advice (see file_io_telemetry docstring). Reserved key: the
-        # agent-service strips it from schema/stats rendering and surfaces it on
-        # the structural-hints rung.
-        try:
-            from core.util import file_io_telemetry
-            fdiags = file_io_telemetry.drain()
-            if fdiags:
-                stats["__file_io__"] = " || ".join(fdiags)
-        except Exception:
-            pass
-        self._context.statistics_manager.set_result_statistics(stats)
-        self._publish_table_profile(df)
-
     def _publish_table_profile(self, df: pandas.DataFrame) -> None:
+        """
+        Add the yielded table to its native profile, when the operator asked
+        for one (`profileCollection`), and publish the profile so far under its
+        reserved key so it rides out on the next WorkerStatistics emission.
+        """
         metadata = df.attrs.get("native_v2")
         if self._table_profile is None:
             if (
@@ -588,81 +511,6 @@ class DataProcessor(Runnable, Stoppable):
         if self._table_profile is not None:
             self._table_profile.finish()
             self._store_table_profile()
-
-    @staticmethod
-    def _detect_table_structure(df: pandas.DataFrame) -> list:
-        """
-        Name-agnostic STRUCTURAL profile of a DataFrame, surfaced as short
-        pre-emptive hints at the operator boundary. Surface-only: the agent
-        decides whether to act; nothing here mutates data. Mirrors the
-        offline-validated probes in ``claude/profile_probe.py`` (see
-        ``claude/PROBE-FINDINGS.md``). Every signal is pure cardinality / null
-        structure, so it generalizes without keying on column names or task
-        literals.
-
-        RAW FACTS ONLY (no classification bands, no semantic labels — per
-        review, banded key/partition/group labeling was hand-authored judgment
-        and was removed; what to DO with the facts is the prompt's/model's call):
-          - empty regions  -> exact all-null row/col counts (#25)
-          - duplicate rows -> exact df.duplicated() count, shown when > 0 (#25)
-          - unresolved header -> Unnamed:N placeholder count (pandas contract)
-
-        Blank / ``Unnamed: N`` column names signal an unresolved header
-        (skiprows/header=) and are surfaced via the header hint below.
-        """
-        try:
-            n_rows = len(df)
-            if n_rows == 0 or df.shape[1] == 0:
-                return []
-        except Exception:
-            return []
-        hints: list = []
-
-        try:
-            isna = df.isna()
-            er = int(isna.all(axis=1).sum())
-            null_cols = [str(c) for c in df.columns[isna.all(axis=0)]]
-            if er:
-                hints.append(f"empty rows: {er} of {n_rows} rows are entirely null")
-            if null_cols:
-                shown_cols = ", ".join(f'"{c}"' for c in null_cols[:8])
-                more = f" (+{len(null_cols) - 8} more)" if len(null_cols) > 8 else ""
-                hints.append(f"empty columns: [{shown_cols}]{more} are entirely null")
-        except Exception:
-            pass
-
-        try:
-            dups = int(df.duplicated().sum())
-            if dups:
-                hints.append(f"duplicate rows: {dups} of {n_rows} ({dups / n_rows:.0%})")
-        except Exception:
-            pass
-
-        def _is_placeholder(name) -> bool:
-            s = str(name).strip()
-            return s == "" or s.startswith("Unnamed:")
-
-        # Header-resolution hint (data-facet, load-quality). Blank / `Unnamed: N`
-        # column names signal an UNRESOLVED header (the real header is not row 0
-        # -- the file needs skiprows=/header=). This is a SILENT failure: the read
-        # succeeds, so loader_hint (exception-keyed) never fires, yet downstream
-        # column access is wrong. Surfacing it as an explicit remediation is the
-        # pre-emptive counterpart to merely dropping these columns from the grain/
-        # partition profile. Fires only when placeholders are a minority (a fully
-        # headerless frame is a different, louder situation).
-        try:
-            n_cols = df.shape[1]
-            n_placeholder = sum(1 for c in df.columns if _is_placeholder(c))
-            if n_cols > 0 and 0 < n_placeholder < n_cols:
-                ph = [str(c) for c in df.columns if _is_placeholder(c)]
-                shown_ph = ", ".join(f'"{c}"' for c in ph[:6])
-                hints.append(
-                    f"headers: {n_placeholder} of {n_cols} columns are unnamed ({shown_ph})"
-                )
-        except Exception:
-            pass
-
-        return hints
 
     def _set_output_state(self, output_state: State) -> None:
         """

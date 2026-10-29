@@ -34,9 +34,8 @@ import java.nio.file.{Files, Path, Paths}
   * `<repo-root>/tests/`. For each operator in each workflow:
   *  - confirms Jackson polymorphic deserialization
   *  - confirms operatorInfo produces the expected port topology
-  *  - confirms getPhysicalOp succeeds and emits OpExecWithCode with
-  *    dynamic_output_schema=true and a wrapper containing the expected
-  *    framework class
+  *  - confirms getPhysicalOp succeeds and emits OpExecWithCode with a
+  *    wrapper containing the expected framework class
   *  - confirms link payloads connect ports by parameter index
   *
   * Per-test results are written to `tests/<test>/result.json` so the
@@ -255,9 +254,9 @@ class CodeOperatorWorkflowsSpec extends AnyFunSuite {
   // Cross-cutting checks (one per workflow file, not per operator)
   // ---------------------------------------------------------------------
 
-  test("All 5 workflows expose the dynamic-schema flag at OpExecWithCode") {
-    // Walks every workflow, every operator, asserts the third arg of
-    // OpExecWithCode (dynamicOutputSchema) is true.
+  test("All 5 workflows compile every operator to OpExecWithCode") {
+    // Walks every workflow, every operator, asserts each physical op runs
+    // generated code.
     var totalOps = 0
     for (tc <- cases) {
       val root = mapper.readTree(testsDir.resolve(tc.folder).resolve("workflow.json").toFile)

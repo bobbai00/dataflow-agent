@@ -15,7 +15,5 @@ correctly at every stage.
   +3 derived (13) → filtered (13) → aggregate output (5).
 - Each stage's `recreate_port_storage_writer` must run cleanly for the
   inferred schema before any tuple is written.
-- 4 sequential `_publish_column_stats` calls; each operator's
-  `result_statistics` should land on the wire.
 
 **Expected output of `stage4_aggregate`:** 3 rows (one per Species).

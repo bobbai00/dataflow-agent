@@ -60,7 +60,7 @@ class WorkerPort:
         """
         Update the schema for this port. Used by runtime schema inference
         when the actual output of an operator differs from the declared
-        schema (see PythonUDFOpDescV2.dynamicOutputSchema).
+        schema (see DataProcessor._maybe_apply_runtime_schema).
         """
         self._schema = schema
 

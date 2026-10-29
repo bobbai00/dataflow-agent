@@ -48,7 +48,7 @@ class FingerprintPayloadSpec extends AnyFlatSpec with Matchers {
         id(name),
         WorkflowIdentity(1L),
         ExecutionIdentity(1L),
-        OpExecWithCode(code, "python", true)
+        OpExecWithCode(code, "python")
       )
       .withInputPorts(List(InputPort(PortIdentity(0)), InputPort(PortIdentity(1))))
       .withOutputPorts(List(OutputPort(PortIdentity(0))))
@@ -94,15 +94,12 @@ class FingerprintPayloadSpec extends AnyFlatSpec with Matchers {
     fingerprint(swapped).subdagHash should not equal fingerprint(plan).subdagHash
   }
 
-  it should "include execution language, schema mode, and output schema in cache identity" in {
+  it should "include execution language and output schema in cache identity" in {
     val result = op("result", "return table")
     def hash(node: PhysicalOp): String = fingerprint(PhysicalPlan(Set(node), Set.empty)).subdagHash
     val before = hash(result)
     hash(
-      result.copy(opExecInitInfo = OpExecWithCode("return table", "other", true))
-    ) should not equal before
-    hash(
-      result.copy(opExecInitInfo = OpExecWithCode("return table", "python", false))
+      result.copy(opExecInitInfo = OpExecWithCode("return table", "other"))
     ) should not equal before
     val port = PortIdentity(0)
     val (definition, links, _) = result.outputPorts(port)

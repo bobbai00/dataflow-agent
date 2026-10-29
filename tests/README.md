@@ -63,8 +63,7 @@ The runner produces detailed logs under `tests/.logs/`.
 - Generated wrapper contains `class GenerateOperator(UDFSourceOperator)` for
   sources and `class ProcessTablesOperator(UDFMultiTableOperator)` with
   `INPUT_PORTS = ["p1", "p2", ...]` for processors.
-- `getPhysicalOp` succeeds and emits `OpExecWithCode` with
-  `dynamic_output_schema = true` (so slice 5's runtime inference activates).
+- `getPhysicalOp` succeeds and emits `OpExecWithCode`.
 - `propagateSchema` returns an empty `Schema()` (runtime owns the schema).
 - Link validation: every `link.toPortIndex` aligns with the source operator
   ID's position in the target's parameter list (CODE-mode convention).

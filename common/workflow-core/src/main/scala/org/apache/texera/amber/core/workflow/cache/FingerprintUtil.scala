@@ -191,9 +191,9 @@ object FingerprintUtil {
   }
 
   /**
-    * Hash the complete execution definition, including its language and schema
-    * mode. The program remains in the workflow; cache metadata needs only its
-    * identity. Bound payload size independently of generated program length.
+    * Hash the complete execution definition, including its language. The
+    * program remains in the workflow; cache metadata needs only its identity.
+    * Bound payload size independently of generated program length.
     */
   private def serializeOpExec(opExecInitInfo: OpExecInitInfo): ObjectNode = {
     val n = objectMapper.createObjectNode()

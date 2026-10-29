@@ -155,12 +155,6 @@ const SALES_COLUMN_STATS: Record<string, string> = {
   amount: "(numeric): null=12, mean=52.3, min=0.5, max=999.9",
   price_display: "(str): null=0, distinct=890, format=currency",
   date: "(datetime): null=0, min=2023-01-04, max=2023-12-28",
-  __table_hints__:
-    "grain: one row per (order_id) || partition candidates: region (4 values) || dirty-load: 2 duplicate rows",
-  __coercion_telemetry__:
-    "to_numeric(errors='coerce') on `amount` NULLed 12/1000 values — sample: ['N/A', 'n.a.', '—']",
-  __join_telemetry__:
-    "Join check ⚠: 0.2% of `sales` keys matched `lookup` — near-zero key overlap; check join key columns and dtypes",
 };
 
 const BY_REGION_ERROR =

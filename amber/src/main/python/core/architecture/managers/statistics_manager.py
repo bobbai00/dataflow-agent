@@ -41,11 +41,8 @@ class StatisticsManager:
         self._control_processing_time: int = 0
         self._total_execution_time: int = 0
         self._worker_start_time: int = 0
-        # Per-column result statistics, JSON-encoded per column. Populated by
-        # operators that compute column-level stats; empty otherwise.
-        self._result_statistics: Dict[str, str] = {}
-        # Structured metadata is kept separately so a later legacy display-stat
-        # replacement cannot drop earlier yields' accumulated profile.
+        # The worker's table profile, JSON-encoded under its reserved key
+        # (see core.util.table_profile); empty unless the operator collects one.
         self._profile_statistics: Dict[str, str] = {}
 
     def get_statistics(self) -> WorkerStatistics:
@@ -67,16 +64,8 @@ class StatisticsManager:
                 - self._data_processing_time
                 - self._control_processing_time,
             ),
-            {**self._result_statistics, **self._profile_statistics},
+            dict(self._profile_statistics),
         )
-
-    def set_result_statistics(self, stats: Dict[str, str]) -> None:
-        """
-        Replace the per-column result statistics map. Each key is a column
-        name; each value is a JSON-encoded stats blob produced by the column
-        profiler.
-        """
-        self._result_statistics = dict(stats)
 
     def set_profile_statistics(self, key: str, payload: str) -> None:
         self._profile_statistics[key] = payload

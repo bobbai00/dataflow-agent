@@ -147,6 +147,21 @@ describe("WorkflowUtilService", () => {
     expect(updated.operatorVersion).toEqual(mockMultiInputOutputSchema.operatorVersion);
   });
 
+  it("should drop the dynamicOutputSchema property that saved Python UDFs still carry", () => {
+    const op: OperatorPredicate = {
+      operatorID: "op-4",
+      operatorType: mockMultiInputOutputSchema.operatorType,
+      operatorVersion: "stale-version",
+      operatorProperties: { code: "yield t", dynamicOutputSchema: false },
+      inputPorts: [],
+      outputPorts: [],
+      showAdvanced: false,
+      isDisabled: false,
+    };
+
+    expect(workflowUtilService.updateOperatorVersion(op).operatorProperties).toEqual({ code: "yield t" });
+  });
+
   it("should throw an error when updating the version of an operator with an unknown type", () => {
     const op: OperatorPredicate = {
       operatorID: "op-3",

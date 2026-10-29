@@ -136,6 +136,16 @@ class PythonUDFOpDescV2Spec extends AnyFlatSpec with Matchers {
     p.outputColumns shouldBe List(new Attribute("res", AttributeType.INTEGER))
   }
 
+  it should "load a saved operator that still carries dynamicOutputSchema" in {
+    val saved =
+      """{"operatorType": "PythonUDFV2", "operatorID": "PythonUDFV2-1", "code": "yield t",
+        |"workers": 1, "retainInputColumns": false, "defaultEnv": true, "outputColumns": [],
+        |"dynamicOutputSchema": false}""".stripMargin
+    val restored = objectMapper.readValue(saved, classOf[LogicalOp])
+    restored shouldBe a[PythonUDFOpDescV2]
+    restored.asInstanceOf[PythonUDFOpDescV2].code shouldBe "yield t"
+  }
+
   "PythonUDFOpDescV2.getPhysicalOp" should
     "use a parallelizable one-to-one op with the suggested worker count when workers > 1" in {
     val d = new PythonUDFOpDescV2
