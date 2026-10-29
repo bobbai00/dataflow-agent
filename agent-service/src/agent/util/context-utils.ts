@@ -77,8 +77,8 @@ export function writtenOperatorId(toolName: string | undefined, input: unknown):
 }
 
 /** A bounded current-task receipt, not a trajectory or a table/diagnostic pull.
- * LATEST replaces the wire history, so even a cached read needs an explicit
- * completion marker. Tool completion does not imply successful execution. */
+ * The current snapshot replaces the wire history, so even a cached read needs an
+ * explicit completion marker. Tool completion does not imply successful execution. */
 export function latestNativeActionReceipt(steps: ReActStep[]): string | undefined {
   for (let i = steps.length - 1; i >= 0; i--) {
     const step = steps[i]!;
@@ -244,8 +244,8 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   } & ObservationFormatOptions;
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
-  /** DELTA `Inputs:` line (structure-consistent with LATEST). The leaf snapshot
-   *  supplies the current DAG adjacency (single source of truth via
+  /** DELTA `Inputs:` line (structure-consistent with the current snapshot). The
+   *  leaf snapshot supplies the current DAG adjacency (single source of truth via
    *  formatOperatorAdjacency); the map gives each op's last-edit eventIndex so the
    *  line renders once, on the op's most-recent edit, reflecting the latest wiring.
    *  Set by renderAgentEvents; read in the DELTA observation. */
@@ -976,7 +976,7 @@ function assembleBudgetedContext(
   // compress: fold the oldest d events into a stats deck (the boundary snapshot),
   // keep the rest as raw-delta suffix. Advance the fold forward until it fits;
   // larger folds shrink the raw suffix faster than the stats deck grows. When
-  // d === evs.length everything folds into the deck (empty suffix = LATEST-like).
+  // d === evs.length everything folds into the deck (empty suffix = the deck alone).
   let best = lossless;
   let bestTokens = estimateTokens(lossless);
   let folded = 0;
@@ -1408,8 +1408,8 @@ function serializeTaskBody(
     }
     if (node.snapshot && !omitObservation && !actionResults.length) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // Each observation uses the same evidence controls as LATEST. Every
-      // operator that CHANGED or
+      // Each observation uses the same evidence controls as the current
+      // snapshot. Every operator that CHANGED or
       // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
       // runPostStepExecution, via computeDelta case c) renders as
       // `- operator <id> <added|updated|deleted>` followed by its result. On
@@ -1496,7 +1496,8 @@ function serializeTaskBody(
 
       // NATIVE result selection applies to the observation too: an operator that
       // changed this step renders in the shape the rule gives it in the
-      // post-step snapshot (full / count / header), same semantics as LATEST.
+      // post-step snapshot (full / count / header), same semantics as the
+      // current snapshot.
       const snapForShapes = node.snapshot;
       const deltaShapes = selectShapes(
         options.resultSelection,
@@ -1565,13 +1566,14 @@ function serializeTaskBody(
         if (comparable && actedVerb.get(op.operatorID) === "updated") {
           obs.push(`  change: ${profileDiff(prevInfo!, currInfo!) ?? "none (same rows, same column profile)"}`);
         }
-        // `Inputs:` line — structure-consistent with LATEST, from the LEAF
-        // snapshot's DAG (current wiring) via the same formatOperatorAdjacency
-        // LATEST uses. Code mode: rendered once, on the op's most-recent edit
-        // (byte-parity with the golden renders). Typed operators: on EVERY event
-        // that changed the op — moving the line on a later edit rewrote an
-        // earlier observation and broke the prompt cache for everything after
-        // it. Skipped for ops no longer in the leaf.
+        // `Inputs:` line — structure-consistent with the current snapshot, from
+        // the LEAF snapshot's DAG (current wiring) via the same
+        // formatOperatorAdjacency the current snapshot uses. Code mode: rendered
+        // once, on the op's most-recent edit (byte-parity with the golden
+        // renders). Typed operators: on EVERY event that changed the op — moving
+        // the line on a later edit rewrote an earlier observation and broke the
+        // prompt cache for everything after it. Skipped for ops no longer in the
+        // leaf.
         const leaf = requestedResults ? node.snapshot : options.deltaInputsLeaf;
         if (leaf && (op.nativeOp ? true : options.deltaLastEditByOp?.get(op.operatorID) === node.eventIndex)) {
           const leafOp = leaf.workflow.operators.find(o => o.operatorID === op.operatorID);
@@ -2370,8 +2372,8 @@ function serializeOperatorFull(
   } else if (info && (ex?.detail !== "omit" || (op.nativeOp && info.error))) {
     execText = formatOperatorResult(op.operatorID, info, workflowState, {
       ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, op.operatorID, workflowState)),
-      // LATEST renders a single consolidated `Inputs:` (with counts) at the
-      // operator-block level (formatOperatorAdjacency), so skip the in-Result one.
+      // The operator block renders a single consolidated `Inputs:` (with counts)
+      // via formatOperatorAdjacency, so skip the in-Result one.
       inputsInResult: false,
       ...shapeFormatOverrides(shape, options),
       operatorAtEvent: op,

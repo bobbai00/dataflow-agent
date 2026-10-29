@@ -429,7 +429,7 @@ export type AgentDriverKind = "vercel-tool-use" | "local-react";
  *  - "qwen-xml"    — Qwen3-Coder XML: `<tool_call><function=…><parameter=…>…
  *    </function></tool_call>`. Prompt = `code-mode.md` +
  *    `local-qwen-tools.txt`; parser `parseQwenToolCall`; context the SDK
- *    `assembleContext` (`# User Task` / `# Current Dataflow`). Default.
+ *    `assembleContext` (`# Agent Events`). Default.
  *  - "react-text"  — DeepSeek-style ReAct text: `Thought:` / `Action:` /
  *    `Action Input:` (Python-dict payloads). Prompt `prompts/local-react.txt`;
  *    parser `parseReActText`; context `assembleLocalReactContext` (`# Event N`).

@@ -65,8 +65,8 @@ export interface FormatOperatorResultOptions {
    *  `Inputs:` shape line. Returns undefined when unknown. */
   resolveInputColumns?: (upstreamOpId: string) => number | undefined;
   /** Whether to render the `Inputs:` shape line inside the Result block.
-   *  LATEST sets this false — it renders a single consolidated `Inputs:` line
-   *  (with counts) at the operator-block level, so repeating it here is
+   *  Operator blocks set this false — they render a single consolidated `Inputs:`
+   *  line (with counts) at the operator-block level, so repeating it here is
    *  duplication. DELTA leaves it true (it has no operator-block level).
    *  Undefined ⇒ true. */
   inputsInResult?: boolean;

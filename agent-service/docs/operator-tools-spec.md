@@ -354,14 +354,11 @@ position (after the previous turn's final answer), so the turn's first prompt
 ends with the request and the turn's later steps extend it. Earlier requests
 appear as `user` messages at their positions.
 
-Catalog (`versionedMode`) and session (`sessionTurns`) layouts use
-`messageLayout: "turnSplit"` by default: one user message per finished turn
-entry, one per step of the live turn, one per top-level section, with the
-`# Your Task` directive placed right after the live turn's task. Typed
-operators appear in catalog entries as `#### filter operator \`id\` (added)`
-with their `Properties:`; `recallState` returns parameters, not generated
-code. Every place that identifies the operator a call wrote accepts the typed
-tools' `id` as well as the code tool's `operatorId` (`writtenOperatorId`).
+Typed operators appear in catalog (`versionedMode`) entries as
+`#### filter operator \`id\` (added)` with their `Properties:`; `recallState`
+returns parameters, not generated code. Every place that identifies the
+operator a call wrote accepts the typed tools' `id` as well as the code tool's
+`operatorId` (`writtenOperatorId`).
 
 ## 7. Prompt
 

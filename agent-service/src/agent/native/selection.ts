@@ -101,7 +101,7 @@ function globCovers(pattern: string, path: string): boolean {
  * its raw lines are spent: render the header only, pointing at the real Scan.
  * An errored preview nobody reads collapses the same way, carrying the error's
  * first line. Independent of `resultSelection` (it is about probes, not about
- * what the data decided), so LATEST and DELTA both apply it.
+ * what the data decided), so DELTA and the current snapshot both apply it.
  */
 export function retiredPreviews(
   operators: readonly OperatorPredicate[],
