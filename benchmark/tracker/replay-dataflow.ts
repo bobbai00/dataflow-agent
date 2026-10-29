@@ -27,13 +27,14 @@
  *
  *   bun benchmark/tracker/replay-dataflow.ts --conversations C.jsonl --out OUT.jsonl --agent http://localhost:3141 \
  *     --model-port 3199 [--texera http://localhost:64080] [--cu 10] [--history keep|forget] \
- *     [--jumps 0] [--jump-every 100] [--limit 0] [--verify-jumps RESTORES.jsonl]
+ *     [--jumps 0] [--jump-every 100] [--limit 0] [--verify-jumps RESTORES.jsonl] [--dump-requests REQUESTS.jsonl]
  *
  * --history forget drops, before each conversation, every snapshot its path does not need (the "without the context
  * tracker" arm). --jumps K checks out K random versions each time the tree passes another --jump-every snapshots.
  * --verify-jumps, after the replay, jumps to every version and every step in a random order and writes what each jump
- * restored (dataflow, results, the conversation to HEAD, the model's next context); compare_restores.py compares two
- * such files, from two versions of the agent that replayed the same conversations.
+ * restored (dataflow, results, the conversation to HEAD, the model's next context); compare_replays.py compares two
+ * such files, from two versions of the agent that replayed the same conversations. --dump-requests writes every model
+ * request the agent sends, one line per call, for the same comparison.
  */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -53,6 +54,7 @@ const { values: args } = parseArgs({
     seed: { type: "string", default: "7" },
     "turn-timeout": { type: "string", default: "1800" },
     "verify-jumps": { type: "string" },
+    "dump-requests": { type: "string" },
   },
 });
 
@@ -72,6 +74,8 @@ if (Number(args.limit)) conversations.splice(Number(args.limit));
 const out = args.out!;
 writeFileSync(out, "");
 const emit = (line: Record<string, unknown>) => appendFileSync(out, JSON.stringify(line) + "\n");
+const dump = args["dump-requests"];
+if (dump) writeFileSync(dump, "");
 const api = `${args.agent}/api/agents`;
 
 // ── the model: recorded responses, in call order ───────────────────────────
@@ -85,6 +89,7 @@ const modelServer = Bun.serve({
     const body = await request.json();
     const call = current?.calls[served];
     fidelity.push({ call: served, sentChars: JSON.stringify(body.messages).length, recordedChars: call?.requestChars ?? 0 });
+    if (dump) appendFileSync(dump, JSON.stringify({ conversation: current?.id, call: served, body }) + "\n");
     served++;
     // More calls than the run made: answer, which ends the turn.
     const response = call?.response ?? {

@@ -90,18 +90,29 @@ of a step records a restore step, as a click in the version tree does, so the tr
 random order. For each jump it writes the restored dataflow and results (the `headChange` frame and
 `GET /:id/snapshots/head`), the conversation from the root to HEAD, the model's next context (the `nextContext`
 frame) and, for a version, its preview (`GET /:id/versions/:id`). Two versions of the agent that replayed the same
-conversations with the same seed then make the same jumps, and `compare_restores.py` compares them line by line:
+conversations with the same seed then make the same jumps, and `compare_replays.py` compares them line by line:
 
 ```bash
 benchmark/tracker/run-arm.sh $R/verify-new 3150 3190 $C --verify-jumps $R/verify-new/restores.jsonl
 # the same in a checkout of the other version, to $R/verify-old
-python3 -I benchmark/tracker/compare_restores.py $R/verify-old/restores.jsonl $R/verify-new/restores.jsonl
+python3 -I benchmark/tracker/compare_replays.py restores $R/verify-old/restores.jsonl $R/verify-new/restores.jsonl
 ```
 
 For the per-action snapshots, this compared stable 87a7cea92 with the agent of this change on every fourth
 conversation (52 conversations, 1,153 snapshots; every result was on disk when the jumps began). Of 1,386 jumps, 1,289
 restored the same. The other 97 differ only in the status of six operators whose failed runs the engine reported as
 `Running` in one replay and `Uninitialized` in the other; each agent restored the status its own replay recorded.
+
+`--dump-requests FILE` writes every model request the agent sends, one line per call. Two versions of the agent that
+replay the same conversations should send the same requests when a change is not meant to alter what the model sees,
+such as a refactor or removing a setting no run used. `compare_replays.py requests` checks that, after normalizing what
+two runs cannot share:
+
+```bash
+benchmark/tracker/run-arm.sh $R/requests-new 3151 3191 $C --dump-requests $R/requests-new/requests.jsonl
+# the same in a checkout of the other version, to $R/requests-old
+python3 -I benchmark/tracker/compare_replays.py requests $R/requests-old/requests.jsonl $R/requests-new/requests.jsonl
+```
 
 ## smolagents
 
