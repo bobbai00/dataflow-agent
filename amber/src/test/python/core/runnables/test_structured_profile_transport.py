@@ -63,8 +63,7 @@ def test_a_table_gets_no_profile_unless_collection_is_on():
     DataProcessor(a)._publish_table_profile(disabled)
     DataProcessor(b)._publish_table_profile(plain)
     assert a.statistics_manager.get_statistics().result_statistics == {}
-    assert "x" not in b.statistics_manager.get_statistics().result_statistics
-    assert published(a) == [] and published(b) == []
+    assert b.statistics_manager.get_statistics().result_statistics == {}
     pd.testing.assert_frame_equal(disabled, plain)
 
 

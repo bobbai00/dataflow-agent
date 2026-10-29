@@ -120,11 +120,8 @@ case class OperatorExecution() {
       val workerRawStats = workerExecutions.values.asScala.map(_.getStats).toList
       val inputMetrics = workerRawStats.flatMap(_.inputTupleMetrics)
       val outputMetrics = workerRawStats.flatMap(_.outputTupleMetrics)
-      // Merge per-column result_statistics across workers. With workers=1
-      // (the case for DataProcessing under dynamic schema) it's just the
-      // single worker's map. With multiple workers, later non-empty maps
-      // override earlier ones (we don't try to combine numeric stats across
-      // workers — that would require per-column reducers, future work).
+      // Each worker publishes its table profile under its own key, so the
+      // union keeps every worker's profile.
       val mergedResultStats: Map[String, String] =
         workerRawStats.flatMap(_.resultStatistics.toList).toMap
       OperatorMetrics(

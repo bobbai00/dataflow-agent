@@ -68,10 +68,8 @@ object ExecutionUtils {
     val dataProcessingTimeSum = metrics.map(_.operatorStatistics.dataProcessingTime).sum
     val controlProcessingTimeSum = metrics.map(_.operatorStatistics.controlProcessingTime).sum
     val idleTimeSum = metrics.map(_.operatorStatistics.idleTime).sum
-    // Merge per-column result_statistics from each physical-op-aggregated map.
-    // Logical operators with multiple physical ops (e.g. Aggregate) get the
-    // union; the column-name keys are typically distinct so collisions are
-    // rare. On collision the later map wins.
+    // The union of the physical ops' result statistics: each worker's table
+    // profile, under its own key.
     val resultStatisticsMerged: Map[String, String] =
       metrics.flatMap(_.operatorStatistics.resultStatistics.toList).toMap
 

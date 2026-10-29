@@ -13,7 +13,5 @@ filter branches, all three feed back into a single 3-input aggregator.
 - Wide fan-out from a single source's output.
 - 3-input merge downstream — the fix from RESULTS.md "How test 03 was fixed"
   must hold.
-- Multiple parallel `_compute_column_stats` calls (one per branch) that need
-  to ride out on `WorkerStatistics.result_statistics`.
 
 **Expected output of `all_species`:** 3 rows × 3 cols (Species, count=50, avg_petal).
