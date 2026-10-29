@@ -39,7 +39,7 @@ const corrections = (agent: TexeraAgent) =>
     .filter(s => s.messageSource === "correction" && s.content.includes("failed the same way"));
 
 function fixture(replyAt: (call: number) => Reply) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const prompts: unknown[][] = [];
   const model = new MockLanguageModelV3({

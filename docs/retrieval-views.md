@@ -132,7 +132,6 @@ deduplication. Those choices depend on the task and source definitions.
 
 ```json
 {
-  "agentMode": "native",
   "nativeProfileCollection": true,
   "retrievalViews": ["full", "sample", "sample_stats"],
   "fullResultCharLimit": 5000,

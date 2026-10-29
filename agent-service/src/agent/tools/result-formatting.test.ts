@@ -490,7 +490,7 @@ describe("formatOperatorResult - who is blamed when the run stops", () => {
   // own definition is not implicated.
   async function stateWithFailedJoin() {
     const metadataStore = new WorkflowSystemMetadata();
-    metadataStore.seedCodeModeDefaults();
+    metadataStore.seedNativeOperatorDefaults();
     const plan = await planRegisteredGraphEdit(
       new WorkflowState().getWorkflowContent(),
       "",

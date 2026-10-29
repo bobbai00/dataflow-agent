@@ -176,7 +176,7 @@ describe("the snapshot storage keeps one version per action", () => {
 describe("a call's edits, one version each", () => {
   const context = () => {
     const metadataStore = WorkflowSystemMetadata.getInstance();
-    metadataStore.seedCodeModeDefaults();
+    metadataStore.seedNativeOperatorDefaults();
     return { metadataStore };
   };
   const empty = () => new WorkflowState().getWorkflowContent();

@@ -100,11 +100,11 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
 - **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
   sbt build. Tools live in `src/agent/tools/` (the `dataflow` action tool and
-  native upsert, execution, inspection/recall); the native catalog, expression parser and Python runtime
-  in `src/agent/native/`; context assembly in `src/agent/context/` and
-  `src/agent/util/context-utils.ts`; the ReAct loop in
-  `src/agent/texera-agent.ts`. **Never import frontend or amber code from
-  agent-service** — it is a process boundary.
+  native upsert, execution, inspection/recall); the native catalog,
+  expression parser and Python runtime in `src/agent/native/`; context
+  assembly in `src/agent/context/` and `src/agent/util/context-utils.ts`;
+  the ReAct loop in `src/agent/texera-agent.ts`. **Never import frontend or
+  amber code from agent-service** — it is a process boundary.
 - **Traces**: `agent-service/src/trace/trace-store.ts` writes every agent's
   turns, steps (with timings), model requests (by size and token count, never
   content), dataflow versions, executions, operator results and control events

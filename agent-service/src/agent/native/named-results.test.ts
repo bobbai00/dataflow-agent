@@ -60,7 +60,7 @@ test("the correction names the tables and why they have no result", () => {
 
 /** A model that sends `calls` dataflow statements in turn, then the reply. */
 function fixture(statements: string[], reply: string, fail: ReadonlySet<string> = new Set()) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const model = new MockLanguageModelV3({
     doGenerate: async () => {

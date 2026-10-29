@@ -19,7 +19,6 @@
 
 import { describe, expect, test } from "bun:test";
 import { computeOperatorAccess } from "./texera-agent";
-import { formatAddOperatorResult, formatModifyOperatorResult } from "./tools/tools-utility";
 
 const call = (toolName: string, toolCallId: string, input: any) => ({ toolName, toolCallId, input });
 const result = (toolCallId: string, output: any, isError = false) => ({ toolCallId, output, isError });
@@ -33,7 +32,7 @@ describe("computeOperatorAccess", () => {
   test("code mode: createOrModifyOperator add → addedOperatorIds", () => {
     const access = computeOperatorAccess(
       [call("createOrModifyOperator", "t1", { operatorId: "load_csv", code: "..." })],
-      [result("t1", formatAddOperatorResult("load_csv", 0, 1))]
+      [result("t1", "Added operator load_csv, input ports: 0, output ports: 1")]
     );
     expect(access).toEqual({
       0: { viewedOperatorIds: [], addedOperatorIds: ["load_csv"], modifiedOperatorIds: [] },
@@ -43,7 +42,7 @@ describe("computeOperatorAccess", () => {
   test("code mode: createOrModifyOperator modify → modifiedOperatorIds", () => {
     const access = computeOperatorAccess(
       [call("createOrModifyOperator", "t1", { operatorId: "load_csv", code: "..." })],
-      [result("t1", formatModifyOperatorResult("load_csv", [{ source: "a", target: "load_csv" }]))]
+      [result("t1", "Operator load_csv modified, created links: [a --> load_csv]")]
     );
     expect(access![0].modifiedOperatorIds).toEqual(["load_csv"]);
     expect(access![0].addedOperatorIds).toEqual([]);
@@ -58,8 +57,8 @@ describe("computeOperatorAccess", () => {
         call("executeOperator", "e", { operatorId: "filter1" }),
       ],
       [
-        result("a", formatAddOperatorResult("filter1", 1, 1)),
-        result("m", formatModifyOperatorResult("filter1")),
+        result("a", "Added operator filter1, input ports: 1, output ports: 1"),
+        result("m", "Operator filter1 modified"),
         result("d", "Deleted operator: old_op"),
         result("e", "Operator filter1:\nrows..."),
       ]
@@ -130,7 +129,10 @@ describe("computeOperatorAccess", () => {
   test("is keyed by tool-call index even when results arrive out of order", () => {
     const access = computeOperatorAccess(
       [call("addOperator", "a", { operatorId: "x" }), call("addOperator", "b", { operatorId: "y" })],
-      [result("b", formatAddOperatorResult("y", 0, 1)), result("a", formatAddOperatorResult("x", 0, 1))]
+      [
+        result("b", "Added operator y, input ports: 0, output ports: 1"),
+        result("a", "Added operator x, input ports: 0, output ports: 1"),
+      ]
     );
     expect(access![0].addedOperatorIds).toEqual(["x"]);
     expect(access![1].addedOperatorIds).toEqual(["y"]);

@@ -800,9 +800,8 @@
               </button>
             </div>
             <div class="settings-param-hint-block">
-              When <strong>enabled</strong>, the model may emit multiple tool calls in one assistant turn — the agent
-              serializes them in topological order so an operator that depends on a sibling created in the same turn
-              waits for its upstream. When <strong>disabled</strong>, the provider emits one tool call per turn.
+              Whether the model may emit multiple tool calls in one assistant turn. The agent asks the provider for one
+              tool call per turn.
             </div>
           </div>
 

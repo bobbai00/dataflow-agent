@@ -37,7 +37,7 @@ import type { RegisteredNamespace } from "../native/registered";
 
 function context() {
   const metadataStore = WorkflowSystemMetadata.getInstance();
-  metadataStore.seedCodeModeDefaults();
+  metadataStore.seedNativeOperatorDefaults();
   return { metadataStore };
 }
 const loader = `import pandas as pd

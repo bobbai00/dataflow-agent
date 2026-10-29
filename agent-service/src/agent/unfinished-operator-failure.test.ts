@@ -27,7 +27,7 @@ const died =
 
 /** Runs one post-step execution against an engine that answers with `response`. */
 async function executeAgainst(response: Record<string, unknown>) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   const agent = new TexeraAgent({
     agentId: `unfinished-${Math.random()}`,
     modelType: "test",

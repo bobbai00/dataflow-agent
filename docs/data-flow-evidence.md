@@ -73,7 +73,6 @@ collection policy, layout, and budget, changing only these two booleans:
 
 ```json
 {
-  "agentMode": "native",
   "nativeProfileCollection": true,
   "parallelToolCalls": false,
   "contextMode": "delta",
@@ -996,14 +995,12 @@ use `observe` to request disabled evidence or uncached rows. For a focused
 table/column calculation it can add Project, Filter, Distinct, or Aggregate
 operators and explicitly observe their outputs.
 
-The batch implementation uses the **same `ToolCallScheduler` as parallel tool
-calls** internally, while provider parallel tool calls are disabled in this
-configuration. Chains/branches can reference existing operators or another
-item anywhere in the batch. Dependencies are resolved through unchanged
-existing DAG nodes as well. Mutations are applied in a stable topological
-order. A failed producer blocks dependent edits; independent valid edits can
-still succeed. Successful edits use the normal post-step execution path;
-disconnected branches may need separate backend requests.
+Chains/branches can reference existing operators or another item anywhere in
+the batch. Dependencies are resolved through unchanged existing DAG nodes as
+well. Mutations are applied in a stable topological order. A failed producer
+blocks dependent edits; independent valid edits can still succeed. Successful
+edits use the normal post-step execution path; disconnected branches may need
+separate backend requests.
 
 When an upstream definition changes, or a new upstream materialization replaces
 the old one, descendants' old results are invalidated in the current snapshot.
@@ -1144,7 +1141,7 @@ this documentation change does not initiate a new benchmark run.
 | Data/flow candidates and shared-budget selector | [`evidence.ts`](../agent-service/src/agent/native/evidence.ts): `collectNativeEvidence`, `selectNativeObservation`, `restrictNativeObservation`                                                                                     |
 | Dependency ranking and bound-input traversal    | [`evidence-lineage.ts`](../agent-service/src/agent/native/evidence-lineage.ts)                                                                                                                                                      |
 | Immutable observations and invalidation         | [`workflow-snapshot-storage.ts`](../agent-service/src/agent/workflow-snapshot-storage.ts): `captureNativeObservations`, `setOperatorResult`                                                                                         |
-| Batch schema, observe, dependency scheduling    | [`native-batch-tools.ts`](../agent-service/src/agent/tools/native-batch-tools.ts), [`tool-call-scheduler.ts`](../agent-service/src/agent/tools/tool-call-scheduler.ts)                                                              |
+| Batch schema, observe, dependency scheduling    | [`native-batch-tools.ts`](../agent-service/src/agent/tools/native-batch-tools.ts)                                                                                                                                                   |
 | Successful-result/error rendering               | [`result-formatting.ts`](../agent-service/src/agent/tools/result-formatting.ts)                                                                                                                                                     |
 | DELTA/LATEST placement and provider framing     | [`context-utils.ts`](../agent-service/src/agent/util/context-utils.ts), [`native-frames.ts`](../agent-service/src/agent/context/summarize/native-frames.ts), [`server.ts`](../agent-service/src/server.ts): `buildContextAssembler` |
 | Model instructions for evidence and observation | [`native-python-mode.md`](../agent-service/src/agent/prompts/native-python-mode.md)                                                                                                                                                 |

@@ -33,7 +33,7 @@ type Call = { python: string; statements: string };
  * response run as one call: the first call's result holds the receipt, and each
  * later call's result points to it. */
 function fixture(replyAt: (call: number) => Call[] | string) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const prompts: unknown[][] = [];
   const model = new MockLanguageModelV3({

@@ -29,7 +29,7 @@ type Reply = { text?: string; call?: Record<string, string>; finish?: "length" }
 
 /** A native agent whose model replies with the given dataflow calls or texts in order. */
 function fixture(replies: Reply[]) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const prompts: any[][] = [];
   const choices: any[] = [];

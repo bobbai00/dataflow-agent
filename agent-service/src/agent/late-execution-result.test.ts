@@ -23,7 +23,7 @@ import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
 for (const scenario of ["success", "operator-error", "execution-error", "abort"] as const) {
   test(`a late ${scenario} cannot write into a newer/aborted snapshot`, async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const agent = new TexeraAgent({
       agentId: `late-${scenario}`,
       modelType: "test",

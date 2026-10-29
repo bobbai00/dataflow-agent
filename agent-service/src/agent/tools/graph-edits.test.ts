@@ -28,7 +28,7 @@ import { nativeAssignmentText } from "../native/catalog";
 
 const context = () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
-  metadataStore.seedCodeModeDefaults();
+  metadataStore.seedNativeOperatorDefaults();
   return { metadataStore };
 };
 async function edit(state: WorkflowState, changes: string) {

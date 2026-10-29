@@ -127,9 +127,9 @@ retrieval statements.
 |---|---|
 | `dataflow(python, statements)` | `python` registers definitions; `statements` declares operators with `set id: type(inputs, settings)` or `delete id`, then runs and reads them with `execute` and `show` lines. A call's edits apply together or not at all. Thirteen built-ins and registered table functions share this graph. The model answers by replying without the tool after `show result` has displayed what the answer rests on. |
 
-Native mode forces provider parallel tool calls off and never forces a tool
-call, so models can think before calling and answer with a plain reply. After
-an execution error, later `show` lines still read the results that completed.
+Provider parallel tool calls are off and a tool call is never forced, so models
+can think before calling and answer with a plain reply. After an execution
+error, later `show` lines still read the results that completed.
 
 Each native operator runs as a Python UDF, but the canvas draws it as its
 native type: the label reads `id: Aggregate` (or the registered function's
@@ -209,7 +209,7 @@ An agent created with no `settings` uses
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxSteps` | `100` | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
-| `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
+| `parallelToolCalls` | `false` | provider-side parallel calls; always off |
 | `thoughtReplay` | `true` (K=10) | recent reasoning re-injected |
 
 Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
@@ -218,9 +218,10 @@ execution. See [Retrieval views](docs/retrieval-views.md) for the tool contract,
 prompt behavior, result caching and experiment driver.
 A key that is not a setting, such as a retired one (`agentMode`,
 `nativeToolMode`, `allowedOperatorTypes`, the old level/statistics overlays), is
-refused with a 400 that names it (`<key> is not a setting`), not translated. `inspectResult` is not a
-tool. For the evidence formulas, budgets and rendered examples of all four
-evidence configurations, see [Data and flow evidence](docs/data-flow-evidence.md).
+refused with a 400 that names it (`<key> is not a setting`), not translated.
+`inspectResult` is not a tool. For the evidence formulas, budgets and rendered
+examples of all four evidence configurations, see
+[Data and flow evidence](docs/data-flow-evidence.md).
 
 Key endpoints (all under `/api/agents`):
 

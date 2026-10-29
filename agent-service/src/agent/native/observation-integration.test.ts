@@ -34,7 +34,7 @@ import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
 const metadata = new WorkflowSystemMetadata();
-metadata.seedCodeModeDefaults();
+metadata.seedNativeOperatorDefaults();
 let workflow: ReturnType<WorkflowState["getWorkflowContent"]>;
 beforeAll(async () => {
   workflow = (

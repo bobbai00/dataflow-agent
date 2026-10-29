@@ -23,7 +23,7 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { planRegisteredGraphEdit } from "./graph-edits";
 
 const metadataStore = new WorkflowSystemMetadata();
-metadataStore.seedCodeModeDefaults();
+metadataStore.seedNativeOperatorDefaults();
 const empty: WorkflowContent = {
   operators: [],
   operatorPositions: {},

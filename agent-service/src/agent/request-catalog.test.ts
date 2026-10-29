@@ -47,7 +47,7 @@ function session(
   catalog: { catalogSource?: CatalogSource; catalogRecent?: number } = {},
   settings: { answerStatement?: boolean } = {}
 ) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const prompts: any[][] = [];
   const model = new MockLanguageModelV3({

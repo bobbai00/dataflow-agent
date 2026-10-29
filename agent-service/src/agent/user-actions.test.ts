@@ -37,7 +37,7 @@ const BUILD = {
 /** A native agent whose model replies in order and whose engine keeps the
  * rows above a filter's threshold, so a changed condition changes the result. */
 function session(replies: Reply[]) {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   let calls = 0;
   const prompts: unknown[][] = [];
   const model = new MockLanguageModelV3({

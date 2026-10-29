@@ -28,7 +28,7 @@ import type { ReActStep } from "../types/agent";
 for (const success of [true, false]) {
   test(`registered action traces retain execution metrics on ${success ? "success" : "failure"}`, async () => {
     const metadataStore = WorkflowSystemMetadata.getInstance();
-    metadataStore.seedCodeModeDefaults();
+    metadataStore.seedNativeOperatorDefaults();
     const agent = new TexeraAgent({
       agentId: `metrics-${success}`,
       modelType: "test",
@@ -105,7 +105,7 @@ for (const success of [true, false]) {
 
 test("stopping during preparation cannot proceed to a model request", async () => {
   const metadataStore = WorkflowSystemMetadata.getInstance();
-  metadataStore.seedCodeModeDefaults();
+  metadataStore.seedNativeOperatorDefaults();
   let modelRequests = 0;
   const agent = new TexeraAgent({
     agentId: "compile-stop",

@@ -131,8 +131,8 @@ class ResultResidency {
 export interface VersionAction {
   /** add, update or delete one operator; define: Python definitions only;
    * start: the dataflow the agent began with; edit: several operators in one
-   * step (code mode, or an import without per-edit records); run: an
-   * execution; show: results read. */
+   * step (an import without per-edit records); run: an execution; show:
+   * results read. */
   kind: "add" | "update" | "delete" | "define" | "start" | "edit" | "run" | "show";
   operatorId?: string;
   /** What the operator calls: a built-in (`filter`) or a registered function. */

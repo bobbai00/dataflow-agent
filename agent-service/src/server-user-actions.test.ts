@@ -45,7 +45,7 @@ const prompts: unknown[][] = [];
 
 beforeEach(() => {
   _resetAgentStoreForTests();
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   const initialize = TexeraAgent.prototype.initialize;
   initSpy = spyOn(TexeraAgent.prototype, "initialize").mockImplementation(async function (this: TexeraAgent, config) {
     await initialize.call(this, config);

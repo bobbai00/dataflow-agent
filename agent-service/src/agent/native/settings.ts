@@ -28,9 +28,8 @@ export function refuseUnknownSettings(settings: unknown, keys: ReadonlySet<strin
     if (!keys.has(key)) throw new NativeCatalogSettingsError(`${key} is not a setting`);
 }
 
-/** Shared by creation (before allocating an agent) and atomic settings
- * updates. Deliberate breaking change: never silently reinterpret old
- * experiments. */
+/** Refuse an invalid value or combination of settings rather than coerce it.
+ * Shared by creation (before allocating an agent) and atomic settings updates. */
 export function validateNativeSettings(settings: object = {}): void {
   const supplied = settings as Record<string, unknown>;
   if (supplied.retrievalViews !== undefined) {

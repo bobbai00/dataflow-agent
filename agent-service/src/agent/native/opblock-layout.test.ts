@@ -53,7 +53,7 @@ import { workflowExecutionPlan } from "./result-versions";
 function fixture() {
   const state = new WorkflowState();
   const metadataStore = new WorkflowSystemMetadata();
-  metadataStore.seedCodeModeDefaults();
+  metadataStore.seedNativeOperatorDefaults();
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(
     id => steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id),

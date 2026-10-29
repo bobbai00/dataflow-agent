@@ -42,7 +42,7 @@ test("the caller's abort still ends an execution request at once", () => {
 });
 
 test("the agent's execution call is sent with those limits and the engine timeout it was configured with", async () => {
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   const agent = new TexeraAgent({
     agentId: "execution-limits",
     modelType: "test",

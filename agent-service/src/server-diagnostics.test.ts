@@ -39,7 +39,7 @@ let createdAgent: TexeraAgent;
 let initSpy: ReturnType<typeof spyOn>;
 beforeEach(() => {
   _resetAgentStoreForTests();
-  WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+  WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
   backendStatus = 200;
   requests = [];
   const initialize = TexeraAgent.prototype.initialize;

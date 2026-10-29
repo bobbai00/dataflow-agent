@@ -195,7 +195,7 @@ export class WorkflowSystemMetadata {
    * otherwise skip the real fetch on a singleton that's only been
    * pre-seeded with these two fallbacks.
    */
-  seedCodeModeDefaults(): void {
+  seedNativeOperatorDefaults(): void {
     const seed = (type: string, friendly: string, numInputPorts: number) => {
       if (this.schemas.has(type)) return;
       this.schemas.set(type, {

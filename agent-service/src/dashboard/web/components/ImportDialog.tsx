@@ -23,9 +23,10 @@ import type { ReActStep, WorkflowContent } from "../types";
 
 // NOTE: We intentionally do NOT read a sibling `workflow.json`. The agent
 // service's `importReActSteps` reconstructs every snapshot's workflow by
-// replaying the trace's tool calls, and we seed `WorkflowSystemMetadata`
-// with minimal code-mode schemas server-side so that replay works even
-// without the Texera backend. The trace is the single source of truth.
+// replaying the trace's tool calls, and the server seeds
+// `WorkflowSystemMetadata` with minimal schemas for the operator types native
+// operators compile to, so that replay works even without the Texera backend.
+// The trace is the single source of truth.
 
 type Mode = "single" | "flat" | "recursive";
 

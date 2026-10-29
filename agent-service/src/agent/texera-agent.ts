@@ -2166,7 +2166,7 @@ export class TexeraAgent {
     // imported workflow ends up empty even though the snapshot *tree* structure
     // is fine. Backend-loaded metadata, if any, has already populated the store
     // and is left alone; the seed only fills in gaps.
-    this.metadataStore.seedCodeModeDefaults();
+    this.metadataStore.seedNativeOperatorDefaults();
     const explicitSnapshots = snapshots ?? {};
     // A trace's own tree comes back as it was, each version with its results; nothing is replayed.
     const tree = restore.tree;

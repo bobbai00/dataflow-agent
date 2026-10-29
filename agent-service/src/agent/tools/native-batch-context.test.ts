@@ -38,7 +38,7 @@ const total = "set total: aggregate(selected, outputs={'n': count()})";
 function fixture() {
   const state = new WorkflowState();
   const metadataStore = new WorkflowSystemMetadata();
-  metadataStore.seedCodeModeDefaults();
+  metadataStore.seedNativeOperatorDefaults();
   const steps: ReActStep[] = [];
   const storage = new WorkflowSnapshotStorage(id =>
     steps.slice(0, steps.findIndex(s => s.id === id) + 1).map(s => s.id)

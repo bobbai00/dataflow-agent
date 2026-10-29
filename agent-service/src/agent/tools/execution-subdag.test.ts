@@ -77,7 +77,7 @@ const idsOf = (plan: { operators: { operatorID: string }[] }): string[] => plan.
 
 describe("execution plan carries only the targets' upstream closure", () => {
   test("execution validation ignores an unrelated branch with missing inputs", async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const state = makeState();
     state.deleteLink("x->y");
     const requests: any[] = [];
@@ -104,7 +104,7 @@ describe("execution plan carries only the targets' upstream closure", () => {
   });
 
   test("execution rejects a missing upstream input inside the requested branch", async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const state = makeState();
     state.deleteLink("b->c");
     const fetch = spyOn(globalThis, "fetch").mockImplementation((async () => {
@@ -125,7 +125,7 @@ describe("execution plan carries only the targets' upstream closure", () => {
   });
 
   test("mixed valid and unknown targets fail before any execution", async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const fetch = spyOn(globalThis, "fetch").mockImplementation((async () =>
       Response.json({ success: true, state: "Completed", operators: {} })) as unknown as typeof globalThis.fetch);
     try {
@@ -215,7 +215,7 @@ describe("execution phase metrics survive persistence summaries", () => {
   } as const;
 
   test.each([true, false])("single execution records engine metrics, success=%s", async success => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({
         success,
@@ -255,7 +255,7 @@ describe("execution phase metrics survive persistence summaries", () => {
   });
 
   test("independent groups retain failed and successful run metrics and results", async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const persisted: string[] = [];
     const fetch = spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -301,7 +301,7 @@ describe("execution phase metrics survive persistence summaries", () => {
   });
 
   test("missing backend measurements are null, never fabricated zero", async () => {
-    WorkflowSystemMetadata.getInstance().seedCodeModeDefaults();
+    WorkflowSystemMetadata.getInstance().seedNativeOperatorDefaults();
     const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: false, state: "Error", operators: {}, errors: ["offline"] })
     );

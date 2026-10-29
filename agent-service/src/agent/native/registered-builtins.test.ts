@@ -31,7 +31,7 @@ import { planRegisteredGraphEdit } from "../tools/graph-edits";
 import { compileNativeOp, inlineNativeRuntime, nativePython, workflowNativeRuntime } from "./codegen";
 
 const metadataStore = new WorkflowSystemMetadata();
-metadataStore.seedCodeModeDefaults();
+metadataStore.seedNativeOperatorDefaults();
 
 /** Apply one registered edit to the state; a rejected edit throws and changes nothing. */
 async function edit(state: WorkflowState, python: string, changes: string) {
