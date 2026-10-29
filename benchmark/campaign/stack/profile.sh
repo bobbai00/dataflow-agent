@@ -12,47 +12,48 @@
 # limitations under the License.
 # Stack profile template (rendered by render.py into the stack directory): bin/local-dev.sh reads it
 # through TEXERA_LOCAL_DEV_PROFILE, and run-env.sh exports it for agents, runners and engine workers.
-# Ports are the texera-stable set (local-dev port offset 56000, agent 3130).
-export AMBER_MASTER_PORT=58552
-export CODE_AGENT_API_BASE=http://localhost:60000
-export FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT=http://localhost:65092/api/dataset/presign-download
-export FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT=http://localhost:65092/api/dataset/did/upload
+# Ports are the local-dev base ports plus the stack offset (render.py --offset; texera-stable: offset 56000,
+# agent 3130).
+export AMBER_MASTER_PORT=@P2552@
+export CODE_AGENT_API_BASE=http://localhost:@P4000@
+export FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT=http://localhost:@P9092@/api/dataset/presign-download
+export FILE_SERVICE_UPLOAD_ONE_FILE_TO_DATASET_ENDPOINT=http://localhost:@P9092@/api/dataset/did/upload
 export GUI_WORKFLOW_WORKSPACE_COPILOT_ENABLED=true
-export LITELLM_BASE_URL=http://localhost:60000
-export LLM_ENDPOINT=http://localhost:65096
-export STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME=localhost:61432/texera_iceberg_catalog
+export LITELLM_BASE_URL=http://localhost:@P4000@
+export LLM_ENDPOINT=http://localhost:@P9096@
+export STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME=localhost:@P5432@/texera_iceberg_catalog
 export STORAGE_ICEBERG_CATALOG_TYPE=postgres
-export STORAGE_JDBC_URL='jdbc:postgresql://localhost:61432/texera_db?currentSchema=texera_db,public'
-export STORAGE_JDBC_URL_FOR_TEST_CASES='jdbc:postgresql://localhost:61432/texera_db_for_test_cases?currentSchema=texera_db,public'
-export STORAGE_LAKEFS_ENDPOINT=http://localhost:64000/api/v1
-export STORAGE_S3_ENDPOINT=http://localhost:65000
-export TEXERA_ACCESS_CONTROL_SERVICE_PORT=65096
-export TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:3130
-export TEXERA_AGENT_SERVICE_PORT=3130
+export STORAGE_JDBC_URL='jdbc:postgresql://localhost:@P5432@/texera_db?currentSchema=texera_db,public'
+export STORAGE_JDBC_URL_FOR_TEST_CASES='jdbc:postgresql://localhost:@P5432@/texera_db_for_test_cases?currentSchema=texera_db,public'
+export STORAGE_LAKEFS_ENDPOINT=http://localhost:@P8000@/api/v1
+export STORAGE_S3_ENDPOINT=http://localhost:@P9000@
+export TEXERA_ACCESS_CONTROL_SERVICE_PORT=@P9096@
+export TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:@AGENT_PORT@
+export TEXERA_AGENT_SERVICE_PORT=@AGENT_PORT@
 export TEXERA_COMPOSE_S3_ENDPOINT=http://minio:9000
-export TEXERA_COMPUTING_UNIT_ENDPOINT=http://localhost:64888
-export TEXERA_COMPUTING_UNIT_MANAGER_ADMIN_PORT=64082
-export TEXERA_COMPUTING_UNIT_MANAGER_PORT=64888
-export TEXERA_CONFIG_SERVICE_PORT=65094
-export TEXERA_DASHBOARD_SERVICE_ENDPOINT=http://localhost:64080
+export TEXERA_COMPUTING_UNIT_ENDPOINT=http://localhost:@P8888@
+export TEXERA_COMPUTING_UNIT_MANAGER_ADMIN_PORT=@P8082@
+export TEXERA_COMPUTING_UNIT_MANAGER_PORT=@P8888@
+export TEXERA_CONFIG_SERVICE_PORT=@P9094@
+export TEXERA_DASHBOARD_SERVICE_ENDPOINT=http://localhost:@P8080@
 export TEXERA_DOCKER_COMPOSE_FILE=@STACK_DIR@/compose.json
 export TEXERA_DOCKER_ENV_FILE=@STACK_DIR@/infra.env
 export TEXERA_DOCKER_OVERLAY_FILE=@STACK_DIR@/empty-overlay.yml
 export TEXERA_DOCKER_PROJECT=@PROJECT@
-export TEXERA_FILE_SERVICE_ENDPOINT=http://localhost:65092
-export TEXERA_FILE_SERVICE_PORT=65092
+export TEXERA_FILE_SERVICE_ENDPOINT=http://localhost:@P9092@
+export TEXERA_FILE_SERVICE_PORT=@P9092@
 export TEXERA_HOME=@TEXERA_HOME@
-export TEXERA_LOCAL_CU_URI=http://localhost:64085
+export TEXERA_LOCAL_CU_URI=http://localhost:@P8085@
 export TEXERA_LOCAL_DEV_DIR=@STACK_DIR@
-export TEXERA_LOCAL_DEV_PORT_OFFSET=56000
-export TEXERA_MASTER_PORT=64085
+export TEXERA_LOCAL_DEV_PORT_OFFSET=@OFFSET@
+export TEXERA_MASTER_PORT=@P8085@
 export TEXERA_POSTGRES_CONTAINER=@PROJECT@-postgres
-export TEXERA_WEB_ADMIN_PORT=64081
-export TEXERA_WEB_PORT=64080
-export TEXERA_WORKFLOW_COMPILING_SERVICE_PORT=65090
+export TEXERA_WEB_ADMIN_PORT=@P8081@
+export TEXERA_WEB_PORT=@P8080@
+export TEXERA_WORKFLOW_COMPILING_SERVICE_PORT=@P9090@
 export UDF_PYTHON_PATH=@TEXERA_HOME@/.venv/bin/python
-export WORKFLOW_COMPILING_SERVICE_ENDPOINT=http://localhost:65090
-export WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:64085
+export WORKFLOW_COMPILING_SERVICE_ENDPOINT=http://localhost:@P9090@
+export WORKFLOW_EXECUTION_SERVICE_ENDPOINT=http://localhost:@P8085@
 # Model-written Python runs in bubblewrap: no repository, git history or reports (network is not isolated).
 export UDF_PYTHON_PATH=@TEXERA_HOME@/benchmark/retrieval/native_isolated_python.py
 export NATIVE_ISOLATED_PYTHON=@TEXERA_HOME@/.venv/bin/python

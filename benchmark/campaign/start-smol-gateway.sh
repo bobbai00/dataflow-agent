@@ -13,15 +13,15 @@
 # limitations under the License.
 
 # (Re)create the smolagents gateway: LiteLLM 1.83.10 with bin/single-node/litellm-config.smolagents.yaml and the
-# strict-tools hook of the stack's checkout, on 127.0.0.1:$SMOL_GATEWAY_PORT (default 60001), container
+# strict-tools hook of the stack's checkout, on 127.0.0.1:$SMOL_GATEWAY_PORT (default: the stack offset + 4001, 60001 on texera-stable), container
 # <project>-litellm-smol. Provider keys come from the checkout's .env. The gateway reads its config only at start:
 # recreate it only between runs.
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [SMOL_GATEWAY_PORT=60001] start-smol-gateway.sh
+# Usage: [STACK_DIR=/var/tmp/texera-stable] [SMOL_GATEWAY_PORT=<offset + 4001>] start-smol-gateway.sh
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
-W="$TEXERA_HOME"; PORT=${SMOL_GATEWAY_PORT:-60001}; NAME="$TEXERA_DOCKER_PROJECT-litellm-smol"
+W="$TEXERA_HOME"; PORT=${SMOL_GATEWAY_PORT:-$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4001))}; NAME="$TEXERA_DOCKER_PROJECT-litellm-smol"
 set -a; . "$W/.env" >/dev/null 2>&1; set +a
 export OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
 docker rm -f "$NAME" >/dev/null 2>&1 || true

@@ -30,14 +30,14 @@
         "@TEXERA_HOME@/sql:/docker-entrypoint-initdb.d"
       ],
       "ports": [
-        "127.0.0.1:61432:5432"
+        "127.0.0.1:@P5432@:5432"
       ]
     },
     "minio": {
       "image": "minio/minio:RELEASE.2025-02-28T09-55-16Z",
       "container_name": "@PROJECT@-minio",
       "ports": [
-        "127.0.0.1:65000:9000"
+        "127.0.0.1:@P9000@:9000"
       ],
       "env_file": [
         "@STACK_DIR@/infra.env"
@@ -98,7 +98,7 @@
         "@STACK_DIR@/infra.env"
       ],
       "environment": [
-        "LAKEFS_BLOCKSTORE_S3_PRE_SIGNED_ENDPOINT=http://localhost:65000",
+        "LAKEFS_BLOCKSTORE_S3_PRE_SIGNED_ENDPOINT=http://localhost:@P9000@",
         "LAKEFS_BLOCKSTORE_S3_CREDENTIALS_ACCESS_KEY_ID=${STORAGE_S3_AUTH_USERNAME}",
         "LAKEFS_BLOCKSTORE_S3_CREDENTIALS_SECRET_ACCESS_KEY=${STORAGE_S3_AUTH_PASSWORD}"
       ],
@@ -122,7 +122,7 @@
         "retries": 10
       },
       "ports": [
-        "127.0.0.1:64000:8000"
+        "127.0.0.1:@P8000@:8000"
       ]
     },
     "litellm": {
@@ -162,7 +162,7 @@
         "start_period": "15s"
       },
       "ports": [
-        "127.0.0.1:60000:4000"
+        "127.0.0.1:@P4000@:4000"
       ]
     }
   },

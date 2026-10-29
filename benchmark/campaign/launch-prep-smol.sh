@@ -15,15 +15,15 @@
 # Launch one detached smolagents PrepBench run with the settings of the 2026-10-14 and 2026-10-17 PrepBench smolagents
 # runs: custom prompt, 25 steps, 5,000 output characters (the harness defaults), 900 s per attempt, large inputs
 # allowed, 1 rep. The PrepBench handover (benchmark/prepbench/smol/evaluate_script_task.py) collects the output_NN.csv
-# files the agent writes for PrepBench's evaluator. Model calls go to the smolagents gateway (:60001) unless GATEWAY is
+# files the agent writes for PrepBench's evaluator. Model calls go to the smolagents gateway (offset + 4001: :60001 on texera-stable) unless GATEWAY is
 # set; the Haiku runs used the main gateway (GATEWAY=60000), which carries the Haiku routes.
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [GATEWAY=60001] launch-prep-smol.sh <run name> <model tag> <workers> [task ids...]
+# Usage: [STACK_DIR=/var/tmp/texera-stable] [GATEWAY=<offset + 4001>] launch-prep-smol.sh <run name> <model tag> <workers> [task ids...]
 #        (default: all 306 cases)
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
-W="$TEXERA_HOME"; GATEWAY=${GATEWAY:-60001}
+W="$TEXERA_HOME"; GATEWAY=${GATEWAY:-$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4001))}
 OUT=$1 MODEL=$2 WORKERS=$3; shift 3
 TASKS=${*:-$(python3 -I -c "import json, sys; print(' '.join(t['id'] for t in json.load(open(sys.argv[1]))))" "$W/benchmark/Kramabench/workload/prepbench.json")}
 if [ -e "$S/runs/$OUT" ]; then echo "refusing: $S/runs/$OUT exists"; exit 1; fi
