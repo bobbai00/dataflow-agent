@@ -19,10 +19,8 @@
 
 import { expect, test } from "bun:test";
 import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
-import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summarize/params";
+import { buildRichScenario, renderText } from "../context/summarize/fixtures";
 import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
-import { profileDiff } from "./selection";
-import { parseRolePolicyConfig } from "../context/selector/role-policy";
 import { validateNativeSettings } from "./settings";
 
 const removed = [
@@ -42,33 +40,6 @@ test("the prompt's operator index lists every built-in once, signature first", (
   for (const [i, name] of REGISTERED_OPERATOR_NAMES.entries()) expect(entries[i]).toStartWith(`${name}(`);
 });
 
-test("nested rendering overrides cannot restore old evidence channels", () => {
-  expect(
-    SummarizeParamsPatchSchema.safeParse({
-      operators: { defaults: { result: { latest: { column: { stats: true } } } } },
-    }).success
-  ).toBe(false);
-});
-
-test("legacy result diffs do not reveal retired column statistics", () => {
-  const before = { outputTuples: 5, columnStats: { x: "(numeric): null=0, min=1, max=5" } } as any;
-  const after = { outputTuples: 5, columnStats: { x: "(numeric): null=2, min=3, max=5" } } as any;
-  expect(profileDiff(before, after)).toBeUndefined();
-});
-
-test("role policies cannot restore removed statistics overlays", () => {
-  for (const key of [
-    "sourceStats",
-    "sourceStatsDensity",
-    "sourceStructuralHints",
-    "interiorStats",
-    "nonSourceStats",
-    "hintsOnly",
-  ]) {
-    expect(() => parseRolePolicyConfig({ [key]: true })).toThrow();
-  }
-});
-
 test("defaults expose two evidence controls and no legacy evidence settings", () => {
   for (const key of removed) expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, key)).toBe(false);
   // A sample with full-table statistics by default; flow evidence is opt-in.
@@ -83,11 +54,10 @@ for (const data of [false, true])
   for (const flow of [false, true]) {
     test(`explicit data=${data}, flow=${flow} do not inherit legacy flags`, () => {
       const options = { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 800 };
-      const expected = mapLegacyToParams(options as any);
-      expect(expected.nativeEvidence).toMatchObject({ data, flow, maxChars: 800, tableFormat: "markdown" });
+      const expected = renderText(buildRichScenario(), options);
       for (const level of [0, 1, 2, 3]) {
         expect(
-          mapLegacyToParams({
+          renderText(buildRichScenario(), {
             ...options,
             flowLevel: level,
             dataLevel: level,
@@ -99,7 +69,7 @@ for (const data of [false, true])
             tableStructureHint: true,
             coercionTelemetry: true,
           } as any)
-        ).toEqual(expected);
+        ).toBe(expected);
       }
     });
   }

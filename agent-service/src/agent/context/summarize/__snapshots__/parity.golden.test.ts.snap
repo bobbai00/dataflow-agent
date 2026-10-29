@@ -1,59 +1,5 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`golden — current snapshot no events, every operator's block 1`] = `
-"# User Task
-
-Also, which region has the max revenue?
-
-# Current Dataflow
-## Operators
-
-### Operator \`legacy_data\` (CSVFileScan)
-Summary: Scan legacy.csv
-Properties: {"fileName":"legacy.csv","limit":100}
-Result:
-  Output Table: 5 rows, 2 cols
-  	id	value
-  0	1	alpha
-  1	2	beta
-  2	3	gamma
-
-### Operator \`sales\` (DataLoading)
-Summary: Load sales.csv skipping 2 preamble rows
-Result:
-  Output Table: 1000 rows, 4 cols
-  	region	amount	price_display	date
-  0	West	12.5	$12.50	2023-01-04
-  1	East	99	$99.00	2023-01-05
-  2	North	5.25	$5.25	2023-01-05
-  ...	...	...	...	...
-  997	South	42	$42.00	2023-12-27
-  998	West	7.75	$7.75	2023-12-28
-  999	East	130.4	$130.40	2023-12-28
-
-### Operator \`orphan_load\` (DataLoading)
-Summary: Load regions_lookup.csv
-Result:
-  Output Table: 0 rows, 0 cols
-
-### Operator \`by_region\` (DataProcessing)
-Summary: From \`sales\`, sum \`amount\` by \`region\`
-Inputs: sales (4 cols)
-Result:
-  [ERROR] KeyError: 'region' at line 2 of your code
-  Traceback (most recent call last):
-    File "udf", line 2, in process
-  Operator code:
-  def process(sales):
-      df = sales.copy()
-      return df.groupby('region')['amount'].sum().reset_index()
-
-### Operator \`report\` (DataProcessing)
-Summary: From \`by_region\`, sort by \`amount\` desc
-Inputs: by_region
-Result: (skipped — upstream operator \`by_region\` errored; see [ERROR] above)"
-`;
-
 exports[`golden — DELTA default (lossless) 1`] = `
 "# Agent Events
 

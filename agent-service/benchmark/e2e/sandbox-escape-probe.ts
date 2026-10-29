@@ -112,7 +112,6 @@ try {
       maxSteps: 4,
       dataEvidence: false,
       flowEvidence: false,
-      resultSelection: "all",
     },
   });
   agentId = agent.id;

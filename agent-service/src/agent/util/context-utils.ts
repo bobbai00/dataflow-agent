@@ -28,38 +28,18 @@ import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { AgentSettings, CompactionStrategy, ReActStep } from "../../types/agent";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
-import {
-  profileDiff,
-  retiredPreviews,
-  selectResultShapes,
-  selectScopedShapes,
-  type ShapeDecision,
-} from "../native/selection";
+import { retiredPreviews } from "../native/selection";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
 import { asDataflowActionsResult, renderDataflowActionsResult } from "../tools/dataflow-actions";
-import { clampCodeChars, formatOperatorResult, formatSchemaLine } from "../tools/result-formatting";
-// summarize() is the centralized renderer; assembleContext delegates to it.
-// The import is circular (summarize calls back into renderContextCore below)
-// but strictly call-time — both modules only reference each other inside
-// function bodies, so ESM hoisting resolves it.
+import { formatOperatorResult } from "../tools/result-formatting";
 import {
   observationFormat,
   describeOperator,
   operatorBlock,
   type ObservationFormatOptions,
 } from "../native/observation-format";
-import {
-  applySummarizeParamsPatch,
-  mapLegacyToParams,
-  type SummarizeParamsPatch,
-  type TrajectoryParams,
-} from "../context/summarize/params";
-import { computeRevisionFolds, hasNoFolds, type RevisionFolds } from "../context/select/revision-folds";
-import { buildRenderPrefRanges, renderPrefsAt, type RenderPrefRange } from "../context/selector/render-prefs";
-import { buildDossier, type Dossier } from "../context/summarize/dossier";
-import { summarize, type OperatorRenderExtras } from "../context/summarize/summarize";
+import { buildNativeFrames } from "../context/summarize/native-frames";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
-import { formatNativeDiagnostic } from "../native/diagnostics";
 import { nativeCheckLines } from "../native/checks";
 import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
@@ -73,49 +53,6 @@ export function writtenOperatorId(toolName: string | undefined, input: unknown):
   const inp = input as Record<string, unknown>;
   if (typeof inp.operatorId === "string" && inp.operatorId) return inp.operatorId;
   if (toolName === "deleteOperator" && typeof inp.id === "string" && inp.id) return inp.id;
-  return undefined;
-}
-
-/** A bounded current-task receipt, not a trajectory or a table/diagnostic pull.
- * The current snapshot replaces the wire history, so even a cached read needs an
- * explicit completion marker. Tool completion does not imply successful execution. */
-export function latestNativeActionReceipt(steps: ReActStep[]): string | undefined {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const step = steps[i]!;
-    if (step.role === "user") return undefined;
-    if (step.role !== "agent" || !step.toolCalls?.length) continue;
-    const lines: string[] = [];
-    for (const call of step.toolCalls.slice(0, 4)) {
-      const result = step.toolResults?.find(item => item.toolCallId === call.toolCallId);
-      if (!result) continue;
-      const args = call.input && typeof call.input === "object" ? (call.input as Record<string, unknown>) : {};
-      if (call.toolName === TOOL_NAME_DATAFLOW) {
-        const actionResult = asDataflowActionsResult(result.output);
-        if (actionResult) {
-          lines.push(
-            `dataflow ${actionResult.status}: ${actionResult.actions.map(a => `${a.index}. ${a.action.type} ${a.status}`).join("; ")}.`
-          );
-          if (actionResult.error) lines.push(actionResult.error);
-          continue;
-        }
-        const batch = asNativeBatchResult(result.output);
-        if (!batch) continue;
-        const edits = batch.operators.length
-          ? JSON.stringify(batch.operators.map(({ id, status }) => ({ id, status })))
-          : "cached read";
-        lines.push(
-          `dataflow completed: ${edits}; observe=${JSON.stringify(batch.observe)}; observation errors=${batch.observationErrors?.length ?? 0}.`
-        );
-      } else if (call.toolName === "inspectError" || call.toolName === "inspectResult") {
-        lines.push(
-          `${call.toolName} for ${JSON.stringify(args.operatorId)} completed; read the saved inspection, not another identical pull.`
-        );
-      }
-    }
-    if (!lines.length) return undefined;
-    const text = `Last completed action in this task: ${lines.join(" ")} Tool completion is not proof that every operator succeeded; use the current results and errors above.`;
-    return text.length <= 1200 ? text : text.slice(0, 1178) + " [receipt truncated]";
-  }
   return undefined;
 }
 
@@ -137,10 +74,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  the message builder can emit that step's REAL tool calls (true
    *  toolCallIds) instead of inferring them from the rendered text. */
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
-  /** NATIVE-mode result selection for the current snapshot: "all" (every
-   *  executed operator renders its full result) or "rule" (ship only what the
-   *  data decided — see native/selection.ts). */
-  resultSelection?: "all" | "rule" | "scoped";
   /** Event-owned requests from dataflow batches, reconstructed from receipts. */
   batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
   /** Where the `# User Task` block goes: "top" (legacy) or "bottom". Bottom
@@ -163,7 +96,7 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  into this number. Unset / ≤ 0 ⇒ unbounded (lossless raw delta — legacy).
    *  When > 0, the assembler renders the "original" raw delta (schema-only, no
    *  stats) while it fits, then COMPACTS via `compactionStrategy` once it would
-   *  overflow. Ignored by the current-snapshot layout, which has no history. */
+   *  overflow. */
   contextWindowTokens?: number;
   /** How to compact once the raw delta exceeds `contextWindowTokens`:
    *   - "sliding": drop the OLDEST whole agent events until it fits (an
@@ -177,44 +110,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
    *  Undefined ⇒ 0.10. */
   deckSampleRatio?: number;
-  /** Static compaction rule (DELTA-only). When true, the assembler AUTOMATICALLY
-   *  folds older events into the compact deck once the trajectory grows past a
-   *  static trigger, keeping the last K steps raw — no agent involvement, no
-   *  token window. Deterministic on trajectory shape (see staticCompactionFoldMark).
-   *  Ignored by the current-snapshot layout. */
-  staticCompaction?: boolean;
-  /** Which static rule when `staticCompaction` is on. "editConvergence" (default)
-   *  folds at the frontier operator's active-edit-run boundary (monotone, cache-
-   *  friendly); "token" is the older size-triggered rule (kept for A/B). */
-  compactionRule?: "editConvergence" | "token";
-  /** Monotone high-water clamp for the edit-convergence fold boundary — it never
-   *  retreats below this. 0/undefined ⇒ rely on the pure formula (monotone for the
-   *  append-only single-op-per-event case). */
-  compactBoundaryFloor?: number;
-  /** Override the compacted-deck header (settled-framed wording); generic default. */
-  compactDeckHeader?: string;
-  /** Override the raw-suffix header; generic default. */
-  compactSuffixHeader?: string;
-  /** Fold resolved operator revisions (DELTA-only; the rank-3 static rule from
-   *  the Delta-vs-Latest cost audit). Once a later revision of an operator has
-   *  executed successfully and its sole consumer has consumed it healthily
-   *  (+ `foldGraceEvents`), the prior revisions' Action `code:` blocks and
-   *  Observation result payloads render as one-line resolution facts. Latching
-   *  (historical-facts predicate) — folds never un-fold. */
-  foldResolvedRevisions?: boolean;
-  /** Internal (computed): the `# Inspections` section re-rendering the agent's
-   *  inspectResult pulls so they persist across steps. Undefined ⇒ no pulls. */
-  inspectionsRendered?: string;
-  /** Grace (events) after the resolution before prior revisions fold. Default 1. */
-  foldGraceEvents?: number;
-  /** Internal (computed): per-event per-operator revision-fold facts. */
-  revisionFolds?: RevisionFolds;
-  /** Agent-declared result-view prefs (write-time render knobs). Enables the
-   *  DELTA event-scoped application; the LATEST path applies them as
-   *  summarize() overrides in the server assembler. */
-  renderPrefsEnabled?: boolean;
-  /** Internal (computed): per-operator pref ranges for DELTA event scoping. */
-  renderPrefRanges?: Map<string, RenderPrefRange[]>;
   /** Internal (computed by the truncation/compaction pass): keep only agent events whose
    *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
    *  keep all (lossless). */
@@ -223,17 +118,14 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   omittedEventsCount?: number;
   /** Context layout and result sampling are independent of data/flow evidence. */
   schemaInResult?: boolean;
-  /** Per-operator TSV char budget (summarize `tuple.maxChars`). */
-  maxResultChars?: number;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
   /** The arm's per-operator result character budget (the engine-side sample
-   *  cap). The `scoped` selection expresses its per-type sample sizes as
-   *  shares of it. Undefined ⇒ 2000, the campaign default. */
+   *  cap). Undefined ⇒ 2000, the campaign default. */
   maxOperatorResultCharLimit?: number;
-  /** V2 exposure/budget carried through summarize's legacy mapping. This is
-   * derived from the existing data/flow settings, not a second budget. */
+  /** V2 exposure and budget. Derived from the data/flow settings when absent,
+   * not a second budget. */
   nativeEvidence?: {
     data: boolean;
     flow: boolean;
@@ -244,33 +136,13 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   } & ObservationFormatOptions;
   /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
   nativeObservationCompaction?: boolean;
-  /** DELTA `Inputs:` line (structure-consistent with the current snapshot). The
+  /** DELTA `Inputs:` line (structure-consistent with the compacted deck). The
    *  leaf snapshot supplies the current DAG adjacency (single source of truth via
    *  formatOperatorAdjacency); the map gives each op's last-edit eventIndex so the
    *  line renders once, on the op's most-recent edit, reflecting the latest wiring.
    *  Set by renderAgentEvents; read in the DELTA observation. */
   deltaInputsLeaf?: SnapshotData;
   deltaLastEditByOp?: Map<string, number>;
-  /** Internal (summarize): resolver of per-operator render extras — detail
-   *  level, per-op column/tuple params, code + result history. Present only
-   *  when the summarize params use a capability beyond the legacy surface;
-   *  absent ⇒ pure legacy rendering (parity path). Not honored inside the
-   *  window-compaction phase profiles (deck/suffix), which own their render
-   *  economics. */
-  opExtras?: (opId: string) => OperatorRenderExtras | undefined;
-  /** Internal (summarize): render interleaved events Thought/Action-only
-   *  (no per-event delta Observations). */
-  omitObservations?: boolean;
-  /** Internal (summarize): append a `# Current Dataflow` section after an
-   *  interleaved trajectory (a combination the legacy modes never had). */
-  appendCurrentSnapshot?: boolean;
-  /** Internal (summarize): skip the `# Current Dataflow` section in the
-   *  no-events layout. */
-  omitCurrentSnapshot?: boolean;
-  /** Deep-partial summarize-params patch (the agent's `summarizeParams`
-   *  setting), applied on top of the settings-derived params. This is the
-   *  API-reachable door into the full summarize parameter space. */
-  summarizePatch?: SummarizeParamsPatch;
 }
 
 /**
@@ -335,13 +207,14 @@ export function assembleContext(
     );
     if (requests.length > 1) return catalogContext(requests, workflowState, snapshotStorage, options);
   }
-  // The legacy entry point is a thin preset shim over summarize(): the
-  // options map to a point in the summarize parameter space, and summarize()
-  // calls back into renderContextCore below. Byte-parity with the
-  // pre-refactor renderer is enforced by the golden characterization tests.
-  const params = mapLegacyToParams(options);
-  const effective = options.summarizePatch ? applySummarizeParamsPatch(params, options.summarizePatch) : params;
-  return summarize({ visibleSteps, workflowState, snapshotStorage }, effective).messages;
+  // The transcript carries the step that produced each rendered event, so each
+  // event's REAL tool calls (true toolCallIds) frame it.
+  const stepByEvent = new Map<number, ReActStep>();
+  const text = renderContextCore(visibleSteps, workflowState, snapshotStorage, {
+    ...options,
+    eventStepSink: (eventIndex, step) => stepByEvent.set(eventIndex, step),
+  });
+  return buildNativeFrames(text, stepByEvent).messages;
 }
 
 /**
@@ -391,22 +264,35 @@ function catalogContext(
 }
 
 /**
- * The render core shared by every caller, by summarize's trajectory layout:
- * the interleaved events, or no events and the current snapshot alone. Only
- * summarize() should call this — external callers go through assembleContext
- * (legacy signature) or summarize() (parameterized).
+ * The context as markdown, before the transcript frames it: every event of the
+ * path as Thought / Action / Observation, compacted once it outgrows
+ * `contextWindowTokens`. Renders from its own copy of the options it reads.
  */
 export function renderContextCore(
   visibleSteps: ReActStep[],
   workflowState: WorkflowState,
   snapshotStorage: WorkflowSnapshotStorage,
-  events: TrajectoryParams["events"],
-  options: AssembleContextOptions
+  given: AssembleContextOptions
 ): string {
+  const options: AssembleContextOptions = {
+    nativeEvidence: given.nativeEvidence ?? {
+      ...observationFormat(given),
+      data: given.dataEvidence === true,
+      flow: given.flowEvidence === true,
+      maxChars: given.maxOperatorResultCharLimit ?? 2000,
+      ...(given.nativeChecks === true ? { checks: true } : {}),
+    },
+    contextWindowTokens: given.contextWindowTokens,
+    compactionStrategy: given.compactionStrategy ?? "compress",
+    deckSampleRatio: given.deckSampleRatio ?? 0.1,
+    schemaInResult: given.schemaInResult === true,
+    maxResultRows: given.maxResultRows ?? 0,
+    eventStepSink: given.eventStepSink,
+  };
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
   const batchObservations = new Map<string, ReadonlySet<string>>();
-  // Read-only steps inherit the last batch's display selection in the current
-  // snapshot; every event still resolves its own immutable request independently.
+  // Read-only steps inherit the last batch's display selection in the compacted
+  // deck; every event still resolves its own immutable request independently.
   let lastObserved: ReadonlySet<string> | undefined;
   for (const node of path) {
     lastObserved = batchObservedIds(node.step) ?? lastObserved;
@@ -414,11 +300,10 @@ export function renderContextCore(
   }
   options.batchObservationsByStep = batchObservations;
 
-  // The latest user-message content lives in its own top-of-prompt
-  // `# User Task` block — single source of truth, always present, never
-  // duplicated. Its step id lets renderers skip rendering the same user
-  // event inline in the events list. Older user messages (multi-task
-  // continuation) still render inline as `## User Event N`.
+  // A compacted render heads with the latest user message as its `# User Task`
+  // block. Its step id lets renderers skip rendering the same user event
+  // inline in the events list. Older user messages (multi-task continuation)
+  // still render inline as `## User Event N`.
   const latestUserStep = findLatestUserStepInPath(path);
   const latestUserContent = latestUserStep?.step.content;
   const latestUserStepId = latestUserStep?.step.id;
@@ -430,110 +315,27 @@ export function renderContextCore(
   // known (modify) or fresh (create). `deleteOperator` removes from the
   // known set so a later create-on-same-id reads as `create` again.
   const createFlagsByStep = buildCreateFlagsByStep(path);
-  let content: string;
-  switch (events) {
-    case "interleaved": {
-      // Write-time render prefs (DELTA): a landed version's prefs govern the
-      // observations rendered while it was active — historical ranges, so an
-      // old event's render never changes (append-only).
-      if (options.renderPrefsEnabled) {
-        const prefDossier = buildDossier(visibleSteps, snapshotStorage);
-        const ranges = buildRenderPrefRanges(prefDossier);
-        options.renderPrefRanges = ranges.size > 0 ? ranges : undefined;
-      }
-      // Fold resolved operator revisions (rank-3 static rule). Computed once
-      // per render from the dossier; consumed by serializeTurn (Action `code:`
-      // blocks) and the Observation loop in serializeTaskBody. Applies in every
-      // DELTA render path below (lossless, budgeted, and compacted suffixes).
-      if (options.foldResolvedRevisions) {
-        const dossier = buildDossier(visibleSteps, snapshotStorage);
-        const folds = computeRevisionFolds(dossier, { graceEvents: options.foldGraceEvents ?? 1 });
-        options.revisionFolds = hasNoFolds(folds) ? undefined : folds;
-      }
-      // Static compaction rule (DELTA-only, behind the staticCompaction flag).
-      // Two rules selectable via options.compactionRule (default editConvergence):
-      //  - "editConvergence" (default): fold at the boundary of the frontier
-      //    operator's active edit run — settled operators (edit run ended) fold
-      //    into the deck, the operator you are still correcting stays raw. The
-      //    boundary is monotone (stable while you edit one op → cache-friendly).
-      //  - "token": the older size trigger (kept for A/B; see staticCompactionFoldMark).
-      if (options.staticCompaction) {
-        const lossless = renderInterleaved(tasks, workflowState, options, initSnapshot, createFlagsByStep);
-        const est = estimateTokens(lossless);
-        const useToken = options.compactionRule === "token";
-        let foldMark: number | undefined;
-        let keepLast = STATIC_COMPACT_KEEP_LAST;
-        let compactOptions = options;
-        if (useToken) {
-          foldMark = staticCompactionFoldMark(tasks, est);
-        } else {
-          const dossier = buildDossier(visibleSteps, snapshotStorage);
-          foldMark = editConvergenceFoldMark(dossier, est, { boundaryFloor: options.compactBoundaryFloor });
-          keepLast = 0; // the boundary already excludes the active frontier run
-          // Settled-framed headers: the deck is the CURRENT state of finished
-          // operators, not stale/partial history.
-          compactOptions = {
-            ...options,
-            compactDeckHeader:
-              "# Current Dataflow (settled operators — finished work at its current, final state; results shown as statistics + sampled rows)",
-            compactSuffixHeader: "# Agent Events (your in-progress work since the settled snapshot above)",
-          };
-        }
-        content =
-          foldMark === undefined
-            ? lossless
-            : renderAgentCompacted(
-                tasks,
-                workflowState,
-                compactOptions,
-                initSnapshot,
-                latestUserContent,
-                latestUserStepId,
-                createFlagsByStep,
-                foldMark,
-                keepLast
-              );
-        break;
-      }
-      const windowTokens =
-        options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
-      // Unbounded window (0/unset) ⇒ legacy lossless delta (respects the data
-      // ladder / standalone flags as before). A positive window switches to the
-      // budgeted path: "original" raw delta (schema-only) while it fits, then
-      // compaction (sliding | compress) once it would overflow.
-      content =
-        windowTokens === undefined
-          ? renderInterleaved(tasks, workflowState, options, initSnapshot, createFlagsByStep)
-          : assembleBudgetedContext(
-              tasks,
-              workflowState,
-              options,
-              initSnapshot,
-              latestUserContent,
-              latestUserStepId,
-              createFlagsByStep,
-              windowTokens
-            );
-      break;
-    }
-    case "none": {
-      // On-demand pulls persist across steps via the tail `# Inspections`
-      // section (undefined when the agent never called inspectResult).
-      options.inspectionsRendered = buildInspectionsSection(path);
-      const leafSnapshot = lastSnapshotOfPath(path) ?? initSnapshot ?? snapshotStorage.getRootSnapshot();
-      content = renderLatest(workflowState, options, latestUserContent, leafSnapshot);
-      break;
-    }
-  }
-
-  if (events === "none" && workflowState.getAllOperators().some(op => op.nativeOp)) {
-    const receipt = latestNativeActionReceipt(visibleSteps);
-    if (receipt) content += `\n\n${receipt}`;
-  }
+  const windowTokens =
+    options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
+  // Unbounded window (0/unset) ⇒ lossless delta. A positive window switches to
+  // the budgeted path: "original" raw delta (schema-only) while it fits, then
+  // compaction (sliding | compress) once it would overflow.
+  const content =
+    windowTokens === undefined
+      ? renderInterleaved(tasks, workflowState, options, initSnapshot, createFlagsByStep)
+      : assembleBudgetedContext(
+          tasks,
+          workflowState,
+          options,
+          initSnapshot,
+          latestUserContent,
+          latestUserStepId,
+          createFlagsByStep,
+          windowTokens
+        );
 
   log.debug(
     {
-      events,
       tasks: tasks.length,
       pathLength: path.length,
       actionBearing: path.filter(n => n.snapshot !== undefined).length,
@@ -570,8 +372,7 @@ export interface PathNode {
  * not a user-visible action. We strip it from the rendered path so the LLM
  * doesn't see the init event, but we preserve its snapshot separately so
  * the first real action can still diff against it (Delta) and so the
- * Latest-mode trailing block can fall back to it when no other action has
- * produced a snapshot yet.
+ * compacted deck can tell what a task changed.
  *
  * Identified by the synthetic `initialize` tool call; matches what
  * `recordInitializationStep` emits in texera-agent.ts.
@@ -587,14 +388,14 @@ export interface BuiltPath {
    *  filtered out here, so `eventIndex` numbers start at 1. */
   path: PathNode[];
   /** Snapshot captured at the init step, if it was on the input path. Used
-   *  to seed delta diffing and the Latest-mode trailing fallback. */
+   *  to seed delta diffing and as the compacted deck's baseline. */
   initSnapshot: SnapshotData | undefined;
 }
 
 /** Pick the latest external user request from a full path. Used to hoist the
- *  latest user message into the `# User Task` block at the top of the
- *  rendered context, and to skip rendering the same node inline within
- *  `# Recent Agent Events` (older user messages still render inline as
+ *  latest user message into the `# User Task` block at the top of a
+ *  compacted context, and to skip rendering the same node inline within
+ *  its `# Agent Events` (older user messages still render inline as
  *  `## User Event N`). */
 function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
   for (let i = path.length - 1; i >= 0; i--) {
@@ -750,188 +551,6 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
  * from the current window; because a linear trajectory only grows, the chosen
  * boundary advances monotonically without any persisted state.
  */
-// ── Static compaction rule (DELTA-only) ────────────────────────────────────
-// Ad-hoc-but-deterministic trigger derived from the Latest-vs-Delta 5K trace
-// analysis (docs/compaction-static-rule.md). The decisive signal is the RENDERED
-// DELTA event-log size, not step count: the analysis found a clean gap — traces
-// that must NOT fold peak at ~2.18k tokens; genuine savers start at ~3.55k — and
-// that a step-count trigger both misfires (biomedical-hard-7: 6 steps / ~1.1k
-// tokens, where folding its single-column stats flips 16→15) and misses 5-step
-// savers (environment-hard-8 ~9.4k, environment-hard-15 ~6k). So the trigger is a
-// token floor at 3,500, which also self-guards short fast-converging traces.
-//
-//   TRIGGER : rendered lossless event log ≥ STATIC_COMPACT_TRIGGER_TOKENS.
-//   KEEP    : keep the last STATIC_COMPACT_KEEP_LAST steps raw (recent working
-//             set), fold everything older into the `# Dataflow (compacted)` deck.
-//   GUARD   : do NOT compact while mid-error-recovery — if the newest agent
-//             step left an operator in an errored state, the agent is actively
-//             debugging it and needs the recent raw attempts, so we hold off.
-const STATIC_COMPACT_TRIGGER_TOKENS = 3500;
-const STATIC_COMPACT_KEEP_LAST = 2;
-
-/** Fold boundary for the static compaction rule, or undefined when the rule
- *  says "don't compact yet" (event log below the token floor, too few events, or
- *  mid-error-recovery). `estTokens` is the estimate of the lossless DELTA render.
- *  Returns the newest snapshot-bearing event index so `renderAgentCompacted`
- *  folds all but the last STATIC_COMPACT_KEEP_LAST steps. */
-function staticCompactionFoldMark(tasks: TaskGroup[], estTokens: number): number | undefined {
-  // Trigger: the rendered event log must be large enough to be worth folding.
-  if (estTokens < STATIC_COMPACT_TRIGGER_TOKENS) return undefined;
-  const snapEvents: { idx: number; snap: SnapshotData }[] = [];
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role === "agent" && node.snapshot) snapEvents.push({ idx: node.eventIndex, snap: node.snapshot });
-    }
-  }
-  // Need more events than we keep raw, else there is nothing to fold.
-  if (snapEvents.length <= STATIC_COMPACT_KEEP_LAST + 1) return undefined;
-  // Safety guard: skip while mid-error-recovery (newest snapshot has an errored
-  // operator) — the agent needs its recent raw attempts to debug.
-  const newest = snapEvents[snapEvents.length - 1].snap;
-  if (snapshotHasErroredOperator(newest)) return undefined;
-  return snapEvents[snapEvents.length - 1].idx;
-}
-
-// Edit-convergence rule: fold at the boundary of the frontier operator's active
-// consecutive edit run. Settled operators (edit run ended — you built them, moved
-// on, and have not edited them since) fold into the deck at their final state;
-// the operator you are still correcting, and its whole current run, stay raw.
-// The boundary = runStart − 1 (runStart = where the frontier op's trailing run
-// began) is MONOTONE on the append-only trajectory: stable while you keep editing
-// one op (deck byte-identical → prompt cache hits), advancing by exactly one
-// operator's history only when you switch operators. This is the fix for the
-// token rule's per-turn boundary slide that busted the cache (v3, +22% cost).
-const EDIT_CONV_MIN_SETTLED = 1;
-const EDIT_CONV_MIN_TOKENS = 3500;
-
-/** Fold boundary (an eventIndex) for the edit-convergence rule, or undefined when
- *  the rule says "don't compact" (too small, too few settled ops, or nothing
- *  before the active run). Pure function of the dossier + a token floor. */
-function editConvergenceFoldMark(
-  dossier: Dossier,
-  estTokens: number,
-  opts: { minSettled?: number; minTokens?: number; boundaryFloor?: number } = {}
-): number | undefined {
-  const minSettled = opts.minSettled ?? EDIT_CONV_MIN_SETTLED;
-  const minTokens = opts.minTokens ?? EDIT_CONV_MIN_TOKENS;
-  if (estTokens < minTokens) return undefined; // floor: not worth deck overhead
-
-  // STEP 1 — global edit list: every code submission (create + modify, incl.
-  // rejected — a rejected edit still means the op is being actively worked).
-  const eventOps = new Map<number, Set<string>>();
-  for (const [opId, d] of dossier.operators) {
-    for (const cv of d.codeVersions) {
-      let s = eventOps.get(cv.eventIndex);
-      if (!s) eventOps.set(cv.eventIndex, (s = new Set()));
-      s.add(opId);
-    }
-  }
-  if (eventOps.size === 0) return undefined;
-  const evIdx = [...eventOps.keys()].sort((a, b) => a - b);
-
-  // STEP 2 — frontier op (the single actively-worked op = whoever was edited at
-  // the last edit-event; tie-break to the errored op, else stable last id).
-  const maxE = evIdx[evIdx.length - 1];
-  const atMax = [...(eventOps.get(maxE) as Set<string>)].sort();
-  const leaf = dossier.leafSnapshot;
-  const frontierOp = atMax.find(op => leaf.results.get(op)?.info?.error) ?? atMax[atMax.length - 1];
-
-  // STEP 3 — the frontier op's TRAILING consecutive edit run: walk edit-events
-  // backward while they still touch the frontier op; stop at the first that
-  // doesn't (an earlier, now-settled operator).
-  let runStart = maxE;
-  for (let i = evIdx.length - 2; i >= 0; i--) {
-    if (eventOps.get(evIdx[i])?.has(frontierOp)) runStart = evIdx[i];
-    else break;
-  }
-
-  // STEP 4 — boundary: everything strictly before the active run folds.
-  let boundary = runStart - 1;
-  if (boundary < 1) return undefined;
-
-  // STEP 5 — guard: enough operators have actually settled to be worth a deck.
-  let settled = 0;
-  for (const d of dossier.operators.values()) {
-    const lastEdit = d.codeVersions.reduce((m, cv) => Math.max(m, cv.eventIndex), 0);
-    if (d.currentPredicate && lastEdit < runStart) settled++;
-  }
-  if (settled < minSettled) return undefined;
-
-  // STEP 6 — monotone clamp (never retreat below the session high-water mark).
-  return Math.max(boundary, opts.boundaryFloor ?? 0);
-}
-
-/** True if any operator in the snapshot is currently in an errored state. */
-function snapshotHasErroredOperator(snap: SnapshotData): boolean {
-  for (const [, rv] of snap.results) {
-    if (rv?.info?.error) return true;
-  }
-  return false;
-}
-
-/**
- * Agent-triggered compaction render (POC). Fold every snapshot-bearing event up
- * to the compaction mark (minus `keepLastSteps` recent ones) into a compress
- * deck, keep the rest raw. Reuses the exact boundary/keepFrom selection as the
- * token-window compaction, so the deck is byte-identical to what the rolling
- * compressor produces at the same boundary — only the TRIGGER differs (agent
- * action vs token overflow).
- */
-function renderAgentCompacted(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  markEventIndex: number,
-  keepLastSteps: number
-): string {
-  // The raw suffix is the ACTIVE working set (the operator the agent is still
-  // deciding on) — render it at the SAME data fidelity as lossless DELTA, so the
-  // stats that drive decisions (distinct / duplicate_values / Output Table
-  // profile) are present on the op being acted upon. Only the folded DECK is
-  // summarized; stripping stats from the live suffix was hiding exactly the
-  // dedup/grain signal the agent needs (legal-hard-1 diagnosis).
-  const suffixOptions: AssembleContextOptions = {
-    ...options,
-    schemaInResult: true,
-    keepFromEventIndex: undefined,
-    omittedEventsCount: 0,
-    opExtras: undefined,
-  };
-
-  // Snapshot-bearing agent events, oldest→newest (the fold candidates).
-  const evs: { idx: number; snap: SnapshotData }[] = [];
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
-    }
-  }
-  // Fold count d = snapshot-events at/before the mark, minus the kept recent ones.
-  const atOrBeforeMark = evs.filter(e => e.idx <= markEventIndex).length;
-  const d = Math.min(evs.length, Math.max(1, atOrBeforeMark - keepLastSteps));
-  if (evs.length <= 1 || d <= 0) {
-    // Nothing meaningful to fold → lossless delta.
-    return renderInterleaved(tasks, workflowState, suffixOptions, initSnapshot, createFlagsByStep);
-  }
-  const boundarySnap = evs[d - 1].snap;
-  const keepFrom = d < evs.length ? evs[d].idx : evs[d - 1].idx + 1;
-  return renderCompressed(
-    tasks,
-    workflowState,
-    options,
-    suffixOptions,
-    boundarySnap,
-    keepFrom,
-    latestUserContent,
-    latestUserStepId,
-    createFlagsByStep,
-    initSnapshot
-  );
-}
-
 function assembleBudgetedContext(
   tasks: TaskGroup[],
   workflowState: WorkflowState,
@@ -950,9 +569,6 @@ function assembleBudgetedContext(
     schemaInResult: true,
     keepFromEventIndex: undefined,
     omittedEventsCount: 0,
-    // Compaction phase profiles own the render economics — per-op extras
-    // (detail levels, history, metric filters) apply to unbudgeted paths only.
-    opExtras: undefined,
   };
 
   // Phase A: lossless raw delta. If it fits the window, send it untouched (the
@@ -1037,12 +653,10 @@ function renderCompressed(
   }
 
   // Deck: the folded prefix, as statistics + sampled rows (deckOptions turns the
-  // stats family ON — the inverse of the schema-only suffix). Per-op extras are
-  // stripped: the compaction phases own their render economics.
+  // stats family ON — the inverse of the schema-only suffix).
   const deckOptions: AssembleContextOptions = {
     ...options,
     schemaInResult: true,
-    opExtras: undefined,
   };
   // A single current task can inherit a large historical workflow. Checkpoint
   // only its changed definitions and explicitly observed live operators; the
@@ -1074,8 +688,7 @@ function renderCompressed(
   const deck = serializeSnapshotCompact(checkpoint, workflowState, deckOptions, /*sectionLevel=*/ 2);
   if (deck) {
     sections.push(
-      options.compactDeckHeader ??
-        "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
+      "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
     );
     sections.push(deck);
     sections.push("");
@@ -1085,17 +698,9 @@ function renderCompressed(
   // prev-snapshot to the boundary so the first surviving event diffs against the
   // deck (not the empty init). No omitted-marker — the deck stands in its place.
   const suffix: AssembleContextOptions = { ...suffixOptions, keepFromEventIndex: keepFrom, omittedEventsCount: 0 };
-  const events = renderAgentEvents(
-    tasks,
-    workflowState,
-    suffix,
-    boundarySnap,
-    latestUserStepId,
-    createFlagsByStep,
-    options.omitObservations === true
-  );
+  const events = renderAgentEvents(tasks, workflowState, suffix, boundarySnap, latestUserStepId, createFlagsByStep);
   if (events && events !== "(no agent actions yet)") {
-    sections.push(options.compactSuffixHeader ?? "# Agent Events (since the compacted snapshot above)");
+    sections.push("# Agent Events (since the compacted snapshot above)");
     sections.push("");
     sections.push(events);
     sections.push("");
@@ -1180,30 +785,27 @@ function renderAgentEvents(
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
   latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  omitObservation = false
+  createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
   const bodies: string[] = [];
   // DELTA `Inputs:` line: the leaf snapshot is the single source of DAG
   // adjacency; each op's last-edit event is where the line renders (once, on
   // its most-recent edit, so it sits with the op's latest code and reflects
-  // the current wiring). Only the observation path consumes these.
-  if (!omitObservation) {
-    options.deltaInputsLeaf = lastSnapshotOf(tasks);
-    const lastEdit = new Map<string, number>();
-    for (const task of tasks) {
-      for (const node of task.nodes) {
-        if (node.step.role !== "agent") continue;
-        for (const tc of node.step.toolCalls ?? []) {
-          const opId = writtenOperatorId(tc.toolName, tc.input);
-          if (typeof opId === "string" && opId && tc.toolName !== "deleteOperator") {
-            lastEdit.set(opId, node.eventIndex);
-          }
+  // the current wiring).
+  options.deltaInputsLeaf = lastSnapshotOf(tasks);
+  const lastEdit = new Map<string, number>();
+  for (const task of tasks) {
+    for (const node of task.nodes) {
+      if (node.step.role !== "agent") continue;
+      for (const tc of node.step.toolCalls ?? []) {
+        const opId = writtenOperatorId(tc.toolName, tc.input);
+        if (typeof opId === "string" && opId && tc.toolName !== "deleteOperator") {
+          lastEdit.set(opId, node.eventIndex);
         }
       }
     }
-    options.deltaLastEditByOp = lastEdit;
   }
+  options.deltaLastEditByOp = lastEdit;
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
   for (const [taskIndex, task] of tasks.entries()) {
     const body = serializeTaskBody(
@@ -1216,7 +818,6 @@ function renderAgentEvents(
       },
       latestUserStepId,
       createFlagsByStep,
-      omitObservation,
       /*laterTurn=*/ taskIndex > 0
     );
     if (body) bodies.push(body);
@@ -1252,72 +853,9 @@ function renderInterleaved(
 
   // Each event as a Thought/Action/Observation body, diffed against a rolling
   // previous snapshot (seeded by the hidden init snapshot).
-  sections.push(
-    renderAgentEvents(
-      tasks,
-      workflowState,
-      options,
-      initSnapshot,
-      undefined,
-      createFlagsByStep,
-      options.omitObservations === true
-    )
-  );
+  sections.push(renderAgentEvents(tasks, workflowState, options, initSnapshot, undefined, createFlagsByStep));
   sections.push("");
 
-  const leaf = lastSnapshotOf(tasks);
-
-  // summarize(): an interleaved trajectory may additionally carry the full
-  // current-snapshot section (a combination the legacy modes never had).
-  if (options.appendCurrentSnapshot && leaf) {
-    const dag = serializeSnapshotFull(leaf, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
-    if (dag) {
-      sections.push("# Current Dataflow");
-      sections.push(dag);
-      sections.push("");
-    }
-  }
-
-  return sections.join("\n").trimEnd();
-}
-
-function renderLatest(
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  latestUserContent: string | undefined,
-  leafSnapshot: SnapshotData
-): string {
-  const sections: string[] = [];
-
-  // 1. # User Task
-  if (latestUserContent) {
-    sections.push("# User Task");
-    sections.push("");
-    sections.push(latestUserContent);
-    sections.push("");
-  }
-
-  // 2. # Current Dataflow — the leaf snapshot of the path, a single point on
-  //    the snapshot tree, so no events are rendered above this. summarize()
-  //    can omit it (currentSnapshot param) — e.g. a pure-trajectory context.
-  if (!options.omitCurrentSnapshot) {
-    const dag = serializeSnapshotFull(leafSnapshot, workflowState, options, /*isCurrent=*/ true, /*sectionLevel=*/ 2);
-    if (dag) {
-      sections.push("# Current Dataflow");
-      sections.push(dag);
-    }
-  }
-
-  // 3. # Inspections — the agent's on-demand inspectResult pulls, re-rendered
-  //    verbatim so a pull stays visible on later steps (prepareStep REPLACES
-  //    the wire messages each step; without this the tool's output would
-  //    vanish after one step). Tail position: the section only ever appends /
-  //    trims at the prompt's suffix, where cache invalidation is cheapest.
-  //    Absent when the agent never pulled — byte-parity for tool-less arms.
-  if (options.inspectionsRendered) {
-    sections.push("");
-    sections.push(options.inspectionsRendered);
-  }
   return sections.join("\n").trimEnd();
 }
 
@@ -1337,9 +875,6 @@ function serializeTaskBody(
   setPrev: (s: SnapshotData) => void,
   latestUserStepId: string | undefined,
   createFlagsByStep: Map<string, Map<string, boolean>>,
-  /** When true, render only Thought + Action per event and omit the Observation
-   *  block (summarize's `trajectory.observations: "none"`). */
-  omitObservation = false,
   /** True for every task group after the first (a later user turn). */
   laterTurn = false
 ): string {
@@ -1365,24 +900,14 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(
-      serializeTurn(
-        node,
-        options.revisionFolds?.actions.get(node.eventIndex),
-        options,
-        createFlagsByStep.get(node.step.id)
-      )
-    );
+    lines.push(serializeTurn(node, options, createFlagsByStep.get(node.step.id)));
     lines.push("");
 
     // Historical inspectResult/inspectError traces: a read-only pull's OUTPUT
     // persists inline, as an ordinary observation — snapshot or not (a pull
     // writes nothing, so it never owns a snapshot and the block below never
     // fires for it). Without persistence the output evaporates on re-render
-    // and the model re-asks (measured at 98 calls in one turn). Deliberately NOT
-    // gated on omitObservation: operator observations can collapse into a
-    // snapshot, but a pull's output has none to collapse into — dropping it
-    // would reintroduce the evaporation bug.
+    // and the model re-asks (measured at 98 calls in one turn).
     const pulls: string[] = [];
     (node.step.toolCalls ?? []).forEach((tc, i) => {
       if (tc.toolName !== "inspectResult" && tc.toolName !== "inspectError") return;
@@ -1402,14 +927,14 @@ function serializeTaskBody(
     const actionResults = (node.step.toolResults ?? [])
       .map(tr => asDataflowActionsResult(tr.output))
       .filter(r => r !== undefined);
-    if (actionResults.length && !omitObservation) {
+    if (actionResults.length) {
       lines.push("Observation:", "", ...actionResults.map(renderDataflowActionsResult), "");
       if (node.snapshot) setPrev(node.snapshot);
     }
-    if (node.snapshot && !omitObservation && !actionResults.length) {
+    if (node.snapshot && !actionResults.length) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // Each observation uses the same evidence controls as the current
-      // snapshot. Every operator that CHANGED or
+      // Each observation uses the same evidence controls as the compacted
+      // deck. Every operator that CHANGED or
       // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
       // runPostStepExecution, via computeDelta case c) renders as
       // `- operator <id> <added|updated|deleted>` followed by its result. On
@@ -1494,54 +1019,17 @@ function serializeTaskBody(
         }
       });
 
-      // NATIVE result selection applies to the observation too: an operator that
-      // changed this step renders in the shape the rule gives it in the
-      // post-step snapshot (full / count / header), same semantics as the
-      // current snapshot.
-      const snapForShapes = node.snapshot;
-      const deltaShapes = selectShapes(
-        options.resultSelection,
-        snapForShapes.workflow.operators,
-        snapForShapes.workflow.links,
-        id => snapForShapes.results.get(id)?.info
-      );
+      // A spent preview (see retiredPreviews) shows no result: the real scan
+      // that superseded it carries the data.
+      const retired = retiredPreviews(node.snapshot.workflow.operators, node.snapshot.workflow.links);
 
       const obs: string[] = [];
       const sharedUpstream = new Map<string, string>();
-      // `scoped`: operators that only re-executed (nothing about them changed)
-      // and whose profile did not move — one grouped line after the loop.
-      const rerunUnchanged: string[] = [];
       for (const opId of deletedOps) obs.push(`- operator ${opId} deleted`);
       const { sortedOps } = topoSortDag(node.snapshot.workflow);
       for (const op of sortedOps) {
         if (!delta.has(op.operatorID) && !requestedResults?.has(op.operatorID)) continue;
-        // `scoped` selection, typed operators: compare this run with the
-        // previous run of the same operator.
-        //   - Re-executed because something upstream changed (not acted on
-        //     this step): ship the difference, not the table again — one line,
-        //     or a name on the grouped "unchanged" line. The frontier operator
-        //     (nothing reads it yet) is what the model acts on next and keeps
-        //     its full shape.
-        //   - Revised by the model (`updated`): the new version renders by its
-        //     type; a `change:` line says what moved against the old version.
-        // Both are decided from the two snapshots of THIS event and never
-        // rewritten later, so the prompt stays append-only.
-        const scoped = !requestedResults && options.resultSelection === "scoped" && !!op.nativeOp;
         const currInfo = node.snapshot.results.get(op.operatorID)?.info;
-        const prevInfo = prev?.results.get(op.operatorID)?.info;
-        const comparable = scoped && currInfo && !currInfo.error && prevInfo && !prevInfo.error;
-        if (comparable && !actedVerb.has(op.operatorID)) {
-          const isFrontier = !node.snapshot.workflow.links.some(l => l.source.operatorID === op.operatorID);
-          if (!isFrontier) {
-            const diff = profileDiff(prevInfo!, currInfo!);
-            if (!diff) {
-              rerunUnchanged.push(`${op.nativeOp!.type.toLowerCase()} \`${op.operatorID}\``);
-              continue;
-            }
-            obs.push(`- ${op.nativeOp!.type.toLowerCase()} operator \`${op.operatorID}\` re-executed: ${diff}`);
-            continue;
-          }
-        }
         // `- filter operator \`id\` added` for typed operators, `- operator id added` for code ones.
         obs.push(
           op.nativeOp
@@ -1563,12 +1051,9 @@ function serializeTaskBody(
           );
           continue;
         }
-        if (comparable && actedVerb.get(op.operatorID) === "updated") {
-          obs.push(`  change: ${profileDiff(prevInfo!, currInfo!) ?? "none (same rows, same column profile)"}`);
-        }
-        // `Inputs:` line — structure-consistent with the current snapshot, from
+        // `Inputs:` line — structure-consistent with the compacted deck, from
         // the LEAF snapshot's DAG (current wiring) via the same
-        // formatOperatorAdjacency the current snapshot uses. Code mode: rendered
+        // formatOperatorAdjacency the deck uses. Code mode: rendered
         // once, on the op's most-recent edit (byte-parity with the golden
         // renders). Typed operators: on EVERY event that changed the op — moving
         // the line on a later edit rewrote an earlier observation and broke the
@@ -1582,64 +1067,23 @@ function serializeTaskBody(
             for (const l of formatOperatorAdjacency(leafOp, leaf.workflow.links, leafInfo, leaf)) obs.push(`  ${l}`);
           }
         }
-        // Revision fold (rank-3): a result earned under a superseded revision
-        // renders as its one-line resolution fact instead of the payload.
-        const foldFact = options.revisionFolds?.observations.get(node.eventIndex)?.get(op.operatorID);
-        if (foldFact) {
-          obs.push(`  result: ${foldFact}`);
-          continue;
-        }
-        // summarize(): per-op extras apply to the observation render too —
-        // detail "omit" keeps the verb line but drops the result body.
-        const ex = options.opExtras?.(op.operatorID);
-        if (ex?.detail === "omit" && !(op.nativeOp && currInfo?.error)) continue;
-        // Write-time render prefs (DELTA event scoping): lower this event's
-        // render per the version active at the event. Legacy formatter path
-        // only (`!ex`), never-raise semantics.
-        let renderOptions = options;
-        if (!ex && options.renderPrefRanges) {
-          const pref = renderPrefsAt(options.renderPrefRanges, op.operatorID, node.eventIndex);
-          if (pref) {
-            renderOptions = { ...options };
-            if (pref.outputSummary === "minimal") {
-              const baseRows = options.maxResultRows ?? 0;
-              renderOptions.maxResultRows = baseRows > 0 ? Math.min(baseRows, 3) : 3;
-            }
-          }
-        }
         const info = node.snapshot.results.get(op.operatorID)?.info;
-        const shape = requestedResults ? undefined : deltaShapes?.get(op.operatorID);
-        if (shape && info && !info.error && shape.shape === "header") continue;
-        if (shape && info && !info.error && shape.shape === "count") {
-          obs.push(
-            `  result: ${formatCountOnlyResult(op, info, node.snapshot, node.snapshot.workflow.links, shape.note)}`
-          );
-          continue;
-        }
+        if (!requestedResults && retired.has(op.operatorID) && info && !info.error) continue;
         const resultText = info
           ? renderRawResult(
               op.operatorID,
               info,
               workflowState,
-              renderOptions,
+              options,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
-              ex,
               {
-                ...shapeFormatOverrides(shape, options),
                 // Typed operators already carry the consolidated `Inputs:` line
                 // above (formatOperatorAdjacency); repeating it inside the
                 // result was a duplicate on every observation.
                 // The same event owns the failing parameters / UDF code. A
                 // later edit must not rewrite an earlier error's tool frame.
                 ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
-                nativeEvidence: nativeEvidenceAtSnapshot(
-                  op.operatorID,
-                  node.snapshot,
-                  renderOptions,
-                  true,
-                  !!ex,
-                  sharedUpstream
-                ),
+                nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, node.snapshot, options, sharedUpstream),
               }
             )
           : "(not executed)";
@@ -1651,7 +1095,6 @@ function serializeTaskBody(
           for (const l of rlines) obs.push(`    ${l}`);
         }
       }
-      if (rerunUnchanged.length > 0) obs.push(`- re-executed, unchanged: ${rerunUnchanged.join(", ")}`);
       obs.push(...noChangeOutcome);
 
       if (obs.length > 0) {
@@ -1669,105 +1112,6 @@ function serializeTaskBody(
 /* ============================================================================
  *  Turn rendering (shared)
  * ========================================================================= */
-
-/** How many result/error inspection pulls stay rendered verbatim; older ones collapse
- *  to a one-line note. Tail-of-prompt section, so trimming is cache-cheap. */
-const INSPECTIONS_KEEP_LAST = 8;
-
-/**
- * Build the `# Inspections` section from the path: every result/error inspection
- * call paired with its output, event-ordered. The wire messages are REPLACED
- * each step (prepareStep), so without this re-render a pull's output would be
- * visible for a single step only. Returns undefined when the agent never
- * pulled — tool-less arms render byte-identically.
- */
-function buildInspectionsSection(path: PathNode[]): string | undefined {
-  interface Pull {
-    eventIndex: number;
-    toolName: string;
-    operatorId: string;
-    argsSummary: string;
-    output: string;
-  }
-  const pulls: Pull[] = [];
-  for (const node of path) {
-    const step = node.step;
-    if (step.role !== "agent") continue;
-    const calls = step.toolCalls ?? [];
-    const results = step.toolResults ?? [];
-    calls.forEach((tc, i) => {
-      const actionResult = asDataflowActionsResult(results.find(r => r.toolCallId === tc.toolCallId)?.output);
-      if (actionResult) {
-        for (const item of actionResult.actions) {
-          if (item.action.type === "retrieve") {
-            for (const read of (item.output as any)?.results ?? [])
-              if (read.status === "ok" && read.superseded_in_call)
-                pulls.push({
-                  eventIndex: node.eventIndex,
-                  toolName: "retrieve",
-                  operatorId: read.operator_id,
-                  argsSummary: "historical result; changed later in this call",
-                  output: JSON.stringify(read, null, 2),
-                });
-            continue;
-          }
-          if (item.action.type !== "inspect") continue;
-          pulls.push({
-            eventIndex: node.eventIndex,
-            toolName: "inspect",
-            operatorId:
-              item.action.target === "reference"
-                ? `reference ${item.action.operator_names.join(", ")}`
-                : item.action.target === "namespace"
-                  ? `namespace ${item.action.names.join(", ")}`
-                  : item.action.operator_id,
-            argsSummary: item.status,
-            output: typeof item.output === "string" ? item.output : JSON.stringify(item.output, null, 2),
-          });
-        }
-        return;
-      }
-      if (tc.toolName !== "inspectResult" && tc.toolName !== "inspectError") return;
-      const inp = (tc.input ?? {}) as Record<string, unknown>;
-      const parts: string[] = [];
-      if (typeof inp.maxRows === "number") parts.push(`maxRows=${inp.maxRows}`);
-      if (Array.isArray(inp.columns) && inp.columns.length > 0) parts.push(`columns=[${inp.columns.join(", ")}]`);
-      if (inp.stats === true) parts.push("stats");
-      if (typeof inp.where === "string" && inp.where) parts.push(`where=${inp.where}`);
-      if (typeof inp.revision === "string") parts.push(`revision=${inp.revision}`);
-      if (typeof inp.diagnosticId === "string") parts.push(`diagnosticId=${inp.diagnosticId}`);
-      pulls.push({
-        eventIndex: node.eventIndex,
-        toolName: tc.toolName,
-        operatorId: typeof inp.operatorId === "string" ? inp.operatorId : "?",
-        argsSummary: parts.join(", "),
-        output: stringifyOutput(
-          (results.find(result => result.toolCallId === tc.toolCallId) ?? results[i])?.output
-        ).trimEnd(),
-      });
-    });
-  }
-  if (pulls.length === 0) return undefined;
-
-  // Preserve historical inspection traces without advertising removed tools in
-  // fresh error-only sessions.
-  const names = [...new Set(pulls.map(pull => pull.toolName))].sort().join(" / ");
-  const lines: string[] = [`# Inspections (your on-demand ${names} pulls)`, ""];
-  const omitted = Math.max(0, pulls.length - INSPECTIONS_KEEP_LAST);
-  if (omitted > 0) {
-    lines.push(`(… ${omitted} earlier inspection${omitted === 1 ? "" : "s"} omitted …)`);
-    lines.push("");
-  }
-  for (const pull of pulls.slice(-INSPECTIONS_KEEP_LAST)) {
-    lines.push(
-      `## Inspection @ Event ${pull.eventIndex} — \`${pull.operatorId}\`${pull.argsSummary ? ` (${pull.argsSummary})` : ""}`
-    );
-    lines.push("");
-    lines.push(pull.output.length > 0 ? pull.output : "(empty output)");
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
-}
 
 /** Inline render of an older user-role step inside `# Agent Events`.
  *  Emits H2 `## User Event N` to nest under the H1 wrapper. The latest
@@ -1790,12 +1134,7 @@ function serializeUserEventInline(node: PathNode): string {
  * model emitted. The execution outcome is rendered separately as the caller's
  * `Observation:` block.
  */
-function serializeTurn(
-  node: PathNode,
-  revisionFolds?: Map<string, string>,
-  options?: AssembleContextOptions,
-  createFlags?: Map<string, boolean>
-): string {
+function serializeTurn(node: PathNode, options?: AssembleContextOptions, createFlags?: Map<string, boolean>): string {
   const step = node.step;
   options?.eventStepSink?.(node.eventIndex, step);
   const lines: string[] = [];
@@ -1807,22 +1146,17 @@ function serializeTurn(
   }
 
   // Action: the tool call(s) the model issued, in standard tool-call form via
-  // renderToolCall (tool name + `key: value` params + `code` block). Lossless —
-  // except a createOrModifyOperator whose revision was later RESOLVED (rank-3
-  // fold): its `code:` block renders as the one-line resolution fact instead.
+  // renderToolCall (tool name + `key: value` params + `code` block). Lossless.
   // NATIVE typed tools render as one line, `- add filter operator \`id\`; inputs: …; properties: {…}`.
   if (step.toolCalls && step.toolCalls.length > 0) {
     lines.push("Action:");
     for (const tc of step.toolCalls) {
-      const inp = tc.input as Record<string, unknown> | undefined;
-      const opId = writtenOperatorId(tc.toolName, inp) ?? "";
-      const foldFact = opId && tc.toolName === "createOrModifyOperator" ? revisionFolds?.get(opId) : undefined;
       const nativeLines = renderNativeToolCall(tc, createFlags);
       if (nativeLines) {
         lines.push(...nativeLines);
         continue;
       }
-      for (const l of renderToolCall(tc, foldFact)) lines.push(l);
+      for (const l of renderToolCall(tc)) lines.push(l);
     }
     lines.push("");
   }
@@ -1896,7 +1230,7 @@ function conciseOutcome(output: unknown): string {
  * block already carries them). Non-`code` string values are whitespace-collapsed
  * onto a single `key: value` line; non-strings are JSON-encoded.
  */
-function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?: string): string[] {
+function renderToolCall(tc: { toolName: string; input?: unknown }): string[] {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
   const lines: string[] = [`- ${tc.toolName}`];
   for (const [k, v] of Object.entries(inp)) {
@@ -1905,49 +1239,10 @@ function renderToolCall(tc: { toolName: string; input?: unknown }, codeFoldFact?
     lines.push(`    ${k}: ${val}`);
   }
   if (typeof inp.code === "string" && inp.code.length > 0) {
-    // Rank-3 fold: a superseded revision's code body renders as its one-line
-    // resolution fact (the summary param above still names what it tried).
-    if (codeFoldFact) {
-      lines.push(`    code: ${codeFoldFact}`);
-    } else {
-      lines.push("    code:");
-      for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
-    }
+    lines.push("    code:");
+    for (const l of inp.code.split("\n")) lines.push(`      ${l}`);
   }
   return lines;
-}
-
-/** Context layout and result sampling are independent of data/flow evidence. */
-/** The shape map for one snapshot under the arm's `resultSelection`:
- *  "rule" = whether a table ships; "scoped" = also how much of it; "all" =
- *  only spent previews retire. */
-function selectShapes(
-  selection: AssembleContextOptions["resultSelection"],
-  operators: readonly OperatorPredicate[],
-  links: WorkflowContent["links"],
-  getInfo: (opId: string) => OperatorInfo | undefined
-): Map<string, ShapeDecision> {
-  if (selection === "rule") return selectResultShapes(operators, links, getInfo);
-  if (selection === "scoped") return selectScopedShapes(operators, links, getInfo);
-  return retiredPreviews(operators, links, getInfo);
-}
-
-/** `scoped` selection: the render limits a full shape carries (columns, the
- *  sample's share of the result character budget, the complete Schema line).
- *  Empty for every other shape. */
-function shapeFormatOverrides(
-  shape: ShapeDecision | undefined,
-  options: AssembleContextOptions
-): Partial<FormatOperatorResultOptions> {
-  if (!shape || shape.shape !== "full") return {};
-  const o: Partial<FormatOperatorResultOptions> = {};
-  if (shape.columns) o.columns = shape.columns;
-  if (shape.budget === 0) o.detail = "shape";
-  else if (typeof shape.budget === "number" && shape.budget < 1) {
-    o.maxResultChars = Math.max(1, Math.round(shape.budget * (options.maxOperatorResultCharLimit ?? 2000)));
-  }
-  if (shape.schemaLine) o.schemaInResult = true;
-  return o;
 }
 
 function renderRawResult(
@@ -1956,11 +1251,10 @@ function renderRawResult(
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   resolveInputColumns?: (upstreamOpId: string) => number | undefined,
-  ex?: OperatorRenderExtras,
   overrides: Partial<FormatOperatorResultOptions> = {}
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
-    ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, operatorId, workflowState)),
+    ...legacyFormatOptions(options, operatorId, workflowState),
     resolveInputColumns,
     ...overrides,
   });
@@ -2002,12 +1296,11 @@ export function deckRowCap(
 }
 
 /**
- * Compact ("deck") snapshot render for the compress compaction. Same per-operator
- * blocks as `serializeSnapshotFull`, but each operator's Result is rendered as
- * statistics (Column Schema and stats) plus a `deckSampleRatio` row peek instead
- * of its full table — the folded prefix's raw trajectory collapses to a few stat
- * lines per operator. `isCurrent=false`: this is a historical fold, so no live
- * compilation schemas. Per-operator `maxResultRows` is the ratio-sampled cap.
+ * Compact ("deck") snapshot render for the compress compaction: one block per
+ * operator, each Result rendered as statistics (Column Schema and stats) plus a
+ * `deckSampleRatio` row peek instead of its full table — the folded prefix's raw
+ * trajectory collapses to a few stat lines per operator. Per-operator
+ * `maxResultRows` is the ratio-sampled cap.
  */
 function serializeSnapshotCompact(
   snapshot: SnapshotData,
@@ -2034,108 +1327,7 @@ function serializeSnapshotCompact(
       nativeObservationCompaction: true,
     };
     lines.push(
-      serializeOperatorFull(
-        op,
-        snapshot,
-        workflowState,
-        perOpOptions,
-        /*isCurrent=*/ false,
-        allLinks,
-        operatorLevel,
-        undefined,
-        sharedUpstream
-      )
-    );
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
-}
-
-/**
- * `sectionLevel` controls the depth of the "Operators" / "Links" headings (and,
- * derived, the per-operator headings one level deeper). It exists because the
- * snapshot is rendered in two contexts whose enclosing heading lives at
- * different depths:
- *   - Inline after a turn: parent heading is `#### Completed dataflow after
- *     turn N` (H4) → pass `sectionLevel = 5` so Operators is H5 and Operator
- *     `X` is H6, properly nested under the parent.
- *   - Trailing block: parent heading is `# Current Dataflow` (H1)
- *     → pass `sectionLevel = 2` so Operators is H2 and Operator `X` is H3.
- */
-function serializeSnapshotFull(
-  snapshot: SnapshotData,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  isCurrent: boolean,
-  sectionLevel: number
-): string | null {
-  const { workflow } = snapshot;
-  if (workflow.operators.length === 0) return null;
-
-  const lines: string[] = [];
-  const sharedUpstream = new Map<string, string>();
-  const { sortedOps, allLinks } = topoSortDag(workflow);
-  const sectionHash = "#".repeat(sectionLevel);
-  const operatorLevel = sectionLevel + 1;
-
-  lines.push(`${sectionHash} Operators`);
-  lines.push("");
-  // NATIVE result selection: decide once per snapshot which operator results
-  // ship in full, as a row count, or not at all (native/selection.ts).
-  // Spent previews retire in every mode (probe retirement, not result selection).
-  const shapes = selectShapes(
-    options.resultSelection,
-    workflow.operators,
-    allLinks,
-    id => snapshot.results.get(id)?.info
-  );
-  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
-  // NATIVE: blocks in creation order, not topological order. The provider's
-  // prompt cache only credits a step whose prompt EXTENDS an earlier prompt;
-  // a new source inserted before existing blocks (topological order) drops
-  // every step back to the system prompt (measured on a 3-turn session:
-  // 13-36% cached). Creation order is append-only, and the model built the
-  // DAG in that order anyway. Modified operators keep their position.
-  // (Gated on the operators themselves.)
-  const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
-  for (const op of ordered) {
-    if (requested && !requested.has(op.operatorID) && !snapshot.results.get(op.operatorID)?.info.error) {
-      const info = snapshot.results.get(op.operatorID)?.info;
-      if (op.nativeOp) {
-        lines.push(
-          operatorBlock(
-            describeOperator(op, info, {
-              ...observationFormat(options.nativeEvidence ?? options),
-              issues: ["- note: result not requested."],
-              scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
-            })
-          ),
-          ""
-        );
-        continue;
-      }
-      const rows = info?.totalRowCount ?? info?.outputTuples;
-      lines.push(`${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``);
-      lines.push(
-        info
-          ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
-          : "Result: unavailable; result not requested",
-        ""
-      );
-      continue;
-    }
-    lines.push(
-      serializeOperatorFull(
-        op,
-        snapshot,
-        workflowState,
-        options,
-        isCurrent,
-        allLinks,
-        operatorLevel,
-        requested ? undefined : shapes?.get(op.operatorID),
-        sharedUpstream
-      )
+      serializeOperatorFull(op, snapshot, workflowState, perOpOptions, allLinks, operatorLevel, sharedUpstream)
     );
     lines.push("");
   }
@@ -2185,11 +1377,8 @@ function nativeEvidenceAtSnapshot(
   operatorId: string,
   snapshot: SnapshotData,
   options: AssembleContextOptions,
-  historical: boolean,
-  compact = false,
   sharedUpstream?: Map<string, string>
 ): FormatOperatorResultOptions["nativeEvidence"] {
-  const frozen = historical ? snapshot.nativeObservations?.[operatorId] : undefined;
   return {
     ...observationFormat(options.nativeEvidence ?? options),
     dataMaxChars: options.nativeEvidence?.dataMaxChars,
@@ -2198,11 +1387,11 @@ function nativeEvidenceAtSnapshot(
     resolveInput: id => snapshot.results.get(id)?.info,
     // Imported old events have no recorded exposure settings: do not invent
     // evidence that was never present in their model-facing observations.
-    data: !historical && (options.nativeEvidence?.data ?? options.dataEvidence === true),
-    flow: !historical && (options.nativeEvidence?.flow ?? options.flowEvidence === true),
+    data: false,
+    flow: false,
     maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
-    frozen,
-    compact: compact || options.nativeObservationCompaction === true,
+    frozen: snapshot.nativeObservations?.[operatorId],
+    compact: options.nativeObservationCompaction === true,
     sharedUpstream,
   };
 }
@@ -2216,54 +1405,6 @@ function legacyFormatOptions(
     schemaInResult: options.schemaInResult,
     maxResultRows: options.maxResultRows,
   };
-}
-
-/**
- * summarize(): map one operator's resolved render extras onto the
- * result-format options. The effective row cap is the tighter of the per-op
- * sample size and any global cap (the global one exists so compaction decks
- * stay a compression even under per-op params).
- */
-function extrasFormatOptions(ex: OperatorRenderExtras, options: AssembleContextOptions): FormatOperatorResultOptions {
-  const exRows = ex.tuple.sampleRows;
-  const globalRows = options.maxResultRows ?? 0;
-  const sampleRows = exRows > 0 && globalRows > 0 ? Math.min(exRows, globalRows) : exRows || globalRows;
-  return {
-    detail: ex.detail === "shape" ? "shape" : undefined,
-    schemaInResult: ex.column.schema,
-    schemaTypes: ex.column.schemaTypes,
-    maxResultRows: sampleRows,
-    maxResultChars: ex.tuple.maxChars,
-    sampleDuplicates: ex.tuple.duplicates,
-    sampleFdHints: ex.tuple.fdHints,
-  };
-}
-
-/**
- * NATIVE result selection, "count" shape: one line — the output row count against
- * the input row count(s) — plus, for a Compute whose column profile moved, the
- * moved facts. `Output Table: 452 rows, 2 cols (from 660 rows)`.
- */
-function formatCountOnlyResult(
-  op: OperatorPredicate,
-  info: OperatorInfo,
-  snapshot: SnapshotData,
-  allLinks: WorkflowContent["links"],
-  note?: string
-): string {
-  const rows = typeof info.totalRowCount === "number" ? info.totalRowCount : info.outputTuples;
-  const cols = outputColsFromSnapshot(snapshot, op.operatorID);
-  const inRows: number[] = [];
-  for (const l of allLinks) {
-    if (l.target.operatorID !== op.operatorID) continue;
-    const up = snapshot.results.get(l.source.operatorID)?.info;
-    const r = typeof up?.totalRowCount === "number" ? up.totalRowCount : up?.outputTuples;
-    if (typeof r === "number") inRows.push(r);
-  }
-  const from =
-    inRows.length === 0 ? "" : inRows.length === 1 ? ` (from ${inRows[0]} rows)` : ` (from ${inRows.join(" + ")} rows)`;
-  const colsPart = typeof cols === "number" ? `, ${cols} cols` : "";
-  return `Output Table: ${rows} rows${colsPart}${from}${note ? `; ${note}` : ""}`;
 }
 
 /** An operator's output column count = the visible-header count of its result's
@@ -2324,15 +1465,13 @@ function serializeOperatorFull(
   snapshot: SnapshotData,
   workflowState: WorkflowState,
   options: AssembleContextOptions,
-  isCurrent: boolean,
   allLinks: WorkflowContent["links"],
   operatorLevel: number,
-  shape?: ShapeDecision,
   sharedUpstream?: Map<string, string>
 ): string {
   const info = snapshot.results.get(op.operatorID)?.info;
-  // Visibility is a serializer invariant, not only a full-snapshot caller
-  // convention. Compact decks and historical layouts use this path too.
+  // Visibility is a serializer invariant: a block shows only the results its
+  // step requested (and every error).
   const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
   if (requested && !requested.has(op.operatorID) && !info?.error) {
     const rows = info?.totalRowCount ?? info?.outputTuples;
@@ -2340,7 +1479,6 @@ function serializeOperatorFull(
       return operatorBlock(
         describeOperator(op, info, {
           ...observationFormat(options.nativeEvidence ?? options),
-          implementation: options.opExtras?.(op.operatorID)?.includeCode === true,
           scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
           issues: ["- note: result not requested."],
         })
@@ -2352,40 +1490,22 @@ function serializeOperatorFull(
         : "Result: unavailable; result not requested",
     ].join("\n");
   }
-  // summarize(): per-operator render extras (defaults ⊕ overrides + dossier
-  // history). Absent on the legacy path — rendering is then byte-identical to
-  // the pre-summarize assembler.
-  const ex = options.opExtras?.(op.operatorID);
-  let execText: string | undefined;
-  if (info && !info.error && shape && shape.shape === "header" && shape.note) {
-    // Retired probe: one line says why there is no table here.
-    execText = shape.note;
-  } else if (info && !info.error && shape && shape.shape !== "full") {
-    // NATIVE result selection: the data decided only the row count here (or
-    // nothing at all) — ship that, not the table.
-    execText = shape.shape === "count" ? formatCountOnlyResult(op, info, snapshot, allLinks, shape.note) : undefined;
-  } else if (info && !info.error && ex?.retirementFact) {
-    // Rank-4 probe retirement: the Result body is the compact extracted fact
-    // (plus the Schema line when on) — the table/stats are omitted.
-    const schemaLine = ex.column.schema ? formatSchemaLine(info, ex.column.schemaTypes !== false) : undefined;
-    execText = [schemaLine, ex.retirementFact].filter(Boolean).join("\n");
-  } else if (info && (ex?.detail !== "omit" || (op.nativeOp && info.error))) {
-    execText = formatOperatorResult(op.operatorID, info, workflowState, {
-      ...(ex ? extrasFormatOptions(ex, options) : legacyFormatOptions(options, op.operatorID, workflowState)),
-      // The operator block renders a single consolidated `Inputs:` (with counts)
-      // via formatOperatorAdjacency, so skip the in-Result one.
-      inputsInResult: false,
-      ...shapeFormatOverrides(shape, options),
-      operatorAtEvent: op,
-      nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, !isCurrent, !!ex, sharedUpstream),
-    });
-  }
+  const execText = info
+    ? formatOperatorResult(op.operatorID, info, workflowState, {
+        ...legacyFormatOptions(options, op.operatorID, workflowState),
+        // The operator block renders a single consolidated `Inputs:` (with counts)
+        // via formatOperatorAdjacency, so skip the in-Result one.
+        inputsInResult: false,
+        operatorAtEvent: op,
+        nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, sharedUpstream),
+      })
+    : undefined;
 
   if (op.nativeOp) {
     const block = describeOperator(op, info, {
       ...observationFormat(options.nativeEvidence ?? options),
       scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
-      implementation: !ex || ex.includeCode,
+      implementation: true,
       usedBy: snapshot.workflow.operators
         .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
         .map(item => item.operatorID),
@@ -2415,9 +1535,6 @@ function serializeOperatorFull(
   // parameters are the summary. Code operators keep `### Operator \`id\` (Type)` + Summary.
   lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
   lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
-  // A header-only shape (Project / Sort / unchanged Compute) carries no result
-  // section: the table is the input table transformed exactly as Properties say.
-  const headerOnly = shape?.shape === "header" && info && !info.error;
   for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
 
   // Operator properties (config). Rendered for every operator except the
@@ -2433,23 +1550,9 @@ function serializeOperatorFull(
     lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
   }
 
-  // summarize(): opt-in current-code block. Errors already embed the code in
-  // the [ERROR] result render, so only healthy operators get it here.
-  if (ex?.includeCode && !info?.error && !op.nativeOp) {
-    const code = String(op.operatorProperties?.code ?? "").trim();
-    if (code) {
-      lines.push("Code:");
-      for (const l of clampCodeChars(code, ex.codeMaxChars ?? 0).split("\n")) lines.push("  " + l);
-    }
-  }
-
-  if (execText && (shape?.shape === "count" || (shape?.shape === "header" && shape.note))) {
-    lines.push(`Result: ${execText}`);
-  } else if (execText) {
+  if (execText) {
     lines.push("Result:");
     for (const l of execText.split("\n")) lines.push("  " + l);
-  } else if (headerOnly) {
-    // nothing: header-only shape
   } else if (!info) {
     // No own result/error AND no info entry for this op. Distinguish
     // "blocked by upstream error" from "not yet executed" by walking
@@ -2489,39 +1592,6 @@ function serializeOperatorFull(
     }
   }
 
-  // summarize(): per-operator HISTORY sections (only without an interleaved
-  // trajectory — see the precedence rule in params.ts). Code versions carry
-  // the event index each was submitted at; result versions render per their
-  // (typically cheaper) history render profile. Historical ERROR versions
-  // render first-line-only: echoing the current code under an old error would
-  // misattribute it (the code that produced it is in the code history).
-  if (ex && (ex.codeHistory.length > 0 || ex.resultHistory.length > 0)) {
-    for (const cv of ex.codeHistory) {
-      lines.push(`Code @ step ${cv.eventIndex}${cv.status === "rejected" ? " (rejected)" : ""}:`);
-      for (const l of cv.code.split("\n")) lines.push("  " + l);
-    }
-    for (const rv of ex.resultHistory) {
-      lines.push(`Result @ step ${rv.version.eventIndex}:`);
-      if (rv.version.info.error) {
-        const diagnostic = rv.version.info.nativeError;
-        lines.push(
-          `  [ERROR] ${diagnostic ? formatNativeDiagnostic(diagnostic.diagnostic) + `\nDiagnostic: ${diagnostic.diagnosticId}` : rv.version.info.error.split("\n")[0]}`
-        );
-      } else {
-        const t = formatOperatorResult(op.operatorID, rv.version.info, workflowState, {
-          detail: rv.render.detail === "shape" ? "shape" : undefined,
-          maxResultRows: rv.render.tuple.sampleRows,
-          maxResultChars: rv.render.tuple.maxChars,
-          sampleDuplicates: rv.render.tuple.duplicates,
-          sampleFdHints: rv.render.tuple.fdHints,
-          schemaInResult: rv.render.column.schema,
-          schemaTypes: rv.render.column.schemaTypes,
-          inputsInResult: false,
-        });
-        for (const l of t.split("\n")) lines.push("  " + l);
-      }
-    }
-  }
   return lines.join("\n");
 }
 
@@ -2622,16 +1692,6 @@ function lastSnapshotOf(tasks: TaskGroup[]): SnapshotData | undefined {
     for (let j = t.nodes.length - 1; j >= 0; j--) {
       if (t.nodes[j].snapshot) return t.nodes[j].snapshot;
     }
-  }
-  return undefined;
-}
-
-/** Find the most-recent attached snapshot across the original (untruncated)
- *  path. Used so the trailing `# Current Dataflow` block survives even when
- *  the recent-events cap drops every visible task. */
-function lastSnapshotOfPath(path: PathNode[]): SnapshotData | undefined {
-  for (let i = path.length - 1; i >= 0; i--) {
-    if (path[i].snapshot) return path[i].snapshot;
   }
   return undefined;
 }

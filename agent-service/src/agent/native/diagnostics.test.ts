@@ -122,20 +122,19 @@ function fixture(type = "Process") {
   return { op, diagnostic, info, state };
 }
 
-test("V2 failures never echo the embedded runtime, including process and shape-only views", () => {
-  for (const type of ["Process", "Filter"])
-    for (const detail of ["shape", "sample"] as const) {
-      const { op, info, state } = fixture(type);
-      const rendered = formatOperatorResult("answer", info, state, { detail, operatorAtEvent: op });
-      expect(rendered.length).toBeLessThanOrEqual(1600);
-      expect(rendered).toContain("CALLBACK_RUNTIME");
-      expect(rendered).not.toContain(revision);
-      expect(rendered).toContain("line 3");
-      expect(rendered).toContain("division by zero");
-      expect(rendered).not.toContain("GENERATED_BOILERPLATE");
-      expect(rendered).not.toContain("line 999");
-      expect(rendered).not.toContain("NATIVE_ERROR_V2");
-    }
+test("V2 failures never echo the embedded runtime, including process operators", () => {
+  for (const type of ["Process", "Filter"]) {
+    const { op, info, state } = fixture(type);
+    const rendered = formatOperatorResult("answer", info, state, { operatorAtEvent: op });
+    expect(rendered.length).toBeLessThanOrEqual(1600);
+    expect(rendered).toContain("CALLBACK_RUNTIME");
+    expect(rendered).not.toContain(revision);
+    expect(rendered).toContain("line 3");
+    expect(rendered).toContain("division by zero");
+    expect(rendered).not.toContain("GENERATED_BOILERPLATE");
+    expect(rendered).not.toContain("line 999");
+    expect(rendered).not.toContain("NATIVE_ERROR_V2");
+  }
 });
 
 test("a long V2 diagnostic has a separate bounded detail budget and explicit omissions", () => {

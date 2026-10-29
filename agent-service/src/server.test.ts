@@ -48,7 +48,7 @@ function mintTestToken(): string {
 
 const TOKEN = mintTestToken();
 
-test("untuned production context preview is synchronous and current after debug", async () => {
+test("production context preview is synchronous and current after debug", async () => {
   const agent = new TexeraAgent({
     agentId: "preview-regression",
     modelType: "test",
@@ -57,7 +57,7 @@ test("untuned production context preview is synchronous and current after debug"
         throw new Error("No LLM allowed in preview test");
       },
     },
-    contextAssembler: buildContextAssembler("vercel-tool-use", {} as never),
+    contextAssembler: buildContextAssembler("vercel-tool-use"),
   });
   await agent.handleDebugInput("PREVIEW_CURRENT_TASK");
   expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
@@ -165,6 +165,9 @@ describe(`POST ${API}/agents`, () => {
       "thoughtReplay",
       "messageLayout",
       "enableCodeInSnapshot",
+      "resultSelection",
+      "staticCompaction",
+      "summarizeParams",
       "nativeTransport",
       "columnStats",
       "maxStep",
@@ -180,19 +183,15 @@ describe(`POST ${API}/agents`, () => {
     expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(1);
   });
 
-  test("every setting an agent reports is taken on create, and on PATCH all but those fixed at creation", async () => {
+  test("every setting an agent reports is taken on create and on PATCH", async () => {
     const reported = (await readJson<any>(await createAgent())).settings as Record<string, unknown>;
     const response = await createAgent({ settings: reported });
     expect(response.status).toBe(200);
     const created = await readJson<any>(response);
     expect(created.settings).toEqual(reported);
-    const fixedAtCreation = ["staticCompaction"];
-    const patch = Object.fromEntries(Object.entries(reported).filter(([key]) => !fixedAtCreation.includes(key)));
-    const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
+    const patched = await patchJson(`${API}/agents/${created.id}/settings`, reported);
     expect(patched.status).toBe(200);
     expect(await readJson<any>(patched)).toEqual(reported);
-    for (const key of fixedAtCreation)
-      expect((await patchJson(`${API}/agents/${created.id}/settings`, { [key]: reported[key] })).status).toBe(400);
   });
 
   test("the settings the UI sends are taken", async () => {
@@ -222,10 +221,7 @@ describe(`POST ${API}/agents`, () => {
     expect(created.status).toBe(200);
     const body = await readJson<{ id: string; settings: { parallelToolCalls: boolean } }>(created);
     expect(body.settings.parallelToolCalls).toBe(false);
-    const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
-      parallelToolCalls: true,
-      resultSelection: "all",
-    });
+    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { parallelToolCalls: true });
     expect(patched.status).toBe(200);
     expect((await readJson<{ parallelToolCalls: boolean }>(patched)).parallelToolCalls).toBe(false);
   });
@@ -280,61 +276,6 @@ describe(`POST ${API}/agents`, () => {
   test("rejects missing modelType", async () => {
     const res = await createAgent({ modelType: undefined, name: "no-model" });
     expect(res.status).toBe(400);
-  });
-
-  test("validates and preserves the frontier decay experiment config", async () => {
-    const res = await createAgent({
-      settings: {
-        frontierDecayConfig: {
-          sampleRows: 3,
-          minStepsSinceEdit: 2,
-          minConsumerStepsSinceEdit: 1,
-        },
-      },
-    });
-    expect(res.status).toBe(200);
-    const body = await readJson<{ settings: { frontierDecayConfig: Record<string, number> } }>(res);
-    expect(body.settings.frontierDecayConfig).toEqual({
-      sampleRows: 3,
-      minStepsSinceEdit: 2,
-      minConsumerStepsSinceEdit: 1,
-      minConsumerStepsSinceHealthy: 1,
-    });
-  });
-
-  test("rejects an unsafe frontier decay config", async () => {
-    const res = await createAgent({ settings: { frontierDecayConfig: { sampleRows: 0 } } });
-    expect(res.status).toBe(400);
-    const body = await readJson<{ error: string }>(res);
-    expect(body.error).toContain("Invalid frontierDecayConfig");
-  });
-
-  test("validates and preserves the fold-resolved-revisions config (rank 3)", async () => {
-    const res = await createAgent({ settings: { foldResolvedRevisionsConfig: {} } });
-    expect(res.status).toBe(200);
-    const body = await readJson<{ settings: { foldResolvedRevisionsConfig: Record<string, number> } }>(res);
-    expect(body.settings.foldResolvedRevisionsConfig).toEqual({ graceEvents: 1 });
-  });
-
-  test("rejects an invalid fold-resolved-revisions config", async () => {
-    const res = await createAgent({ settings: { foldResolvedRevisionsConfig: { graceEvents: -1 } } });
-    expect(res.status).toBe(400);
-    const body = await readJson<{ error: string }>(res);
-    expect(body.error).toContain("Invalid foldResolvedRevisionsConfig");
-  });
-
-  test("validates and preserves the probe-retirement config (rank 4)", async () => {
-    const res = await createAgent({ settings: { probeRetirementConfig: { minStepsSinceEdit: 3 } } });
-    expect(res.status).toBe(200);
-    const body = await readJson<{ settings: { probeRetirementConfig: Record<string, number> } }>(res);
-    expect(body.settings.probeRetirementConfig).toEqual({ minStepsSinceEdit: 3, minValueLength: 4 });
-  });
-
-  test("rejects an invalid probe-retirement config", async () => {
-    const res = await createAgent({ settings: { probeRetirementConfig: { minValueLength: 0 } } });
-    expect(res.status).toBe(400);
-    const body = await readJson<{ error: string }>(res);
-    expect(body.error).toContain("Invalid probeRetirementConfig");
   });
 });
 
@@ -452,27 +393,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     );
     expect(reread.maxSteps).toBe(7);
     expect(reread.toolTimeoutSeconds).toBe(30);
-  });
-
-  test("updates and clears frontier decay independently of other settings", async () => {
-    const created = await readJson<{ id: string }>(await createAgent());
-
-    const enabled = await patchJson(`${API}/agents/${created.id}/settings`, {
-      frontierDecayConfig: { sampleRows: 2 },
-    });
-    expect(enabled.status).toBe(200);
-    const enabledBody = await readJson<{ frontierDecayConfig: Record<string, number> }>(enabled);
-    expect(enabledBody.frontierDecayConfig).toEqual({
-      sampleRows: 2,
-      minStepsSinceEdit: 1,
-      minConsumerStepsSinceEdit: 1,
-      minConsumerStepsSinceHealthy: 1,
-    });
-
-    const cleared = await patchJson(`${API}/agents/${created.id}/settings`, { frontierDecayConfig: null });
-    expect(cleared.status).toBe(200);
-    const clearedBody = await readJson<{ frontierDecayConfig?: unknown }>(cleared);
-    expect(clearedBody.frontierDecayConfig).toBeUndefined();
   });
 
   test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {

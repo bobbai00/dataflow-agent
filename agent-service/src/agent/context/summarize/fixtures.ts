@@ -18,15 +18,15 @@
  */
 
 /**
- * Test-only fixtures for the summarize() refactor.
+ * Test-only fixtures for the context renderer.
  *
  * `buildRichScenario()` constructs a deterministic, render-path-complete agent
  * trajectory used by the characterization (golden) tests: every serializer
- * branch the current-snapshot and DELTA renders can take is exercised at least once —
- * Properties lines, code-op stripping, error blocks with `Operator code:`,
- * column stats (incl. reserved diagnostic keys), print output, multi-call
- * events, deletes, rejected/no-op edits, blocked downstream operators, a
- * second user task, and a thought-only terminal step.
+ * branch the DELTA render and its compacted deck can take is exercised at
+ * least once — Properties lines, code-op stripping, error blocks with
+ * `Operator code:`, column stats (incl. reserved diagnostic keys), print
+ * output, multi-call events, deletes, rejected/no-op edits, blocked downstream
+ * operators, a second user task, and a thought-only terminal step.
  *
  * The scenario is frozen: any change to it invalidates the golden snapshots,
  * so extend by ADDING scenarios, not editing this one.
@@ -37,9 +37,7 @@ import { WorkflowState } from "../../workflow-state";
 import type { ReActStep } from "../../../types/agent";
 import type { OperatorInfo } from "../../../types/execution";
 import type { OperatorPredicate, PortDescription, WorkflowContent } from "../../../types/workflow";
-import type { AssembleContextOptions } from "../../util/context-utils";
-import { applySummarizeParamsPatch, mapLegacyToParams, type SummarizeParams } from "./params";
-import { summarize } from "./summarize";
+import { renderContextCore, type AssembleContextOptions } from "../../util/context-utils";
 
 export interface OpSpec {
   id: string;
@@ -503,16 +501,8 @@ export function contentOf(messages: Array<{ content: unknown }>): string {
   return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
 }
 
-/** The current-snapshot layout (no events) the context-tuning overlays start from. */
-export function snapshotParams(options: AssembleContextOptions = {}): SummarizeParams {
-  return applySummarizeParamsPatch(mapLegacyToParams(options), {
-    trajectory: { events: "none" },
-    currentSnapshot: true,
-  });
-}
-
-/** What the renderer produces for `params`, before the transcript frames it. */
-export function renderText(scenario: Scenario, params: SummarizeParams = mapLegacyToParams({})): string {
+/** What the renderer produces for `options`, before the transcript frames it. */
+export function renderText(scenario: Scenario, options: AssembleContextOptions = {}): string {
   const { steps, storage, workflowState } = scenario;
-  return summarize({ visibleSteps: steps, workflowState, snapshotStorage: storage }, params).text;
+  return renderContextCore(steps, workflowState, storage, options);
 }

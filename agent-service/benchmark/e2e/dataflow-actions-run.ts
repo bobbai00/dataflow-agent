@@ -74,7 +74,6 @@ async function provision(name: string, settings: Record<string, unknown> = {}) {
       maxSteps: 12,
       dataEvidence: false,
       flowEvidence: false,
-      resultSelection: "all",
       ...settings,
     },
   });

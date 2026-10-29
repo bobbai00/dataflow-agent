@@ -24,8 +24,7 @@ import { WorkflowState } from "../workflow-state";
 import type { ReActStep } from "../../types/agent";
 import type { WorkflowContent } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
-import { mapLegacyToParams } from "../context/summarize/params";
-import { renderText, snapshotParams } from "../context/summarize/fixtures";
+import { renderText } from "../context/summarize/fixtures";
 
 /* ============================================================================
  *  Fixtures
@@ -94,13 +93,12 @@ interface Scenario {
  *  parentId chains in the test's step list. */
 function buildScenario(stepsInput: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">>): Scenario {
   const steps = stepsInput.map(s => makeStep(s));
-  const byId = new Map(steps.map(s => [s.id, s]));
   const storage = new WorkflowSnapshotStorage(stepId => {
     const chain: string[] = [];
     let cur: string | undefined = stepId;
     while (cur) {
       chain.unshift(cur);
-      cur = byId.get(cur)?.parentId;
+      cur = steps.find(s => s.id === cur)?.parentId;
     }
     return chain;
   });
@@ -173,103 +171,30 @@ function render(
   storage: WorkflowSnapshotStorage,
   options: AssembleContextOptions = {}
 ): string {
-  return renderText({ steps, workflowState, storage }, mapLegacyToParams(options));
+  return renderText({ steps, workflowState, storage }, options);
 }
 
-/** The current-snapshot layout (no events) the context-tuning overlays start from. */
-function renderSnapshot(
-  steps: ReActStep[],
-  workflowState: WorkflowState,
-  storage: WorkflowSnapshotStorage,
-  options: AssembleContextOptions = {}
-): string {
-  return renderText({ steps, workflowState, storage }, snapshotParams(options));
+/** The compress compaction's deck, which renders each operator as a block: one
+ *  more event on the last event's dataflow, and a window nothing fits, fold
+ *  every event into it. */
+function renderDeck(scenario: Scenario): string {
+  const last = scenario.steps[scenario.steps.length - 1];
+  scenario.steps.push(
+    makeStep({
+      id: "fold",
+      stepId: last.stepId + 1,
+      role: "agent",
+      messageId: last.messageId,
+      parentId: last.id,
+      toolCalls: [{ toolName: "noop", toolCallId: "tc-fold", input: {} }],
+    })
+  );
+  scenario.storage.createSnapshot("fold", scenario.storage.getAssociatedSnapshot(last.id).workflow);
+  return render(scenario.steps, scenario.workflowState, scenario.storage, {
+    contextWindowTokens: 1,
+    compactionStrategy: "compress",
+  });
 }
-
-/* ============================================================================
- *  Current-snapshot layout
- * ========================================================================= */
-
-describe("current-snapshot layout", () => {
-  test("emits ONLY # User Task + # Current Dataflow (no events section at all)", () => {
-    const { steps, storage, workflowState } = buildCanonicalScenario();
-    const c = renderSnapshot(steps, workflowState, storage);
-
-    // 1. # User Task block carries the latest user message verbatim.
-    expect(c).toContain("# User Task");
-    expect(c).toContain("Build me a pipeline.");
-
-    // 2. The layout renders NO events section — the LLM sees just the
-    // leaf snapshot. Neither the new `# Agent Events` header nor the legacy
-    // `# Recent Agent Events` header should appear, and no `## Agent Event`
-    // blocks either.
-    expect(c).not.toContain("# Agent Events");
-    expect(c).not.toContain("# Recent Agent Events");
-    expect(c).not.toContain("## Agent Event");
-    expect(c).not.toContain("## User Event");
-    expect(c).not.toContain("Actions:");
-
-    // 3. # Current Dataflow trailing block.
-    expect(c).toContain("# Current Dataflow");
-    // No inline snapshot headers between events (there are no events at all
-    // here).
-    expect(c).not.toContain("Completed dataflow after event");
-    expect(c).not.toContain("Dataflow changes after event");
-    // Trailing block: # Current Dataflow (H1) → ## Operators (H2) → ### Operator X (H3).
-    expect(c).toContain("### Operator `src` (TestOp)");
-    expect(c).toContain("### Operator `filt` (TestOp)");
-    // Topology is now embedded per-operator (no separate ## Links section).
-    expect(c).not.toContain("## Links");
-    expect(c).toContain("Inputs: src"); // filt's upstream
-    expect(c).not.toContain("Used by:"); // downstream "Used by" line was removed
-
-    // No legacy echo lines.
-    expect(c).not.toContain("User's request is:");
-    expect(c).not.toContain("Above is user's request");
-  });
-
-  test("empty path → empty content", () => {
-    const { steps, storage, workflowState } = buildScenario([]);
-    const c = renderSnapshot(steps, workflowState, storage);
-    // No user task and no snapshot — everything is empty.
-    expect(c).not.toContain("# User Task");
-    expect(c).not.toContain("# Agent Events");
-    expect(c).not.toContain("# Recent Agent Events");
-    expect(c).not.toContain("# Current Dataflow");
-  });
-
-  test("init-only path: init is excluded from events but its snapshot still drives # Current Dataflow", () => {
-    // A path with ONLY the synthetic init step exercises the fallback in
-    // renderLatest: no visible events render, but the trailing block should
-    // still show the baseline workflow loaded at init time.
-    const { steps, storage, workflowState } = buildScenario([
-      {
-        id: "init",
-        stepId: 0,
-        role: "agent",
-        messageId: "m-init",
-        content: "Initialization",
-        toolCalls: [{ toolName: "initialize", toolCallId: "tc-init", input: { workflowId: 1 } }],
-        toolResults: [{ toolCallId: "tc-init", output: "ok", isError: false }],
-      },
-    ]);
-    storage.createSnapshot("init", {
-      operators: [makeOp("baseline")],
-      operatorPositions: {},
-      links: [],
-      commentBoxes: [],
-      settings: { dataTransferBatchSize: 400 },
-    });
-    storage.setOperatorResult("init", "baseline", makeInfo("baseline", 5));
-    const c = renderSnapshot(steps, workflowState, storage);
-    expect(c).not.toContain("# Event 0");
-    expect(c).not.toContain("# Event 1");
-    expect(c).not.toContain("- initialize");
-    // Init's snapshot bubbles up to the trailing block.
-    expect(c).toContain("# Current Dataflow");
-    expect(c).toContain("### Operator `baseline`");
-  });
-});
 
 /* ============================================================================
  *  Delta mode
@@ -554,121 +479,6 @@ describe("assembleContext — contextWindowTokens compaction (DELTA)", () => {
 });
 
 /* ============================================================================
- *  Static compaction rule (DELTA-only, staticCompaction flag)
- *  Trigger: > 5 snapshot-bearing agent events; keep last 3 raw; skip mid-error.
- * ========================================================================= */
-
-describe("assembleContext — staticCompaction editConvergence rule (DELTA)", () => {
-  // Build one edit event per entry in `opsPerEvent` (the operatorId edited that
-  // step). Repeating an id = editing the SAME operator again (a longer active
-  // run). `padChars` pads each thought to clear/stay-under the 3,500-token floor;
-  // `errorLeafOp` marks that op errored in the leaf snapshot.
-  function scenario(opsPerEvent: string[], padChars = 0, errorLeafOp?: string) {
-    const filler = padChars > 0 ? " " + "x".repeat(padChars) : "";
-    const steps: Array<Partial<ReActStep> & Pick<ReActStep, "id" | "stepId" | "role">> = [
-      {
-        id: "init",
-        stepId: 0,
-        role: "agent",
-        messageId: "mi",
-        content: "init",
-        toolCalls: [{ toolName: "initialize", toolCallId: "ti", input: { workflowId: 1 } }],
-        toolResults: [{ toolCallId: "ti", output: "init", isError: false }],
-      },
-      { id: "u", stepId: 0, role: "user", messageId: "m", parentId: "init", content: "Task." },
-    ];
-    let parent = "u";
-    opsPerEvent.forEach((op, i) => {
-      const s = i + 1;
-      steps.push({
-        id: `t${s}`,
-        stepId: s,
-        role: "agent",
-        messageId: "m",
-        parentId: parent,
-        isBegin: s === 1,
-        content: `step ${s} on ${op}${filler}`,
-        toolCalls: [{ toolName: "createOrModifyOperator", toolCallId: `c${s}`, input: { operatorId: op } }],
-        toolResults: [{ toolCallId: `c${s}`, output: "ok", isError: false }],
-      });
-      parent = `t${s}`;
-    });
-    const sc = buildScenario(steps);
-    const seen: string[] = [];
-    opsPerEvent.forEach((op, i) => {
-      const s = i + 1;
-      if (!seen.includes(op)) seen.push(op);
-      sc.storage.createSnapshot(`t${s}`, makeWorkflow([...seen]));
-      const isLast = i === opsPerEvent.length - 1;
-      const err = errorLeafOp && op === errorLeafOp && isLast ? "KeyError: 'x'" : undefined;
-      sc.storage.setOperatorResult(`t${s}`, op, makeInfo(op, 100 - i, err));
-    });
-    return sc;
-  }
-  const deckOf = (c: string) => c.split("# Agent Events")[0]; // the folded prefix
-  const BIG = 2500; // ~2.5k chars/event clears the 3,500-tok floor across ≥2 events
-
-  test("folds settled operators; the frontier op stays raw (settled-framed header)", () => {
-    // op1..op6 each edited once, then op7 is the frontier → op1..op6 settled.
-    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
-    expect(c).toContain("# Current Dataflow (settled operators");
-    expect(c).toContain("# Agent Events (your in-progress work since the settled snapshot above)");
-    expect(c).toContain("op7"); // frontier op present raw in the suffix
-  });
-
-  test("FROZEN boundary: extra edits to the SAME frontier op leave the deck byte-identical", () => {
-    // Two trajectories: same 5 settled ops, then the frontier op edited 1× vs 3×.
-    const base = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG);
-    const more = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op6", "op6"], BIG);
-    const cBase = render(base.steps, base.workflowState, base.storage, { staticCompaction: true });
-    const cMore = render(more.steps, more.workflowState, more.storage, { staticCompaction: true });
-    expect(cBase).toContain("# Current Dataflow (settled operators");
-    // The compacted prefix (deck) is identical — cache-friendly; only the raw
-    // suffix grows with the extra op6 attempts.
-    expect(deckOf(cMore)).toBe(deckOf(cBase));
-  });
-
-  test("boundary ADVANCES when the agent switches to a new operator", () => {
-    const before = scenario(["op1", "op2", "op3", "op4", "op5", "op6"], BIG); // frontier op6
-    const after = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG); // frontier op7 → op6 settles
-    const cBefore = render(before.steps, before.workflowState, before.storage, { staticCompaction: true });
-    const cAfter = render(after.steps, after.workflowState, after.storage, { staticCompaction: true });
-    // op6 was raw (frontier) before; after switching to op7 it joins the deck.
-    expect(deckOf(cBefore)).not.toContain("op6");
-    expect(deckOf(cAfter)).toContain("op6");
-  });
-
-  test("errored frontier op still compacts, and stays RAW in the suffix (no lossless revert)", () => {
-    // op7 is the frontier and errored — the settled prefix still folds; the
-    // errored op is debuggable in the raw suffix.
-    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG, "op7");
-    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
-    expect(c).toContain("# Current Dataflow (settled operators");
-    expect(c.split("# Agent Events")[1]).toContain("op7");
-  });
-
-  test("below the token floor: no compaction (short evidence-dense trace protected)", () => {
-    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], 0);
-    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true });
-    expect(c).not.toContain("# Current Dataflow (settled operators");
-  });
-
-  test("flag off: stays lossless", () => {
-    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const off = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: false });
-    expect(off).not.toContain("# Current Dataflow (settled operators");
-  });
-
-  test("token rule still selectable via compactionRule='token' (A/B)", () => {
-    const sc = scenario(["op1", "op2", "op3", "op4", "op5", "op6", "op7"], BIG);
-    const c = render(sc.steps, sc.workflowState, sc.storage, { staticCompaction: true, compactionRule: "token" });
-    // token rule uses the generic (non-settled) header
-    expect(c).toContain("# Dataflow (compacted");
-  });
-});
-
-/* ============================================================================
  *  Δ computation
  * ========================================================================= */
 
@@ -733,11 +543,11 @@ describe("computeDelta", () => {
 });
 
 /* ============================================================================
- *  Invariants of the two layouts
+ *  Invariants of the events and the compacted deck
  * ========================================================================= */
 
 describe("assembleContext — invariants", () => {
-  test("DELTA keeps the request in place among the events; the current snapshot hoists it and has none", () => {
+  test("DELTA keeps the request in place among the events", () => {
     const { steps, storage, workflowState } = buildCanonicalScenario();
 
     // Delta renders the events section, the request at its own position: each
@@ -759,22 +569,19 @@ describe("assembleContext — invariants", () => {
     expect(c).toContain("- operator src added");
     expect(c).toContain("- operator filt added");
     expect(c).not.toContain("# Recent Agent Events");
-
-    // The current snapshot hoists the request and renders NO events section.
-    const cSnapshot = renderSnapshot(steps, workflowState, storage);
-    expect(cSnapshot).toContain("# User Task");
-    expect(cSnapshot).toContain("Build me a pipeline.");
-    expect(cSnapshot).not.toContain("# Agent Events");
-    expect(cSnapshot).not.toContain("# Recent Agent Events");
-    expect(cSnapshot).not.toContain("## Agent Event");
-    expect(cSnapshot).not.toContain("Observation:");
   });
 
   // Shared single-step scenario builder for the property-rendering tests:
   // one agent step whose snapshot holds `op` (built by the caller).
-  function propScenario(op: ReturnType<typeof makeOp>) {
-    const { storage } = buildScenario([
-      { id: "x", stepId: 0, role: "agent", toolCalls: [{ toolName: "init", toolCallId: "tc", input: {} }] },
+  function propScenario(op: ReturnType<typeof makeOp>): Scenario {
+    const scenario = buildScenario([
+      {
+        id: "x",
+        stepId: 0,
+        role: "agent",
+        toolCalls: [{ toolName: "init", toolCallId: "tc", input: {} }],
+        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
+      },
     ]);
     const wf: WorkflowContent = {
       operators: [op],
@@ -783,50 +590,39 @@ describe("assembleContext — invariants", () => {
       commentBoxes: [],
       settings: { dataTransferBatchSize: 400 },
     };
-    storage.createSnapshot("x", wf);
-    const stepsAll: ReActStep[] = [
-      makeStep({
-        id: "x",
-        stepId: 0,
-        role: "agent",
-        toolCalls: [{ toolName: "init", toolCallId: "tc", input: {} }],
-        toolResults: [{ toolCallId: "tc", output: "ok", isError: false }],
-      }),
-    ];
-    return { storage, stepsAll };
+    scenario.storage.createSnapshot("x", wf);
+    return scenario;
   }
 
   test("Python code operators' code is always stripped", () => {
     // DataLoading (a CODE_OPERATOR_TYPE) carries a `code` property; assert no
-    // layout surfaces it, though other operators' properties render.
-    const { storage, stepsAll } = propScenario(
-      makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" })
-    );
-    const ws = new WorkflowState();
-    for (const c of [render(stepsAll, ws, storage), renderSnapshot(stepsAll, ws, storage)]) {
+    // render surfaces it, though other operators' properties render.
+    const scenario = propScenario(makeOp("op1", "DataLoading", { code: "def load(): return secret_payload" }));
+    const cDelta = render(scenario.steps, scenario.workflowState, scenario.storage);
+    const cDeck = renderDeck(scenario);
+    expect(cDeck).toContain("### Operator `op1` (DataLoading)");
+    for (const c of [cDelta, cDeck]) {
       expect(c).not.toContain("secret_payload");
       expect(c).not.toContain("Properties:");
     }
   });
 
-  test("non-code operator properties render in the current snapshot", () => {
-    const { storage, stepsAll } = propScenario(makeOp("flt", "Filter", { predicate: "age > 18" }));
-    const ws = new WorkflowState();
-
-    const cOn = renderSnapshot(stepsAll, ws, storage);
-    expect(cOn).toContain("Properties:");
-    expect(cOn).toContain("age > 18");
+  test("non-code operator properties render in the compacted deck", () => {
+    const scenario = propScenario(makeOp("flt", "Filter", { predicate: "age > 18" }));
 
     // DELTA's minimal Observation never renders operator Properties — config rides
     // on the Action's params, not here.
-    const cDelta = render(stepsAll, ws, storage);
+    const cDelta = render(scenario.steps, scenario.workflowState, scenario.storage);
     expect(cDelta).not.toContain("Properties:");
+
+    const cDeck = renderDeck(scenario);
+    expect(cDeck).toContain("Properties:");
+    expect(cDeck).toContain("age > 18");
   });
 
   test("empty-property operators never render a Properties line", () => {
-    const { storage, stepsAll } = propScenario(makeOp("noprops", "Filter", {}));
-    const ws = new WorkflowState();
-    const c = renderSnapshot(stepsAll, ws, storage);
+    const c = renderDeck(propScenario(makeOp("noprops", "Filter", {})));
+    expect(c).toContain("### Operator `noprops` (Filter)");
     expect(c).not.toContain("Properties:");
   });
 });
@@ -1116,10 +912,6 @@ describe("assembleContext — delta Action / Observation format", () => {
     expect(cDelta).toContain("[ERROR] KeyError: 'missing'");
     expect(cDelta).toContain("at line 2 in `process`");
     expect(cDelta).toContain("Operator code:");
-
-    // The current snapshot also keeps the full error.
-    const cSnapshot = renderSnapshot(steps, workflowState, storage);
-    expect(cSnapshot).toContain("Operator code:");
   });
 
   test("thought-only agent event renders no `Actions:` block", () => {
@@ -1236,7 +1028,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     );
     // intentionally no setOperatorResult for processClimate
 
-    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
+    const c = renderDeck(scenario);
 
     // Upstream renders its [ERROR] block normally.
     expect(c).toContain("[ERROR]");
@@ -1286,7 +1078,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "RuntimeError: bad"));
     // B and C: no info → transitively blocked by A
 
-    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
+    const c = renderDeck(scenario);
 
     // Both B and C should point at A as the root-cause ancestor.
     expect(c).toContain("Result: (skipped — upstream operator `A` errored; see [ERROR] above)");
@@ -1333,7 +1125,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
     // C: no info
 
-    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
+    const c = renderDeck(scenario);
 
     // Both upstreams referenced together (plural "operators"); order
     // tracks the link discovery order.
@@ -1370,7 +1162,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 5));
     // B: no info, but A succeeded
 
-    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
+    const c = renderDeck(scenario);
 
     expect(c).not.toContain("skipped");
     expect(c).not.toContain("Result: (skipped");
@@ -1406,7 +1198,7 @@ describe("assembleContext — skipped-upstream Result placeholder", () => {
     scenario.storage.setOperatorResult("t1", "A", makeInfo("A", 0, "TypeError: A failed"));
     scenario.storage.setOperatorResult("t1", "B", makeInfo("B", 0, "ValueError: B failed"));
 
-    const c = renderSnapshot(scenario.steps, scenario.workflowState, scenario.storage);
+    const c = renderDeck(scenario);
 
     // No skipped marker — B has its own error block.
     expect(c).not.toContain("Result: (skipped");

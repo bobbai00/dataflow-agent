@@ -150,7 +150,7 @@ agent-service/src/dashboard/dist/
 .secrets.env
 .env.litellm
 
-# Local benchmark data, generated traces, and context-ML outputs
+# Local benchmark data and generated traces
 /data
 /data/
 /log/
@@ -162,11 +162,6 @@ agent-service/src/dashboard/dist/
 /local-llm-training-set-v1/
 /texera.egg-info/
 /amber/uv.lock
-agent-service/benchmark/llm-training-data-generation/data/
-agent-service/benchmark/llm-training-data-generation/output/
-agent-service/benchmark/context-ml/report*.json
-agent-service/benchmark/context-ml/cross_model_report.json
-agent-service/benchmark/context-ml/training_data_*.csv
 
 # Benchmark artifacts (benchmark/bench.sh) — data and run outputs, never sources
 /benchmark/DSGym/

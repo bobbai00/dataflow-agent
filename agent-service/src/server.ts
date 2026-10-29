@@ -59,43 +59,8 @@ import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver"
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
 import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
-import { readFileSync } from "fs";
 import { heapStats } from "bun:jsc";
-import { assembleContext, type AssembleContextOptions } from "./agent/util/context-utils";
-import {
-  applySummarizeParamsPatch,
-  mapLegacyToParams,
-  SummarizeParamsPatchSchema,
-  type SummarizeParamsPatch,
-} from "./agent/context/summarize/params";
-import { buildDossier } from "./agent/context/summarize/dossier";
-import { summarize as summarizeContext } from "./agent/context/summarize/summarize";
-import { selectParams, SelectorConfigSchema, type SelectorConfig } from "./agent/context/selector/selector";
-import {
-  applyFrontierDecay,
-  FrontierDecayConfigSchema,
-  type FrontierDecayConfig,
-} from "./agent/context/selector/frontier-decay";
-import {
-  applyProbeRetirement,
-  ProbeRetirementConfigSchema,
-  type ProbeRetirementConfig,
-} from "./agent/context/selector/probe-retirement";
-import { applyRolePolicy, RolePolicyConfigSchema, type RolePolicyConfig } from "./agent/context/selector/role-policy";
-import {
-  FoldResolvedRevisionsConfigSchema,
-  type FoldResolvedRevisionsConfig,
-} from "./agent/context/select/revision-folds";
-import { applyRenderPrefs } from "./agent/context/selector/render-prefs";
-import {
-  learnedSelectParams,
-  buildUtilityModel,
-  LearnedConfigSchema,
-  type LearnedConfig,
-  type UtilityModel,
-} from "./agent/context/learned";
-import { LLMContextTuner, type TunerConfig } from "./agent/context/tuner/tuner";
-import type { OpenAIProvider } from "@ai-sdk/openai";
+import { assembleContext } from "./agent/util/context-utils";
 import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
 import { buildLocalReactSystemPrompt } from "./agent/prompts";
 import { dashboardPlugin } from "./dashboard/static";
@@ -124,62 +89,15 @@ function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): Agent
   return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
 }
 
-/** Latest user-role message content along the visible path — the task text the
- *  tuner reasons about. */
-function latestTaskText(visibleSteps: { role: string; content?: string; messageSource?: string }[]): string {
-  for (let i = visibleSteps.length - 1; i >= 0; i--) {
-    // A canvas action reports what the user did; the task is the request before it.
-    if (visibleSteps[i].messageSource === "action") continue;
-    if (visibleSteps[i].role === "user" && visibleSteps[i].content) return visibleSteps[i].content as string;
-  }
-  return "";
-}
-
-/** The bundled learned utility model (context/learned/model.json), loaded once.
- *  `null` when absent/invalid — callers then fall through to the rule selector. */
-let _learnedModel: UtilityModel | null | undefined;
-function getLearnedModel(): UtilityModel | null {
-  if (_learnedModel !== undefined) return _learnedModel;
-  try {
-    const p = new URL("./agent/context/learned/model.json", import.meta.url);
-    const raw = readFileSync(p, "utf8");
-    _learnedModel = buildUtilityModel(JSON.parse(raw));
-    console.log(
-      `  learned model loaded: ${(_learnedModel.meta as any)?.rows ?? "?"} rows, cvAUC ${(_learnedModel.meta as any)?.cvAucAll ?? "?"}`
-    );
-  } catch (e) {
-    console.warn(
-      `  learned model NOT loaded (${e instanceof Error ? e.message : String(e)}) — learnedConfig will fall back`
-    );
-    _learnedModel = null;
-  }
-  return _learnedModel;
-}
-
-export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvider): ContextAssembler {
-  // One tuner per agent, built lazily and reused (it accumulates teacher-token
-  // usage). Rebuilt if the teacher model id changes.
-  let tuner: LLMContextTuner | undefined;
-  let tunerModelId: string | undefined;
-  const getTuner = (cfg: TunerConfig): LLMContextTuner => {
-    if (!tuner || tunerModelId !== cfg.model) {
-      tuner = new LLMContextTuner(openai.chat(cfg.model), cfg);
-      tunerModelId = cfg.model;
-    }
-    return tuner;
-  };
-
-  // Layout and sampling are independent of the two explicit evidence channels.
-  // Ordinary renderers stay synchronous so debug/UI previews show the current
-  // snapshot. Only the opt-in LLM tuner needs an asynchronous result.
+export function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
   const sdkContext: ContextAssembler = ({
     visibleSteps,
     workflowState,
     snapshotStorage,
     settings,
     turnNumberByMessageId,
-  }) => {
-    const legacyOptions: AssembleContextOptions = {
+  }) =>
+    assembleContext(visibleSteps, workflowState, snapshotStorage, {
       ...observationFormat(settings),
       nativeEvidence: {
         ...observationFormat(settings),
@@ -193,100 +111,20 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       dataEvidence: settings.dataEvidence,
       flowEvidence: settings.flowEvidence,
       nativeChecks: settings.nativeChecks,
-      resultSelection: settings.resultSelection,
       contextWindowTokens: settings.contextWindowTokens,
       compactionStrategy: settings.compactionStrategy,
       deckSampleRatio: settings.deckSampleRatio,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-      staticCompaction: settings.staticCompaction,
       // Request placement in multi-request sessions (cache).
       userTaskPlacement: settings.userTaskPlacement,
-      // Rank-3 static rule (DELTA-only): fold resolved operator revisions.
-      foldResolvedRevisions: settings.foldResolvedRevisionsConfig ? true : undefined,
-      foldGraceEvents: settings.foldResolvedRevisionsConfig?.graceEvents,
-      // Write-time render prefs (DELTA event scoping; LATEST goes via overlay).
-      renderPrefsEnabled: settings.enableRenderPrefs ? true : undefined,
-      summarizePatch: settings.summarizeParams,
       // Global request numbers for the renderer.
       turnNumberByMessageId,
       // Earlier requests as catalog entries ("catalog") or as the transcript.
       multiRequest: settings.multiRequest,
       catalogSource: settings.catalogSource,
       catalogRecent: settings.catalogRecent,
-    };
-    const evidenceSettings = {
-      data: settings.dataEvidence,
-      flow: settings.flowEvidence,
-      maxChars: settings.maxOperatorResultCharLimit,
-    };
-
-    // Context policy precedence: learned model > LLM tuner > rule selector >
-    // base-preserving frontier decay > the DELTA context.
-    // Learned path (opt-in): the trained utility model scores each operator and
-    // a budget knapsack assigns representation levels (omit≺shape≺sample+stats).
-    if (settings.learnedConfig) {
-      const model = getLearnedModel();
-      if (model) {
-        const dossier = buildDossier(visibleSteps, snapshotStorage);
-        const params = learnedSelectParams(dossier, model, latestTaskText(visibleSteps), settings.learnedConfig);
-        params.nativeEvidence = evidenceSettings;
-        return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
-      }
-      // No bundled model → fall through to the rule selector / legacy path.
-    }
-    // Tuner path (opt-in): a teacher LLM chooses per-operator detail from a
-    // cheap manifest each step. Async; falls back to the rule selector inside
-    // tune() on any failure.
-    if (settings.tunerConfig) {
-      const dossier = buildDossier(visibleSteps, snapshotStorage);
-      return getTuner(settings.tunerConfig)
-        .tune(dossier, latestTaskText(visibleSteps))
-        .then(({ params }) => {
-          params.nativeEvidence = evidenceSettings;
-          return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
-        });
-    }
-    // Selector path (opt-in): the per-step RULE policy chooses summarize()
-    // params from the live dossier. The dossier is built once and reused.
-    if (settings.selectorConfig) {
-      const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const params = selectParams(dossier, settings.selectorConfig);
-      params.nativeEvidence = evidenceSettings;
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
-    }
-    // BASE-PRESERVING OVERLAYS — the orthogonality contract: each overlay
-    // (1) is independently flag-gated, (2) only LOWERS detail relative to the
-    // base params (never raises), and (3) returns the base unchanged when its
-    // preconditions don't hold (e.g. wrong context mode) or nothing qualifies.
-    // They therefore compose in any order; the fixed order below is kept for
-    // reproducibility: frontierDecay -> probeRetirement -> renderPrefs.
-    // Flag-off arms bypass this branch entirely (byte-parity with legacy),
-    // enforced by orthogonality.test.ts.
-    if (
-      settings.frontierDecayConfig ||
-      settings.probeRetirementConfig ||
-      settings.rolePolicyConfig ||
-      settings.enableRenderPrefs
-    ) {
-      const dossier = buildDossier(visibleSteps, snapshotStorage);
-      const legacyParams = mapLegacyToParams(legacyOptions);
-      let params = settings.summarizeParams
-        ? applySummarizeParamsPatch(legacyParams, settings.summarizeParams)
-        : legacyParams;
-      if (settings.frontierDecayConfig) params = applyFrontierDecay(params, dossier, settings.frontierDecayConfig);
-      if (settings.probeRetirementConfig) {
-        params = applyProbeRetirement(params, dossier, settings.probeRetirementConfig);
-      }
-      // RULE A: role-keyed render policy (rich source / lean interior).
-      if (settings.rolePolicyConfig) params = applyRolePolicy(params, dossier, settings.rolePolicyConfig);
-      // Write-time render prefs: latest landed version's outputSummary /
-      // outputSummary becomes a per-operator sample override (LATEST).
-      if (settings.enableRenderPrefs) params = applyRenderPrefs(params, dossier);
-      return summarizeContext({ visibleSteps, workflowState, snapshotStorage, dossier }, params).messages;
-    }
-    return assembleContext(visibleSteps, workflowState, snapshotStorage, legacyOptions);
-  };
+    });
 
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
@@ -361,28 +199,17 @@ function applyInitialSettings(
     instructions: settings.instructions,
     answerStatement: settings.answerStatement,
     nativeChecks: settings.nativeChecks,
-    resultSelection: (settings as any).resultSelection,
     parallelToolCalls: settings.parallelToolCalls,
     contextWindowTokens: settings.contextWindowTokens,
     compactionStrategy: settings.compactionStrategy,
     deckSampleRatio: settings.deckSampleRatio,
     maxResultRows: settings.maxResultRows,
     toolDialect: settings.toolDialect,
-    summarizeParams: parseSummarizePatch(settings.summarizeParams),
-    selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-    frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-    foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput((settings as any).foldResolvedRevisionsConfig),
-    probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-    rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-    learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
     enableInspectTool: (settings as any).enableInspectTool,
-    enableRenderPrefs: (settings as any).enableRenderPrefs,
-    staticCompaction: (settings as any).staticCompaction,
     userTaskPlacement: (settings as any).userTaskPlacement,
     multiRequest: (settings as any).multiRequest,
     catalogSource: (settings as any).catalogSource,
     catalogRecent: (settings as any).catalogRecent,
-    tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
   });
 }
 
@@ -439,7 +266,7 @@ async function createAgentInstance(
     driverKind === "local-react"
       ? new LocalReactTextDriver({ model })
       : new VercelToolUseDriver({ model, ...requestLimits });
-  const contextAssembler = buildContextAssembler(driverKind, openai);
+  const contextAssembler = buildContextAssembler(driverKind);
 
   const agent = new TexeraAgent({
     driver,
@@ -532,7 +359,6 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   instructions: t.Optional(t.String({ maxLength: 20000 })),
   answerStatement: t.Optional(t.Boolean()),
   nativeChecks: t.Optional(t.Boolean()),
-  resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
   contextMode: t.Optional(t.Literal("delta")),
   parallelToolCalls: t.Optional(t.Boolean()),
   contextWindowTokens: t.Optional(t.Number()),
@@ -540,23 +366,11 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   deckSampleRatio: t.Optional(t.Number()),
   maxResultRows: t.Optional(t.Number()),
   toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
-  // Deep-partial summarize() params patch; zod-validated in-handler
-  // (the shape is too rich for a TypeBox mirror to earn its keep).
-  summarizeParams: t.Optional(t.Any()),
-  selectorConfig: t.Optional(t.Any()),
-  frontierDecayConfig: t.Optional(t.Any()),
-  foldResolvedRevisionsConfig: t.Optional(t.Any()),
-  probeRetirementConfig: t.Optional(t.Any()),
-  rolePolicyConfig: t.Optional(t.Any()),
-  learnedConfig: t.Optional(t.Any()),
   enableInspectTool: t.Optional(t.Boolean()),
-  enableRenderPrefs: t.Optional(t.Boolean()),
-  staticCompaction: t.Optional(t.Boolean()),
   userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
   multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
   catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
   catalogRecent: t.Optional(t.Integer()),
-  tunerConfig: t.Optional(t.Any()),
 });
 const SETTING_KEYS: ReadonlySet<string> = new Set(Object.keys(AGENT_SETTINGS_SCHEMA.properties));
 
@@ -583,7 +397,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     instructions: agentSettings.instructions,
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
-    resultSelection: agentSettings.resultSelection,
     contextMode: "delta",
     parallelToolCalls: agentSettings.parallelToolCalls,
     contextWindowTokens: agentSettings.contextWindowTokens,
@@ -591,17 +404,7 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     deckSampleRatio: agentSettings.deckSampleRatio,
     maxResultRows: agentSettings.maxResultRows,
     toolDialect: agentSettings.toolDialect,
-    summarizeParams: agentSettings.summarizeParams,
-    selectorConfig: agentSettings.selectorConfig,
-    frontierDecayConfig: agentSettings.frontierDecayConfig,
-    foldResolvedRevisionsConfig: agentSettings.foldResolvedRevisionsConfig,
-    probeRetirementConfig: agentSettings.probeRetirementConfig,
-    rolePolicyConfig: agentSettings.rolePolicyConfig,
-    learnedConfig: agentSettings.learnedConfig,
     enableInspectTool: agentSettings.enableInspectTool,
-    enableRenderPrefs: agentSettings.enableRenderPrefs,
-    staticCompaction: agentSettings.staticCompaction,
-    tunerConfig: agentSettings.tunerConfig,
     multiRequest: agentSettings.multiRequest,
     catalogSource: agentSettings.catalogSource,
     catalogRecent: agentSettings.catalogRecent,
@@ -848,81 +651,6 @@ const ERROR_STATUS: Record<string, number> = {
   "modelType is required": 400,
 };
 
-/** Validate an incoming `summarizeParams` patch at the API boundary so bad
- *  knob values 400 at settings time instead of blowing up mid-turn. */
-function parseSummarizePatch(raw: unknown): SummarizeParamsPatch | null | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null) return null; // explicit clear
-  const parsed = SummarizeParamsPatchSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `Invalid summarizeParams: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
-    );
-  }
-  return parsed.data;
-}
-
-/**
- * Generic validator for the optional experiment-config settings. One contract
- * for all: `undefined` = leave unchanged, `null` = turn the feature off,
- * object = zod-validate, filling defaults (failures throw `Invalid <name>: …`,
- * mapped to HTTP 400 by the handlers).
- */
-function makeConfigParser<T>(name: string, schema: { safeParse: (raw: unknown) => any }) {
-  return (raw: unknown): T | null | undefined => {
-    if (raw === undefined) return undefined;
-    if (raw === null) return null;
-    const parsed = schema.safeParse(raw);
-    if (!parsed.success) {
-      throw new Error(
-        `Invalid ${name}: ${parsed.error.issues.map((i: any) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
-      );
-    }
-    return parsed.data as T;
-  };
-}
-
-const parseSelectorConfigInput = makeConfigParser<SelectorConfig>("selectorConfig", SelectorConfigSchema);
-const parseFrontierDecayConfigInput = makeConfigParser<FrontierDecayConfig>(
-  "frontierDecayConfig",
-  FrontierDecayConfigSchema
-);
-const parseFoldResolvedRevisionsConfigInput = makeConfigParser<FoldResolvedRevisionsConfig>(
-  "foldResolvedRevisionsConfig",
-  FoldResolvedRevisionsConfigSchema
-);
-const parseRolePolicyConfigInput = makeConfigParser<RolePolicyConfig>("rolePolicyConfig", RolePolicyConfigSchema);
-const parseProbeRetirementConfigInput = makeConfigParser<ProbeRetirementConfig>(
-  "probeRetirementConfig",
-  ProbeRetirementConfigSchema
-);
-
-/** Validate an incoming `tunerConfig` (the LLM context-tuner settings). `null`
- *  turns the tuner off. Requires a non-empty `model`. */
-function parseTunerConfigInput(raw: unknown): TunerConfig | null | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null) return null;
-  if (typeof raw !== "object" || raw === null || typeof (raw as any).model !== "string" || !(raw as any).model) {
-    throw new Error("Invalid tunerConfig: `model` (string) is required");
-  }
-  const r = raw as any;
-  return { model: r.model, sampleRows: r.sampleRows, richRows: r.richRows };
-}
-
-/** Validate an incoming `learnedConfig` (the learned-selector settings). `null`
- *  turns it off. */
-function parseLearnedConfigInput(raw: unknown): LearnedConfig | null | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null) return null;
-  const parsed = LearnedConfigSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `Invalid learnedConfig: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
-    );
-  }
-  return parsed.data;
-}
-
 // Reject unknown/retired settings instead of Elysia silently stripping them.
 const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   // Error handler must live on the same Elysia instance whose routes throw, or
@@ -935,20 +663,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     if (code === "VALIDATION" || code === "PARSE" || error instanceof NativeCatalogSettingsError) {
       set.status = 400;
       return { error: errorMessage || "Invalid request body" };
-    }
-    // Zod-level context-policy validation failures are client errors too.
-    if (
-      errorMessage.startsWith("Invalid summarizeParams") ||
-      errorMessage.startsWith("Invalid selectorConfig") ||
-      errorMessage.startsWith("Invalid frontierDecayConfig") ||
-      errorMessage.startsWith("Invalid foldResolvedRevisionsConfig") ||
-      errorMessage.startsWith("Invalid probeRetirementConfig") ||
-      errorMessage.startsWith("Invalid rolePolicyConfig") ||
-      errorMessage.startsWith("Invalid learnedConfig") ||
-      errorMessage.startsWith("Invalid tunerConfig")
-    ) {
-      set.status = 400;
-      return { error: errorMessage };
     }
     set.status = ERROR_STATUS[errorMessage] ?? 500;
     return { error: errorMessage || "Internal server error" };
@@ -1555,25 +1269,13 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         instructions: settings.instructions,
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
-        resultSelection: (settings as any).resultSelection,
         parallelToolCalls: settings.parallelToolCalls,
         contextWindowTokens: settings.contextWindowTokens,
         compactionStrategy: settings.compactionStrategy,
         deckSampleRatio: settings.deckSampleRatio,
         maxResultRows: settings.maxResultRows,
         toolDialect: settings.toolDialect,
-        summarizeParams: parseSummarizePatch((settings as UpdateAgentSettingsRequest).summarizeParams),
-        selectorConfig: parseSelectorConfigInput((settings as any).selectorConfig),
-        frontierDecayConfig: parseFrontierDecayConfigInput((settings as any).frontierDecayConfig),
-        foldResolvedRevisionsConfig: parseFoldResolvedRevisionsConfigInput(
-          (settings as any).foldResolvedRevisionsConfig
-        ),
-        probeRetirementConfig: parseProbeRetirementConfigInput((settings as any).probeRetirementConfig),
-        rolePolicyConfig: parseRolePolicyConfigInput((settings as any).rolePolicyConfig),
-        learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
-        enableRenderPrefs: (settings as any).enableRenderPrefs,
-        tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         multiRequest: settings.multiRequest,
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
@@ -1616,7 +1318,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         instructions: t.Optional(t.String({ maxLength: 20000 })),
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
-        resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
         contextMode: t.Optional(t.Literal("delta")),
         parallelToolCalls: t.Optional(t.Boolean()),
         contextWindowTokens: t.Optional(t.Number()),
@@ -1624,24 +1325,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         deckSampleRatio: t.Optional(t.Number()),
         maxResultRows: t.Optional(t.Number()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
-        // Deep-partial summarize() params patch; zod-validated in-handler.
-        // Pass null to clear a previously-set patch.
-        summarizeParams: t.Optional(t.Any()),
-        // Selector action vector; zod-validated in-handler. null turns it off.
-        selectorConfig: t.Optional(t.Any()),
-        // Conservative settled-result overlay; zod-validated in-handler.
-        frontierDecayConfig: t.Optional(t.Any()),
-        // Rank-3 fold-resolved-revisions rule; zod-validated in-handler.
-        foldResolvedRevisionsConfig: t.Optional(t.Any()),
-        // Rank-4 probe-retirement overlay; zod-validated in-handler.
-        probeRetirementConfig: t.Optional(t.Any()),
-        rolePolicyConfig: t.Optional(t.Any()),
-        // Learned-selector config; validated in-handler. null turns it off.
-        learnedConfig: t.Optional(t.Any()),
         enableInspectTool: t.Optional(t.Boolean()),
-        enableRenderPrefs: t.Optional(t.Boolean()),
-        // LLM context-tuner config; validated in-handler. null turns it off.
-        tunerConfig: t.Optional(t.Any()),
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
         catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
         catalogRecent: t.Optional(t.Integer()),

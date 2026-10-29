@@ -33,18 +33,11 @@
 
 import { describe, expect, test } from "bun:test";
 import type { AssembleContextOptions } from "../../util/context-utils";
-import { mapLegacyToParams } from "./params";
-import { buildRichScenario, renderText, snapshotParams } from "./fixtures";
+import { buildRichScenario, renderText } from "./fixtures";
 
 function render(options: AssembleContextOptions): string {
-  return renderText(buildRichScenario(), mapLegacyToParams(options));
+  return renderText(buildRichScenario(), options);
 }
-
-describe("golden — current snapshot", () => {
-  test("no events, every operator's block", () => {
-    expect(renderText(buildRichScenario(), snapshotParams())).toMatchSnapshot();
-  });
-});
 
 describe("golden — DELTA", () => {
   test("default (lossless)", () => {

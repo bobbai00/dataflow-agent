@@ -35,7 +35,6 @@ import { getVisibleResultHeaders } from "./tools-utility";
 // result-formatting orchestrates them in the established composition order and
 // owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
 import { formatSchemaLine } from "../context/decorate/data/schema";
-import { formatSampleDuplicates, formatSampleFds } from "../context/summarize/sample-profile";
 
 // Back-compat re-exports: these render helpers were defined here before the
 // DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
@@ -70,29 +69,6 @@ export interface FormatOperatorResultOptions {
    *  duplication. DELTA leaves it true (it has no operator-block level).
    *  Undefined ⇒ true. */
   inputsInResult?: boolean;
-  /** summarize() detail level for the result body:
-   *   - "sample" (default / legacy): the TSV row sample renders.
-   *   - "shape": counts + column annotations only — no TSV rows. On an error
-   *     result, only the first error line renders (no traceback/code echo).
-   *  ("omit" is handled by the operator serializer — no Result block at all.) */
-  detail?: "shape" | "sample";
-  /** Per-operator char budget for the rendered TSV body (summarize
-   *  `tuple.maxChars`); 0/undefined ⇒ uncapped. Distinct from the agent-level
-   *  `maxOperatorResultCharLimit`, which is one engine-side number for the whole
-   *  execution and cannot vary per operator. */
-  maxResultChars?: number;
-  /** Include `(type)` tags on the Schema line (default true). */
-  schemaTypes?: boolean;
-  /** Sample-based duplicate rows / identical-column detection line. */
-  sampleDuplicates?: boolean;
-  /** Sample-based candidate functional-dependency line. */
-  sampleFdHints?: boolean;
-  /** Sample-based `Type anomaly:` line — text columns that are mostly numeric. */
-  /** Native `scoped` selection: restrict the TSV sample and the `Column Schema
-   *  and stats:` block to these columns (the ones the operator's parameters
-   *  name). The `Output Table` line and the `Schema:` line stay complete. An
-   *  empty list drops the stats block and leaves the sample unprojected. */
-  columns?: readonly string[];
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -231,11 +207,6 @@ export function formatOperatorResult(
       (opInfo.nativeError?.phase === "attempt" ? "\n- note: rejected edit; dataflow definition unchanged." : "")
     );
   }
-  if (opInfo.error && options.detail === "shape") {
-    // Shape-level error render: the first line carries the exception; the
-    // traceback + code echo are the "sample-level" detail.
-    return `[ERROR] ${opInfo.error.split("\n")[0]}`;
-  }
   if (opInfo.error) {
     // Old-style error rendering: the ENGINE error message carries only the
     // exception + user-code line pointer (the worker no longer echoes source);
@@ -258,9 +229,7 @@ export function formatOperatorResult(
     if (evidence?.frozen) {
       const text = restrictNativeObservation(
         evidence.frozen,
-        evidence.compact
-          ? { maxChars: options.maxResultChars, maxRows: options.maxResultRows, detail: options.detail }
-          : {}
+        evidence.compact ? { maxRows: options.maxResultRows } : {}
       );
       return shareNativeObservation(text, evidence.frozen, operatorId, evidence.sharedUpstream);
     }
@@ -273,11 +242,8 @@ export function formatOperatorResult(
       info: opInfo,
       data: evidence?.data ?? false,
       flow: evidence?.flow ?? false,
-      maxChars:
-        options.maxResultChars && options.maxResultChars > 0 ? Math.min(budget, options.maxResultChars) : budget,
+      maxChars: budget,
       maxRows: options.maxResultRows,
-      columns: options.columns,
-      detail: options.detail,
     });
     return shareNativeObservation(observation.text, observation, operatorId, evidence?.sharedUpstream);
   }
@@ -309,15 +275,6 @@ export function formatOperatorResult(
   // proxy. 0/undefined = no cap (current behavior). Cell-level trim is
   // unaffected (it happens downstream in the TSV renderer / backend).
   let sampleRows = serializableArray;
-  // Column scope: only the named columns (plus the row index) reach the TSV.
-  if (options.columns && options.columns.length > 0) {
-    const keep = new Set(options.columns);
-    sampleRows = sampleRows.map(row => {
-      const projected: Record<string, any> = {};
-      for (const k of Object.keys(row)) if (k === "__row_index__" || keep.has(k)) projected[k] = row[k];
-      return projected;
-    });
-  }
   const cap = options.maxResultRows ?? 0;
   if (cap > 0 && sampleRows.length > cap) {
     const head = Math.ceil(cap / 2);
@@ -327,19 +284,13 @@ export function formatOperatorResult(
         ? [...sampleRows.slice(0, head), ...sampleRows.slice(sampleRows.length - tail)]
         : sampleRows.slice(0, head);
   }
-  // detail:"shape" (summarize) drops the TSV body — counts + annotations only.
-  const rawDataString = options.detail === "shape" ? "" : jsonToTableFormat(sampleRows);
-  // Per-operator render budget (summarize `tuple.maxChars`). Keeps the header
-  // plus as many head/tail rows as fit, mirroring the fetch-time safety net in
-  // workflow-execution-tools so both truncations produce the same shape.
-  const dataString = clampTableChars(rawDataString, options.maxResultChars ?? 0);
-  const dataStringTruncatedByBudget = dataString.length < rawDataString.length;
+  const dataString = jsonToTableFormat(sampleRows);
 
   // A complete table with fewer than five rows is already its own exact
   // summary. Repeating mean/min/max/top-k stats adds tokens without revealing
   // anything beyond the visible rows. Keep stats whenever completeness is not
-  // provable: backend truncation, renderer row sampling, wide-column sampling,
-  // or shape-only rendering all hide data the stats may still summarize.
+  // provable: backend truncation, renderer row sampling or wide-column sampling
+  // all hide data the stats may still summarize.
   const totalRows = opInfo.totalRowCount ?? opInfo.outputTuples;
   const allRowsHeld = totalRows >= 0 && serializableArray.length === totalRows;
   const rendererTruncatedRows = sampleRows.length < serializableArray.length;
@@ -354,16 +305,11 @@ export function formatOperatorResult(
   const provablyComplete =
     opInfo.resultMode === "table" &&
     !isViz &&
-    options.detail !== "shape" &&
     allRowsHeld &&
     opInfo.truncated === false &&
     !rendererTruncatedRows &&
     !columnsTruncated &&
-    !cellsTruncated &&
-    // A per-operator char budget that clipped rows also breaks the proof: the
-    // agent can no longer read every value off the sample, so the stats block
-    // becomes load-bearing again.
-    !dataStringTruncatedByBudget;
+    !cellsTruncated;
   // Suppress the stats block whenever completeness is PROVEN, at any table size.
   // The five conditions above establish that every cell of every row is on
   // screen, so `null=`/`distinct=`/`min=`/`max=` are arithmetic over visible
@@ -385,22 +331,19 @@ export function formatOperatorResult(
       options.inputsInResult !== false,
       options.resolveInputColumns
     ),
-    columnsTruncated && options.detail !== "shape"
+    columnsTruncated
       ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)`
       : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const schemaLine =
-    options.schemaInResult === true ? formatSchemaLine(opInfo, options.schemaTypes !== false) : undefined;
-  const dupLine = options.sampleDuplicates ? formatSampleDuplicates(serializableArray) : undefined;
-  const fdLine = options.sampleFdHints ? formatSampleFds(serializableArray) : undefined;
+  const schemaLine = options.schemaInResult === true ? formatSchemaLine(opInfo) : undefined;
   // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
   // then the data-derived annotations that DESCRIBE the table (schema / column
   // schema+stats / format & structure hints), so annotations read AFTER the data
   // they refer to. Flow rungs live in context-utils' "Operators needing
   // attention" section; result-formatting owns only the data facet + TSV.
-  return [...metadataLines, dataString, schemaLine, dupLine, fdLine].filter(Boolean).join("\n");
+  return [...metadataLines, dataString, schemaLine].filter(Boolean).join("\n");
 }
 
 /**
@@ -546,86 +489,4 @@ function jsonToTableFormat(jsonResult: Record<string, any>[]): string {
   }
 
   return [headerLine, ...formattedRows].join("\n");
-}
-
-/**
- * Clamp a rendered `Code:` block to a char budget, keeping whole lines from the
- * HEAD and the TAIL and eliding the middle with a line-count marker.
- *
- * Head AND tail, not a prefix: the head carries the signature, imports and loads;
- * the tail carries the return value, which is what a downstream operator's schema
- * depends on. A prefix-only truncation would hide exactly the part that says what
- * this operator produces.
- *
- * Sized for the measured distribution — per-operator code blocks run p50 286 B,
- * p90 2,014 B, p99 6,081 B, max 16,400 B — so at a realistic budget most blocks
- * return unchanged and only the long tail is touched.
- */
-export function clampCodeChars(code: string, budget: number): string {
-  if (budget <= 0 || code.length <= budget) return code;
-  const lines = code.split("\n");
-  if (lines.length <= 2) return code.slice(0, budget);
-
-  const front: string[] = [];
-  const back: string[] = [];
-  // Reserve room for the marker so the result actually lands under budget.
-  const marker = (n: number) => `    # ... ${n} line${n === 1 ? "" : "s"} elided ...`;
-  let used = marker(lines.length).length + 1;
-  let i = 0;
-  let j = lines.length - 1;
-  // Alternate head/tail so both ends survive even at a tight budget; bias to the
-  // head on ties since it establishes what the function is.
-  while (i <= j) {
-    const takeFront = front.length <= back.length;
-    const idx = takeFront ? i : j;
-    const len = (lines[idx] ?? "").length + 1;
-    if (used + len > budget) break;
-    used += len;
-    if (takeFront) {
-      front.push(lines[idx]!);
-      i++;
-    } else {
-      back.unshift(lines[idx]!);
-      j--;
-    }
-  }
-  const elided = j - i + 1;
-  if (elided <= 0) return code;
-  if (front.length === 0 && back.length === 0) return code.slice(0, budget);
-  return [...front, marker(elided), ...back].join("\n");
-}
-
-/**
- * Clamp a rendered TSV table to a char budget, keeping the header plus as many
- * head + tail data rows as fit. Mirrors the fetch-time safety net in
- * workflow-execution-tools so a per-operator budget and the engine-side budget
- * produce the same shape. Returns the input unchanged when it already fits, when
- * the budget is 0/absent, or when the table has no data rows to drop.
- */
-export function clampTableChars(table: string, budget: number): string {
-  if (budget <= 0 || table.length <= budget) return table;
-  const lines = table.split("\n");
-  const header = lines[0] ?? "";
-  const rows = lines.slice(1);
-  if (rows.length === 0) return table;
-  const half = Math.floor((budget - (header.length + 1)) / 2);
-  if (half <= 0) return header;
-
-  const front: string[] = [];
-  let frontSize = 0;
-  for (const r of rows) {
-    const len = r.length + 1;
-    if (frontSize + len > half && front.length > 0) break;
-    front.push(r);
-    frontSize += len;
-  }
-  const back: string[] = [];
-  let backSize = 0;
-  for (let i = rows.length - 1; i >= front.length; i--) {
-    const len = rows[i]!.length + 1;
-    if (backSize + len > half && back.length > 0) break;
-    back.unshift(rows[i]!);
-    backSize += len;
-  }
-  return [header, ...front, ...back].join("\n");
 }

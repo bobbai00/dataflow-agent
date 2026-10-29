@@ -18,11 +18,8 @@
  */
 
 import { expect, test } from "bun:test";
-import { DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
-import { buildContextAssembler } from "../../server";
+import type { ReActStep } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
-import type { AssembleContextOptions } from "../util/context-utils";
-import { renderText, snapshotParams } from "../context/summarize/fixtures";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
@@ -34,9 +31,8 @@ import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
 
 /**
- * Evidence captured for the operators a call showed: what the current-snapshot
- * layout renders from the captured observations, what capture freezes, and who
- * owns a capture. (DELTA renders each call's receipt instead; turn-receipt tests
+ * Evidence captured for the operators a call showed: what capture freezes, and
+ * who owns a capture. (DELTA renders each call's receipt; turn-receipt tests
  * cover it.)
  */
 function fixture() {
@@ -189,102 +185,14 @@ function fixture() {
   return { state, steps, storage, record, persist, capture };
 }
 
-/** The current-snapshot layout (no events) for the fixture's steps. */
-const snapshot = (f: ReturnType<typeof fixture>, options: AssembleContextOptions) =>
-  renderText({ steps: f.steps, workflowState: f.state, storage: f.storage }, snapshotParams(options));
-
 const predicate = "def positive(row, *, minimum=0):\n    return row['x'] > minimum";
 const source = "set source: scan(files='data/test.csv')";
 const selected = (minimum = 0) =>
   `set selected: filter(source, predicate='positive', settings={'minimum': ${minimum}})`;
 const graph = (...lines: string[]) => [source, selected(), ...lines].join("\n");
 
-test("shared flow in the current snapshot: dedup only visible outputs in this frame", async () => {
+test("upstream summaries: a shown result pins its hidden calculation, revisions do not leak", async () => {
   const f = fixture();
-  const render = () => snapshot(f, { dataEvidence: true, flowEvidence: true, maxOperatorResultCharLimit: 2000 });
-  await f.record(
-    "A",
-    predicate,
-    graph(
-      "set first: project(selected, keep=['x'])",
-      "set second: project(selected, keep=['x'])",
-      "show result first, second"
-    ),
-    ["first", "second"]
-  );
-  f.persist("A", {
-    source: [-100, 0, 10, 20, 30],
-    selected: [10, 20, 30],
-    first: [10, 20, 30],
-    second: [10, 20, 30],
-  });
-  f.capture("A", ["first", "second"]);
-  const text = render();
-  expect(text.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
-  expect(text).toContain("- runtime stats: see");
-  expect(text).not.toContain("Sample record: -100");
-  expect(text.match(/records: sample; 1 of 3 rows/g)?.length).toBe(2);
-  const frozen = structuredClone(f.storage.getAssociatedSnapshot("A").nativeObservations);
-  await f.record("B", "", "show result second", ["second"]);
-  f.capture("B", ["second"]);
-  const later = render();
-  expect(later.match(/- runtime stats \(selected\):/g)?.length).toBe(1);
-  expect(later).not.toContain("- runtime stats: see");
-  expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual(frozen);
-});
-
-for (const dataEvidence of [false, true])
-  for (const flowEvidence of [false, true]) {
-    test(`production current snapshot: legacy controls cannot alter data=${dataEvidence}/flow=${flowEvidence} input`, async () => {
-      const f = fixture();
-      await f.record("A", predicate, graph("show result selected"), ["selected"]);
-      f.persist("A", { source: [-1, 0, 10, 20, 30], selected: [10, 20, 30] });
-      const info = f.storage.getOperatorResult("A", "selected")!;
-      f.storage.setOperatorResult("A", "selected", {
-        ...info,
-        columnStats: { x: "LEGACY_STATS_SENTINEL", __table_hints__: "LEGACY_HINT_SENTINEL" },
-      });
-      f.capture("A", ["selected"], dataEvidence, flowEvidence);
-      const assembler = buildContextAssembler("vercel-tool-use", {} as never);
-      const input = {
-        visibleSteps: f.steps,
-        workflowState: f.state,
-        snapshotStorage: f.storage,
-        settings: {
-          ...DEFAULT_AGENT_SETTINGS,
-          summarizeParams: { trajectory: { events: "none" }, currentSnapshot: true },
-          dataEvidence,
-          flowEvidence,
-        },
-      };
-      const expected = await assembler(input as any);
-      const text = JSON.stringify(expected);
-      expect(text.includes("statistics:")).toBe(dataEvidence);
-      expect(text.includes("- runtime stats:")).toBe(flowEvidence);
-      expect(text).not.toContain("LEGACY_");
-      for (const level of [0, 1, 2, 3]) {
-        expect(
-          await assembler({
-            ...input,
-            settings: {
-              ...input.settings,
-              flowLevel: level,
-              dataLevel: level,
-              columnStats: true,
-              valueFormat: true,
-              dataHints: true,
-              coercionTelemetry: true,
-              rowLineage: true,
-            },
-          } as any)
-        ).toEqual(expected);
-      }
-    });
-  }
-
-test("upstream summaries in the current snapshot: a shown result pins its hidden calculation, revisions do not leak", async () => {
-  const f = fixture();
-  const render = () => snapshot(f, { dataEvidence: false, flowEvidence: true, maxOperatorResultCharLimit: 2000 });
   await f.record("A", predicate, graph("set final: project(selected, keep=['x'])", "show result final"), ["final"]);
   f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30], final: [10, 20, 30] });
   f.capture("A", ["final"], false, true);
@@ -292,49 +200,37 @@ test("upstream summaries in the current snapshot: a shown result pins its hidden
   expect(frozen.text).toContain("- runtime stats (selected):");
   expect(frozen.text).toContain("kept=3/5");
   expect(frozen.text).not.toContain("-100");
-  expect(render()).toContain("kept=3/5");
   await f.record("B", "", selected(10));
   f.persist("B", { selected: [20, 30], final: [20, 30] }, "101");
   f.capture("B", [], false, true);
-  expect(render()).not.toContain("kept=2/5");
-  expect(render()).not.toContain("kept=3/5");
+  expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
   await f.record("C", "", "show result final", ["final"]);
   f.capture("C", ["final"], false, true);
-  expect(render()).toContain("kept=2/5");
+  expect(f.storage.getAssociatedSnapshot("C").nativeObservations!.final.text).toContain("kept=2/5");
   expect(f.storage.getAssociatedSnapshot("A").nativeObservations!.final).toEqual(frozen);
 });
 
-test("V2 evidence in the current snapshot: shown result, revision, error, cached read", async () => {
+test("V2 evidence capture: shown result, revision, error, cached read", async () => {
   const f = fixture();
-  let dataEvidence: boolean = true,
-    flowEvidence: boolean = true;
-  const render = () => snapshot(f, { dataEvidence, flowEvidence, maxOperatorResultCharLimit: 2000 });
   await f.record("A", predicate, graph("show result selected"), ["selected"]);
   f.persist("A", { source: [-100, 0, 10, 20, 30], selected: [10, 20, 30] });
   f.capture("A", ["selected"]);
   expect(f.storage.getOperatorResult("A", "selected")?.tableProfile?.status).toBe("available");
   const frame = f.storage.getAssociatedSnapshot("A").nativeObservations?.selected;
   expect(frame?.text).toContain("kept=3/5");
+  expect(frame?.text).toContain("statistics:");
   expect(frame?.text).not.toContain("-100"); // downstream facts do not dump upstream samples
-  expect(render()).toContain("kept=3/5");
-  expect(render()).toContain("statistics:");
 
   await f.record("B", "", selected(10));
   f.persist("B", { selected: [20, 30] }, "101");
   f.capture("B", []);
-  expect(render()).not.toContain("kept=2/5");
-  expect(render()).toContain("result not requested");
   expect(f.storage.getAssociatedSnapshot("B").nativeObservations).toEqual({});
-  expect(render()).not.toContain("kept=3/5");
 
   await f.record("C", "", "show result selected", ["selected"]);
   f.capture("C", ["selected"]);
-  expect(render()).toContain("kept=2/5");
+  expect(f.storage.getAssociatedSnapshot("C").nativeObservations?.selected.text).toContain("kept=2/5");
   expect(f.storage.getAssociatedSnapshot("A").nativeObservations?.selected).toEqual(frame);
   expect(f.storage.getOperatorResult("C", "selected")).toEqual(f.storage.getOperatorResult("B", "selected"));
-  dataEvidence = flowEvidence = false;
-  expect(render()).not.toContain("- runtime stats:");
-  expect(render()).not.toContain("statistics:");
 
   await f.record("D", "", selected(20));
   f.storage.setOperatorResult("D", "selected", {
@@ -345,7 +241,6 @@ test("V2 evidence in the current snapshot: shown result, revision, error, cached
     error: "CALLBACK_RETURN_TYPE: expected bool",
   });
   f.capture("D", []);
-  expect(render()).toContain("CALLBACK_RETURN_TYPE");
   expect(f.storage.getOperatorResult("D", "selected")?.tableProfile).toBeUndefined();
 });
 
@@ -399,10 +294,7 @@ for (const data of [false, true]) {
       expect(output.includes("statistics:")).toBe(data);
       expect(output.includes("- runtime stats:")).toBe(flow);
       expect(output.length).toBeLessThanOrEqual(2000);
-      const rendered = snapshot(f, { dataEvidence: data, flowEvidence: flow, maxOperatorResultCharLimit: 2000 });
-      expect(rendered.includes("statistics:")).toBe(data);
-      expect(rendered.includes("- runtime stats:")).toBe(flow);
-      expect(rendered).not.toContain("Column Schema and stats");
+      expect(output).not.toContain("Column Schema and stats");
       expect(f.storage.getOperatorResult("B", "selected")).toEqual(f.storage.getOperatorResult("A", "selected"));
       expect(f.storage.getAssociatedSnapshot("A").nativeObservations).toEqual({});
     });

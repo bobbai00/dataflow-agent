@@ -19,15 +19,6 @@
 
 import { DEFAULT_OBSERVATION_FORMAT, type ObservationFormatSettings } from "../agent/native/observation-format";
 
-import type { SummarizeParamsPatch } from "../agent/context/summarize/params";
-import type { SelectorConfig } from "../agent/context/selector/selector";
-import type { FrontierDecayConfig } from "../agent/context/selector/frontier-decay";
-import type { ProbeRetirementConfig } from "../agent/context/selector/probe-retirement";
-import type { RolePolicyConfig } from "../agent/context/selector/role-policy";
-import type { FoldResolvedRevisionsConfig } from "../agent/context/select/revision-folds";
-import type { LearnedConfig } from "../agent/context/learned/score";
-import type { TunerConfig } from "../agent/context/tuner/tuner";
-
 export type RetrievalView = "full" | "sample" | "sample_stats";
 
 export interface RetrievalSettings {
@@ -162,22 +153,6 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Which operator results the context ships, and at what fidelity.
- *  - "all":  every executed operator renders its full result block (legacy).
- *  - "rule": ship only what the data decided (native mode): full blocks for
- *            Scan/Aggregate/Join/UDF outputs, for the input of any
- *            Aggregate/Join/UDF, and for frontier operators; a row-count line
- *            for Filter/Distinct/Union/Limit; header only for Project/Sort and
- *            for Compute whose columns' null/distinct counts did not move.
- *  - "scoped": the rule, plus HOW MUCH of a shipped table: statistics and
- *            sample values only for the columns the operator's parameters (and
- *            its consumers') name, sample rows per type (scan 8, compute 3,
- *            filter 0, aggregate all up to 20), and — in DELTA — an
- *            upstream-caused re-execution as a one-line diff, not a table.
- */
-export type ResultSelection = "all" | "rule" | "scoped";
-
-/**
  * DELTA compaction strategy — how the assembler shrinks the trajectory once the
  * raw delta would exceed `contextWindowTokens`:
  *   - "sliding": evict the oldest whole agent events until it fits.
@@ -204,8 +179,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  (row, cell and time budgets); "full" profiles every row exactly with
    *  vectorized passes. Compiled into each operator like collection. */
   nativeProfileScope?: "prefix" | "full";
-  /** Which operator results the snapshot ships (see ResultSelection). */
-  resultSelection: ResultSelection;
   /** Whether the provider may emit several tool calls in one assistant turn.
    *  Native mode asks for one call per turn. */
   parallelToolCalls: boolean;
@@ -260,48 +233,11 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
   toolDialect: LocalToolDialect;
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  summarizeParams?: SummarizeParamsPatch;
-  /**
-   * When set, the per-step SELECTOR policy (context/selector) chooses the
-   * summarize() params from the live dossier — the "context tuner" running
-   * end-to-end. Overrides the flat contextMode/knob surface. The value is the
-   * trainable `SelectorConfig` action vector. Undefined ⇒ selector off (use the
-   * legacy contextMode path). See docs/summarize-tuning-intuitions.md.
-   */
-  selectorConfig?: SelectorConfig;
-  /** Conservative base-preserving decay for settled single-consumer results. */
-  frontierDecayConfig?: FrontierDecayConfig;
-  /** Rank-3 static rule (DELTA-only): fold resolved operator revisions into
-   *  one-line resolution facts. */
-  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
-  /** Rank-4 static rule (LATEST): retire superseded isolated probes to a
-   *  compact extracted fact once their discovery is encoded downstream. */
-  probeRetirementConfig?: ProbeRetirementConfig;
-  /** RULE A: role-keyed render policy (rich source / lean interior). */
-  rolePolicyConfig?: RolePolicyConfig;
-  /**
-   * When set, the LEARNED utility model (context/learned/model.json) scores each
-   * operator and a budget knapsack assigns representation levels
-   * (omit≺shape≺sample+stats) — the trained counterpart of selectorConfig.
-   * Highest precedence in the assembler. The value is the `LearnedConfig`
-   * (token budget + protect/stats flags). Undefined ⇒ off. Falls back to the
-   * selector/legacy path if no model is bundled. See docs/learned-context-selection.md.
-   */
-  learnedConfig?: LearnedConfig;
   /**
    * @deprecated Compatibility field; always false. The result-inspection tool
    * has been removed. Native batch mode retrieves results with `observe`.
    */
   enableInspectTool: boolean;
-  /**
-   * Write-time render prefs: `createOrModifyOperator` accepts optional
-   * `outputSummary` ("minimal"|"standard")
-   * controlling how much of the op's result is RENDERED (view-only — the full
-   * output is always computed and flows downstream). Gates the tool params,
-   * the prompt section, and the render application. Off by default.
-   */
-  enableRenderPrefs: boolean;
   /**
    * Where the `# User Task` block goes.
    *
@@ -342,21 +278,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * 0 (default): every earlier request is an entry.
    */
   catalogRecent: number;
-  /**
-   * Static compaction rule (DELTA-only). When true, the assembler automatically
-   * folds settled older events into the compact deck once the trajectory grows
-   * past a static trigger, keeping the last K steps raw — a deterministic
-   * demonstration that compaction pays off, with no agent involvement.
-   */
-  staticCompaction: boolean;
-  /**
-   * When set, an LLM "teacher" (context tuner) is consulted each step: it reads
-   * a cheap pipeline manifest and returns per-operator context detail levels
-   * (context/tuner). Overrides the selector/contextMode paths. The value names
-   * the teacher model + render sizes. Undefined ⇒ tuner off. See
-   * docs/selector-architecture.md.
-   */
-  tunerConfig?: TunerConfig;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -383,7 +304,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   instructions: "",
   answerStatement: false,
   nativeChecks: false,
-  resultSelection: "all",
   parallelToolCalls: true,
   contextWindowTokens: 0,
   compactionStrategy: "compress",
@@ -393,8 +313,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   maxResultRows: 3,
   toolDialect: "qwen-xml",
   enableInspectTool: false,
-  enableRenderPrefs: false,
-  staticCompaction: false,
   userTaskPlacement: "top",
   multiRequest: "off",
   catalogSource: "full",
@@ -473,35 +391,13 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
-  /** Native mode result selection: "all" (default), "rule" or "scoped". */
-  resultSelection?: "all" | "rule" | "scoped";
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
-  /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
-  summarizeParams?: SummarizeParamsPatch;
-  /** Trainable selector action vector (see AgentSettings.selectorConfig). */
-  selectorConfig?: SelectorConfig;
-  /** Settled-result decay overlay (see AgentSettings.frontierDecayConfig). */
-  frontierDecayConfig?: FrontierDecayConfig;
-  /** Fold resolved revisions (see AgentSettings.foldResolvedRevisionsConfig). */
-  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig;
-  /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
-  probeRetirementConfig?: ProbeRetirementConfig;
-  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
-  rolePolicyConfig?: RolePolicyConfig;
-  /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
-  learnedConfig?: LearnedConfig;
   /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
   enableInspectTool?: boolean;
-  /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
-  enableRenderPrefs?: boolean;
-  /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
-  staticCompaction?: boolean;
-  /** LLM context-tuner config (see AgentSettings.tunerConfig). */
-  tunerConfig?: TunerConfig;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
   userTaskPlacement?: "top" | "bottom";
   /** Sessions with several requests (see AgentSettings.multiRequest). */
@@ -553,35 +449,13 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   answerStatement?: boolean;
   nativeChecks?: boolean;
   parallelToolCalls?: boolean;
-  /** Native mode result selection: "all" (default), "rule" or "scoped". */
-  resultSelection?: "all" | "rule" | "scoped";
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
-  /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
-  summarizeParams?: SummarizeParamsPatch;
-  /** Trainable selector action vector (see AgentSettings.selectorConfig). */
-  selectorConfig?: SelectorConfig;
-  /** Settled-result decay overlay (see AgentSettings.frontierDecayConfig). */
-  frontierDecayConfig?: FrontierDecayConfig | null;
-  /** Fold resolved revisions (see AgentSettings.foldResolvedRevisionsConfig). */
-  foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
-  /** Probe retirement overlay (see AgentSettings.probeRetirementConfig). */
-  probeRetirementConfig?: ProbeRetirementConfig | null;
-  /** Role policy overlay (see AgentSettings.rolePolicyConfig). */
-  rolePolicyConfig?: RolePolicyConfig | null;
-  /** Learned utility-model selector config (see AgentSettings.learnedConfig). */
-  learnedConfig?: LearnedConfig;
   /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
   enableInspectTool?: boolean;
-  /** Write-time render prefs on createOrModifyOperator (see AgentSettings.enableRenderPrefs). */
-  enableRenderPrefs?: boolean;
-  /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
-  staticCompaction?: boolean;
-  /** LLM context-tuner config (see AgentSettings.tunerConfig). */
-  tunerConfig?: TunerConfig;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
   /** Catalog entries' functions (see AgentSettings.catalogSource). */

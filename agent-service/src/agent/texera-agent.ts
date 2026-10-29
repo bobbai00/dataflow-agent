@@ -46,14 +46,6 @@ import type {
   UserInfo,
   ToolOperatorAccess,
 } from "../types/agent";
-import type { SummarizeParamsPatch } from "./context/summarize/params";
-import type { SelectorConfig } from "./context/selector/selector";
-import type { FrontierDecayConfig } from "./context/selector/frontier-decay";
-import type { ProbeRetirementConfig } from "./context/selector/probe-retirement";
-import type { RolePolicyConfig } from "./context/selector/role-policy";
-import type { FoldResolvedRevisionsConfig } from "./context/select/revision-folds";
-import type { LearnedConfig } from "./context/learned/score";
-import type { TunerConfig } from "./context/tuner/tuner";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
 import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS, OperatorResultSerializationMode } from "../types/agent";
@@ -74,7 +66,6 @@ import {
 import { writtenOperatorId } from "./util/context-utils";
 import { withCurrentLayout } from "./util/auto-layout";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
-import type { ResultSelection } from "../types/agent";
 import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 import { renderAnswer } from "./native/answer";
 import { hasCurrentResult, namedOperatorIds, namedResultsFeedback } from "./native/named-results";
@@ -345,7 +336,7 @@ export class TexeraAgent {
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
-   *  return a value even when the assembler is async (the LLM tuner). */
+   *  return a value even when the assembler is async (an input budget). */
   private lastRenderedContext: string | undefined = undefined;
 
   private delegateConfig?: {
@@ -582,9 +573,7 @@ export class TexeraAgent {
     // so inject it only when the window is on AND the strategy is compress. Sliding
     // produces a self-describing `(… omitted …)` marker, not a deck, so it gets no
     // section (describing a deck it never renders would be its own drift).
-    const compactionEnabled =
-      (this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress") ||
-      this.settings.staticCompaction === true;
+    const compactionEnabled = this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
     if (this.systemPromptBuilder) {
       // Driver-level override (local-react). Bypass the mode-based builders
       // entirely so the wire prompt always matches the model's training
@@ -930,25 +919,14 @@ export class TexeraAgent {
       instructions?: string;
       answerStatement?: boolean;
       nativeChecks?: boolean;
-      resultSelection?: ResultSelection;
       parallelToolCalls?: boolean;
       contextWindowTokens?: number;
       compactionStrategy?: CompactionStrategy;
       deckSampleRatio?: number;
       maxResultRows?: number;
       toolDialect?: LocalToolDialect;
-      summarizeParams?: SummarizeParamsPatch | null;
-      selectorConfig?: SelectorConfig | null;
-      frontierDecayConfig?: FrontierDecayConfig | null;
-      foldResolvedRevisionsConfig?: FoldResolvedRevisionsConfig | null;
-      probeRetirementConfig?: ProbeRetirementConfig | null;
-      rolePolicyConfig?: RolePolicyConfig | null;
-      learnedConfig?: LearnedConfig | null;
       enableInspectTool?: boolean;
-      enableRenderPrefs?: boolean;
-      staticCompaction?: boolean;
       userTaskPlacement?: "top" | "bottom";
-      tunerConfig?: TunerConfig | null;
       multiRequest?: AgentSettings["multiRequest"];
       catalogSource?: AgentSettings["catalogSource"];
       catalogRecent?: AgentSettings["catalogRecent"];
@@ -1059,12 +1037,6 @@ export class TexeraAgent {
     if (updates.maxSteps !== undefined) {
       this.settings.maxSteps = updates.maxSteps;
     }
-    if (updates.resultSelection !== undefined && updates.resultSelection !== this.settings.resultSelection) {
-      // Render-time selection of result blocks; the native prompt describes the
-      // shapes the agent will see, so it rebuilds too.
-      this.settings.resultSelection = updates.resultSelection;
-      promptNeedsRebuild = true;
-    }
     // Native mode asks the provider for one tool call per turn.
     this.settings.parallelToolCalls = false;
     if (updates.maxResultRows !== undefined) {
@@ -1096,57 +1068,14 @@ export class TexeraAgent {
       this.settings.deckSampleRatio = updates.deckSampleRatio;
       // Pure render-time setting — compress-deck row-sample fraction.
     }
-    if (updates.summarizeParams !== undefined) {
-      // Pure render-time patch over the summarize() parameter space; applied
-      // on the next context assembly. `null` clears a previously-set patch.
-      this.settings.summarizeParams = updates.summarizeParams ?? undefined;
-    }
-    if (updates.selectorConfig !== undefined) {
-      // Pure render-time: switches the assembler onto the per-step selector
-      // policy. `null` turns the selector off (back to the contextMode path).
-      this.settings.selectorConfig = updates.selectorConfig ?? undefined;
-    }
-    if (updates.frontierDecayConfig !== undefined) {
-      // Pure render-time overlay on the legacy context preset. `null` clears it.
-      this.settings.frontierDecayConfig = updates.frontierDecayConfig ?? undefined;
-    }
-    if (updates.foldResolvedRevisionsConfig !== undefined) {
-      // Pure render-time (DELTA): fold resolved revisions. `null` clears it.
-      this.settings.foldResolvedRevisionsConfig = updates.foldResolvedRevisionsConfig ?? undefined;
-    }
-    if (updates.probeRetirementConfig !== undefined) {
-      // Pure render-time (LATEST): probe-retirement overlay. `null` clears it.
-      this.settings.probeRetirementConfig = updates.probeRetirementConfig ?? undefined;
-    }
-    if (updates.rolePolicyConfig !== undefined) {
-      // Pure render-time (LATEST): role-keyed render policy. `null` clears it.
-      this.settings.rolePolicyConfig = updates.rolePolicyConfig ?? undefined;
-    }
-    if (updates.learnedConfig !== undefined) {
-      // Pure render-time: switches the assembler onto the learned utility model.
-      // `null` turns it off (back to selector/contextMode). Read per-call.
-      this.settings.learnedConfig = updates.learnedConfig ?? undefined;
-    }
     if (updates.enableInspectTool !== undefined) {
       // Compatibility input only. Result retrieval is through batch observe;
       // legacy clients cannot re-enable a removed tool by changing settings.
       this.settings.enableInspectTool = false;
     }
-    if (updates.enableRenderPrefs !== undefined) {
-      // Pure render-time: write-time render prefs, applied by the assembler per call.
-      this.settings.enableRenderPrefs = updates.enableRenderPrefs;
-    }
-    if (updates.staticCompaction !== undefined) {
-      this.settings.staticCompaction = updates.staticCompaction;
-    }
     if (updates.userTaskPlacement !== undefined) {
       // Pure render-time: where the `# User Task` block goes.
       this.settings.userTaskPlacement = updates.userTaskPlacement;
-    }
-    if (updates.tunerConfig !== undefined) {
-      // Pure render-time: switches the assembler onto the LLM context-tuner
-      // path. `null` turns it off. The assembler reads this per-call.
-      this.settings.tunerConfig = updates.tunerConfig ?? undefined;
     }
     if (updates.toolDialect !== undefined && updates.toolDialect !== this.settings.toolDialect) {
       this.settings.toolDialect = updates.toolDialect;
@@ -1423,8 +1352,9 @@ export class TexeraAgent {
               budgetFeedbackSteps++;
             }
             const visibleSteps = this.contextSteps();
-            // The assembler may be async (LLM context tuner). Await it here on the
-            // prepareStep path; cache the rendered content for the sync preview.
+            // The assembler may be async (an input budget re-renders until the
+            // request fits). Await it here on the prepareStep path; cache the
+            // rendered content for the sync preview.
             const processed = await budgetContextAssembler(
               this.contextAssembler,
               () => this.getSystemInfo(),
@@ -1827,8 +1757,8 @@ export class TexeraAgent {
       settings: this.settings,
       turnNumberByMessageId: this.turnNumberMap(),
     });
-    // An async assembler (LLM tuner) can't be awaited in this sync preview —
-    // return the content last rendered on the prepareStep path.
+    // An async assembler can't be awaited in this sync preview — return the
+    // content last rendered on the prepareStep path.
     if (processed instanceof Promise) return this.lastRenderedContext ?? "";
     return processed
       .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))

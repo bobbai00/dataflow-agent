@@ -76,7 +76,6 @@ collection policy, layout, and budget, changing only these two booleans:
   "nativeProfileCollection": true,
   "parallelToolCalls": false,
   "contextMode": "delta",
-  "resultSelection": "all",
   "maxOperatorResultCharLimit": 2000,
   "dataEvidence": true,
   "flowEvidence": true
@@ -105,9 +104,8 @@ Python client spellings are `data_evidence`, `flow_evidence`, and
   collection policies. Keep it `true` in all four matched arms to compare
   exposure with collection held fixed. Evidence switches do not retroactively
   collect missing measurements.
-- **`observe` controls successful result visibility.** `resultSelection: "all"`
-  does not override the explicit observe list in batch mode. No `inspectResult`
-  tool is available, and observing cannot turn on a disabled evidence family.
+- **`observe` controls successful result visibility.** No `inspectResult` tool
+  is available, and observing cannot turn on a disabled evidence family.
 - This no-evidence configuration still uses the new Python V2 catalog. It is
   not the historical V1/native-all-results baseline under a new name.
 

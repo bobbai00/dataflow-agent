@@ -93,10 +93,9 @@ body to appear verbatim in a frame with sharing enabled.
 | Data + flow | Both, plus exact displayed Filter/Data count deduplication |
 
 DELTA gets a fresh sharing memo for each event. An observation in a later event
-prints its own upstream summary; it never points into a previous event. LATEST
-gets a fresh memo for each current snapshot. Observing only the second output
-later restores a complete summary. Stored old DELTA observations are not
-reselected or rewritten. These boundaries preserve replayable history and
+prints its own upstream summary; it never points into a previous event. A
+compacted deck gets a fresh memo of its own. Stored old DELTA observations are
+not reselected or rewritten. These boundaries preserve replayable history and
 avoid dangling references after context restriction.
 
 No runtime switch or legacy statistics setting is added. `dataEvidence` and
