@@ -58,17 +58,15 @@ def test_opt_in_profile_survives_legacy_stats_replacement_and_accumulates_yields
     assert published(context)[0] == result
 
 
-def test_a_native_table_gets_no_display_stats_and_a_plain_table_keeps_them():
-    # The agent renders a native table from its typed profile only; the display
-    # strings are a full pass per column that nothing reads for it.
+def test_a_table_gets_no_display_stats_and_no_profile_unless_collection_is_on():
     a, b = Context("a", InternalQueue()), Context("b", InternalQueue())
     disabled, plain = frame([1, None], False), frame([1, None], False)
     plain.attrs.clear()
     DataProcessor(a)._publish_column_stats(disabled)
     DataProcessor(b)._publish_column_stats(plain)
     assert a.statistics_manager.get_statistics().result_statistics == {}
-    assert "x" in b.statistics_manager.get_statistics().result_statistics
-    assert published(a) == []
+    assert "x" not in b.statistics_manager.get_statistics().result_statistics
+    assert published(a) == [] and published(b) == []
     pd.testing.assert_frame_equal(disabled, plain)
 
 

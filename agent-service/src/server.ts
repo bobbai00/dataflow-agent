@@ -25,12 +25,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
-import {
-  NativeCatalogSettingsError,
-  refuseUnknownSettings,
-  validateNativeSettings,
-  validateEvidenceSettings,
-} from "./agent/native/settings";
+import { NativeCatalogSettingsError, refuseUnknownSettings, validateNativeSettings } from "./agent/native/settings";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
 import { nativeRuntimeForClients, workflowNativeRuntime } from "./agent/native/codegen";
 import { describeNativeStatement } from "./agent/native/statement-form";
@@ -116,7 +111,7 @@ import type {
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentMode, AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
+import { AgentState, ContextMode, OperatorResultSerializationMode } from "./types/agent";
 
 /**
  * Pick the driver from an optional explicit choice or fall back to
@@ -187,7 +182,6 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
   }) => {
     const legacyOptions: AssembleContextOptions = {
       compilationResult,
-      agentMode: settings.agentMode,
       ...observationFormat(settings),
       nativeEvidence: {
         ...observationFormat(settings),
@@ -211,9 +205,7 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
       errorReflection: settings.errorReflection,
       errorReflectionThreshold: settings.errorReflectionThreshold,
       thoughtReplayK: settings.thoughtReplayK,
-      fewShotPrompt: settings.fewShotPrompt,
       maxResultRows: settings.maxResultRows,
-      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
       maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
       staticCompaction: settings.staticCompaction,
       // Request placement in multi-request sessions (cache).
@@ -326,8 +318,8 @@ export function buildContextAssembler(kind: AgentDriverKind, openai: OpenAIProvi
   if (kind === "local-react") {
     // The local text-mode driver picks the assembler by tool-call dialect so
     // each dialect's context matches the format its system prompt describes:
-    //   - qwen-xml  → the SDK context (its prompt is the CODE-mode body, which
-    //     describes `# User Task` / `# Current Dataflow`).
+    //   - qwen-xml  → the SDK context (its prompt, `code-mode.md`, describes
+    //     `# User Task` / `# Current Dataflow`).
     //   - react-text → the legacy `# Event N` / Thought:/Actions: renderer that
     //     `prompts/local-react.txt` describes.
     // Read per-call from settings (toolDialect is mutable), mirroring how the
@@ -370,17 +362,12 @@ function applyInitialSettings(
   settings: NonNullable<CreateAgentRequest["settings"]>
 ): void {
   log.info(
-    {
-      agentId,
-      maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-      maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-    },
+    { agentId, maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit },
     "applying initial agent settings"
   );
   agent.updateSettings({
     ...observationFormatPatch(settings),
     maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-    maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: settings.operatorResultSerializationMode
       ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
       : undefined,
@@ -388,8 +375,6 @@ function applyInitialSettings(
     executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
     disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
     maxSteps: settings.maxSteps,
-    maxOperatorEdits: settings.maxOperatorEdits,
-    agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
     nativeProfileCollection: settings.nativeProfileCollection,
     nativeProfileScope: settings.nativeProfileScope,
     dataEvidence: settings.dataEvidence,
@@ -415,7 +400,6 @@ function applyInitialSettings(
     errorReflection: settings.errorReflection,
     errorReflectionThreshold: settings.errorReflectionThreshold,
     thoughtReplayK: settings.thoughtReplayK,
-    fewShotPrompt: settings.fewShotPrompt,
     maxResultRows: settings.maxResultRows,
     attemptReflection: settings.attemptReflection,
     toolDialect: settings.toolDialect,
@@ -429,7 +413,6 @@ function applyInitialSettings(
     enableInspectTool: (settings as any).enableInspectTool,
     enableRenderPrefs: (settings as any).enableRenderPrefs,
     enableCodeInSnapshot: (settings as any).enableCodeInSnapshot,
-    sourceProvenanceHint: (settings as any).sourceProvenanceHint,
     staticCompaction: (settings as any).staticCompaction,
     userTaskPlacement: (settings as any).userTaskPlacement,
     messageLayout: (settings as any).messageLayout,
@@ -562,14 +545,11 @@ const OBSERVATION_SETTINGS_SCHEMA = {
  * PATCH takes them all but the few fixed when the agent is created. */
 const AGENT_SETTINGS_SCHEMA = t.Object({
   maxOperatorResultCharLimit: t.Optional(t.Number()),
-  maxOperatorResultCellCharLimit: t.Optional(t.Number()),
   operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
   toolTimeoutSeconds: t.Optional(t.Number()),
   executionTimeoutMinutes: t.Optional(t.Number()),
   disabledTools: t.Optional(t.Array(t.String())),
   maxSteps: t.Optional(t.Number()),
-  maxOperatorEdits: t.Optional(t.Number()),
-  agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
   ...OBSERVATION_SETTINGS_SCHEMA,
   nativeProfileCollection: t.Optional(t.Boolean()),
   nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
@@ -601,7 +581,6 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   errorReflection: t.Optional(t.Boolean()),
   errorReflectionThreshold: t.Optional(t.Number()),
   thoughtReplayK: t.Optional(t.Number()),
-  fewShotPrompt: t.Optional(t.Boolean()),
   maxResultRows: t.Optional(t.Number()),
   attemptReflection: t.Optional(t.Boolean()),
   toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
@@ -617,7 +596,6 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   enableInspectTool: t.Optional(t.Boolean()),
   enableRenderPrefs: t.Optional(t.Boolean()),
   enableCodeInSnapshot: t.Optional(t.Boolean()),
-  sourceProvenanceHint: t.Optional(t.Boolean()),
   staticCompaction: t.Optional(t.Boolean()),
   userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
   messageLayout: t.Optional(t.String()),
@@ -633,14 +611,11 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   return {
     ...observationFormat(agentSettings),
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-    maxOperatorResultCellCharLimit: agentSettings.maxOperatorResultCellCharLimit,
     operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
     toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
     disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
-    maxOperatorEdits: agentSettings.maxOperatorEdits,
-    agentMode: agentSettings.agentMode,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeProfileScope: agentSettings.nativeProfileScope,
     dataEvidence: agentSettings.dataEvidence,
@@ -667,7 +642,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     errorReflection: agentSettings.errorReflection,
     errorReflectionThreshold: agentSettings.errorReflectionThreshold,
     thoughtReplayK: agentSettings.thoughtReplayK,
-    fewShotPrompt: agentSettings.fewShotPrompt,
     maxResultRows: agentSettings.maxResultRows,
     attemptReflection: agentSettings.attemptReflection,
     toolDialect: agentSettings.toolDialect,
@@ -681,7 +655,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     enableInspectTool: agentSettings.enableInspectTool,
     enableRenderPrefs: agentSettings.enableRenderPrefs,
     enableCodeInSnapshot: agentSettings.enableCodeInSnapshot,
-    sourceProvenanceHint: agentSettings.sourceProvenanceHint,
     staticCompaction: agentSettings.staticCompaction,
     tunerConfig: agentSettings.tunerConfig,
     multiRequest: agentSettings.multiRequest,
@@ -1606,21 +1579,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     ({ params: { id }, body }) => {
       const agent = getAgent(id);
       const settings = body as UpdateAgentSettingsRequest;
-      validateEvidenceSettings(settings);
+      validateNativeSettings(settings);
 
       log.info(
-        {
-          agentId: id,
-          maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-          maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
-        },
+        { agentId: id, maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit },
         "updating agent settings"
       );
 
       agent.updateSettings({
         ...observationFormatPatch(settings),
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-        maxOperatorResultCellCharLimit: settings.maxOperatorResultCellCharLimit,
         operatorResultSerializationMode: settings.operatorResultSerializationMode
           ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
           : undefined,
@@ -1629,8 +1597,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
         disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
-        maxOperatorEdits: settings.maxOperatorEdits,
-        agentMode: settings.agentMode ? (settings.agentMode as AgentMode) : undefined,
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeProfileScope: settings.nativeProfileScope,
         dataEvidence: settings.dataEvidence,
@@ -1658,7 +1624,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         errorReflection: settings.errorReflection,
         errorReflectionThreshold: settings.errorReflectionThreshold,
         thoughtReplayK: settings.thoughtReplayK,
-        fewShotPrompt: settings.fewShotPrompt,
         maxResultRows: settings.maxResultRows,
         attemptReflection: settings.attemptReflection,
         toolDialect: settings.toolDialect,
@@ -1673,16 +1638,14 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         learnedConfig: parseLearnedConfigInput((settings as any).learnedConfig),
         enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
         enableRenderPrefs: (settings as any).enableRenderPrefs,
-        sourceProvenanceHint: (settings as any).sourceProvenanceHint,
         tunerConfig: parseTunerConfigInput((settings as any).tunerConfig),
         multiRequest: settings.multiRequest,
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
       });
 
-      // Settings can change context assembly (agentMode flips schema gating,
-      // contextMode flips the selection policy) — re-broadcast the preview
-      // so clients stay in sync.
+      // Settings can change context assembly (contextMode flips the selection
+      // policy) — re-broadcast the preview so clients stay in sync.
       broadcastNextContext(id, agent);
       traceStore?.agentSettings(id, settingsToApi(agent), settings);
 
@@ -1694,14 +1657,11 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       transform: ({ body }) => refuseUnknownSettings(body, SETTING_KEYS),
       body: t.Object({
         maxOperatorResultCharLimit: t.Optional(t.Number()),
-        maxOperatorResultCellCharLimit: t.Optional(t.Number()),
         operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
         toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
         maxSteps: t.Optional(t.Number()),
-        maxOperatorEdits: t.Optional(t.Number()),
         disabledTools: t.Optional(t.Array(t.String())),
-        agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
         ...OBSERVATION_SETTINGS_SCHEMA,
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
@@ -1733,7 +1693,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         errorReflection: t.Optional(t.Boolean()),
         errorReflectionThreshold: t.Optional(t.Number()),
         thoughtReplayK: t.Optional(t.Number()),
-        fewShotPrompt: t.Optional(t.Boolean()),
         maxResultRows: t.Optional(t.Number()),
         attemptReflection: t.Optional(t.Boolean()),
         toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),

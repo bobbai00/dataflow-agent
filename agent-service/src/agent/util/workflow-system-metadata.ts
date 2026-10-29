@@ -177,20 +177,17 @@ export class WorkflowSystemMetadata {
   }
 
   /**
-   * Register minimal schemas for the two operator types the code-mode tool
-   * chain ever creates (`DataLoading` and `DataProcessing`), but only for
-   * types not already known. Backend-loaded metadata always wins — this is
-   * just a fallback so `createCreateOrModifyOperatorTool` can land
-   * operators when the Texera backend is unreachable (most commonly: when
-   * the dashboard imports a trace into a fresh agent service that boots
-   * without its backend cluster up).
+   * Register minimal schemas for the two operator types native operators
+   * compile to (`DataLoading` and `DataProcessing`), but only for types not
+   * already known. Backend-loaded metadata always wins — this is just a
+   * fallback so graph edits can land operators when the Texera backend is
+   * unreachable (most commonly: when the dashboard imports a trace into a
+   * fresh agent service that boots without its backend cluster up).
    *
    * The seeded `additionalMetadata` gives DataLoading 0 input ports and
-   * DataProcessing 1 (the code tool calls `updateOperatorInputPorts` to
-   * grow it past 1 based on the parsed `def process(...)` arity). The
-   * JSON schema accepts a `code` string and nothing else — enough for the
-   * tool to construct an `OperatorPredicate` and round-trip a workflow
-   * through serialization.
+   * DataProcessing 1. The JSON schema accepts a `code` string and nothing
+   * else — enough to construct an `OperatorPredicate` and round-trip a
+   * workflow through serialization.
    *
    * **Deliberately does not flip `initialized`.** That flag means "the
    * backend's full operator catalogue is loaded" — code that gates

@@ -21,7 +21,7 @@ import { describe, expect, test } from "bun:test";
 import { assembleContext, computeDelta, deckRowCap, estimateTokens } from "./context-utils";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { WorkflowState } from "../workflow-state";
-import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
+import { ContextMode, type ReActStep } from "../../types/agent";
 import type { WorkflowContent } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
 
@@ -170,7 +170,7 @@ function content(messages: ReturnType<typeof assembleContext>): string {
   return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
 }
 
-const opts = { compilationResult: null, agentMode: AgentMode.CODE };
+const opts = { compilationResult: null };
 
 /* ============================================================================
  *  Latest mode

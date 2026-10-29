@@ -329,11 +329,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
   // System info modal state
   public settingsMaxCharLimit = 20000; // Default max characters for operator results
-  public settingsMaxCellCharLimit = 4000; // Default max characters per cell
   public settingsToolTimeoutSeconds = 120; // 2 minutes default
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
-  public settingsAgentMode: "code" | "native" = "native"; // Agent operating mode
   public settingsContextMode: "delta" | "latest" = "delta"; // ReAct context selection policy
   public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
@@ -789,11 +787,9 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe(settings => {
         this.settingsMaxCharLimit = settings.maxOperatorResultCharLimit ?? 20000;
-        this.settingsMaxCellCharLimit = settings.maxOperatorResultCellCharLimit ?? 4000;
         this.settingsToolTimeoutSeconds = settings.toolTimeoutSeconds ?? 120;
         this.settingsExecutionTimeoutMinutes = settings.executionTimeoutMinutes ?? 10;
         this.settingsMaxSteps = settings.maxSteps ?? 10;
-        this.settingsAgentMode = settings.agentMode ?? "native";
         this.settingsContextMode = settings.contextMode ?? "delta";
         // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
         // so a missing value here means "enabled" — not "disabled".
@@ -808,7 +804,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
         if (this.agentInfo.settings) {
-          this.agentInfo.settings.agentMode = settings.agentMode;
           this.agentInfo.settings.contextMode = settings.contextMode;
           this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
           this.agentInfo.settings.dataEvidence = settings.dataEvidence;
@@ -1928,21 +1923,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the max cell character limit.
-   */
-  public saveMaxCellCharLimit(): void {
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        maxOperatorResultCellCharLimit: this.settingsMaxCellCharLimit,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => this.notificationService.success("Max cell character limit saved"),
-        error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
    * Save the tool execution timeout.
    */
   public saveToolTimeout(): void {
@@ -1988,25 +1968,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the agent mode (code | general). Triggers a system-info refresh so
-   * the System Prompt and Tools tabs reflect the new tool surface.
-   */
-  public saveAgentMode(): void {
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        agentMode: this.settingsAgentMode,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => {
-          this.notificationService.success(`Agent mode set to ${this.settingsAgentMode}`);
-          this.refreshSystemInfo();
-        },
-        error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
    * Save the ReAct context-selection policy (Latest / Full / Delta).
    *
    * Affects the assembled context the LLM sees on the next prepareStep, but
@@ -2030,11 +1991,10 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the parallel-tool-calls setting. When enabled, the model may emit
-   * multiple tool calls in one assistant turn; the agent serializes them
-   * topologically via `ToolCallScheduler`. The choice does not change the
-   * system prompt — `refreshSystemInfo()` is still called to keep the
-   * Parameters tab values in sync after the round-trip.
+   * Save the parallel-tool-calls setting: whether the model may emit multiple
+   * tool calls in one assistant turn. The choice does not change the system
+   * prompt — `refreshSystemInfo()` is still called to keep the Parameters tab
+   * values in sync after the round-trip.
    */
   public saveParallelToolCalls(): void {
     const enabled = this.settingsParallelToolCalls === "enabled";

@@ -15,7 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import math
 import os
 import re
 import sys
@@ -89,165 +88,6 @@ def _to_dataframe(output: Any) -> Optional[pandas.DataFrame]:
         except Exception:
             return None
     return None
-
-
-def _sanitize_float(value: Any) -> Optional[float]:
-    """
-    Coerce a pandas describe() result to a finite float. NaN and Inf
-    become None so callers don't have to special-case them.
-    """
-    if value is None:
-        return None
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return None
-    if math.isnan(f) or math.isinf(f):
-        return None
-    return f
-
-
-def _format_number(value: float) -> str:
-    """
-    Compact numeric formatting for the stats line: integer-valued floats
-    drop the decimal point ("95.0" -> "95"), other floats use up to 4
-    significant digits via `:.4g` ("219.234" -> "219.2", "0.000456" -> "0.000456").
-    """
-    if value == int(value):
-        return str(int(value))
-    return f"{value:.4g}"
-
-
-def _format_datetime(value: Any) -> str:
-    """
-    Datetime stringification. Strips a trailing "00:00:00" so date-only
-    columns render as "2023-01-15" instead of "2023-01-15 00:00:00".
-    """
-    s = str(value)
-    if s.endswith(" 00:00:00"):
-        return s[: -len(" 00:00:00")]
-    return s
-
-
-def _container_kind(value: Any) -> Optional[str]:
-    """
-    Classify a non-null cell as ``"list"`` (list / tuple / set / ndarray)
-    or ``"struct"`` (dict), or ``None`` if it isn't a container. Used by
-    `_compute_column_stats` to type LIST and STRUCT columns separately
-    from the generic str fallback. ndarrays are routed to ``"list"``
-    because that's how the engine's AttributeType.LIST marshaller
-    transports them (see `coerce_value_to_type`).
-    """
-    if isinstance(value, dict):
-        return "struct"
-    if isinstance(value, (list, tuple, set)):
-        return "list"
-    if hasattr(value, "tolist") and not isinstance(value, (str, bytes, bool, int, float)):
-        return "list"
-    return None
-
-
-def _is_container_column(non_null: pandas.Series) -> bool:
-    """
-    True iff a sample of the column's non-null cells are containers
-    (list / dict / tuple / set / ndarray). Sampled rather than scanned
-    because the cell-by-cell check on long columns is expensive — the
-    first few non-null values are enough to discriminate, since real
-    UDFs don't mix scalar and container cells in the same column.
-    """
-    sample = non_null.head(10)
-    if sample.empty:
-        return False
-    container_count = sum(1 for v in sample if _container_kind(v) is not None)
-    return container_count == len(sample)
-
-
-def _safe_len(value: Any) -> Optional[int]:
-    """
-    ``len(value)`` on a container, else ``None``. Used by the list/struct
-    branch of `_compute_column_stats` to compute items-per-cell shape
-    summaries. Falls through silently on cells with no ``__len__``.
-    """
-    try:
-        return len(value)
-    except Exception:
-        return None
-
-
-def _is_bytes_column(non_null: pandas.Series) -> bool:
-    """
-    True iff every sampled non-null cell is a ``bytes`` / ``bytearray``
-    payload. Used by the `(binary)` branch of `_compute_column_stats`
-    when a UDF returned raw bytes directly. Sampled rather than scanned
-    for symmetry with `_is_container_column` — real UDFs don't mix
-    scalar and bytes cells in the same column.
-    """
-    sample = non_null.head(10)
-    if sample.empty:
-        return False
-    return all(isinstance(v, (bytes, bytearray)) for v in sample)
-
-
-# Cell classes the stats branches above already handle: don't route them
-# into the (binary) class-name branch.
-_STATS_PRIMITIVE_TYPES = (
-    str,
-    int,
-    float,
-    bool,
-    type(None),
-    bytes,
-    bytearray,
-    list,
-    tuple,
-    set,
-    dict,
-)
-
-
-def _is_binary_class_column(non_null: pandas.Series) -> bool:
-    """
-    True iff every sampled non-null cell is an instance of a single
-    "non-primitive" Python class — i.e. an object that the
-    BINARY-pickle path would handle at cast_to_schema time. Used by
-    `(binary)` to surface the Python class name (shapely Polygon,
-    pandas Timestamp on object columns, etc.) BEFORE the cells are
-    actually converted to bytes. Without this we'd hit the generic
-    str fallback and emit a misleading `(str): distinct=N` line.
-
-    Pandas-known classes (``pandas.Timestamp``, ``numpy`` scalars) are
-    excluded because their stats already render correctly via the
-    numeric / datetime branches when the column has the appropriate
-    dtype. We only fire when the cells are genuinely third-party /
-    user-defined classes the pickled-object path would carry.
-    """
-    sample = non_null.head(10)
-    if sample.empty:
-        return False
-    first_type = type(sample.iloc[0])
-    if first_type in _STATS_PRIMITIVE_TYPES:
-        return False
-    # ndarrays are routed by _is_container_column; numpy scalars and
-    # pandas types render via the dtype-based branches.
-    mod = getattr(first_type, "__module__", "") or ""
-    if mod.startswith("numpy") or mod.startswith("pandas"):
-        return False
-    return all(type(v) is first_type for v in sample)
-
-
-def _embedded_class_name(value: Any) -> Optional[str]:
-    """
-    Cheap peek into a bytes payload for the embedded class name written
-    by `_encode_pickled_object` (see tuple.py). Returns ``None`` for
-    legacy ``pickle    `` payloads (no embedded name) and for raw-bytes
-    cells. Imported lazily to avoid a hard cycle between
-    `data_processor` and `models.tuple`.
-    """
-    try:
-        from core.models.tuple import pickled_object_class_name
-    except Exception:
-        return None
-    return pickled_object_class_name(value)
 
 
 class DataProcessor(Runnable, Stoppable):
@@ -457,9 +297,9 @@ class DataProcessor(Runnable, Stoppable):
           - declared non-empty + mismatch → raise (UDF contract violation)
           - declared non-empty + match → no-op
         Subsequent yields skip inference and reuse the now-active port
-        schema; per-column stats are still recomputed on every yield so the
-        agent renderer sees the most recent table. No-op for non-Table
-        yields (tuple-yielding UDFs must declare their schema upfront).
+        schema; every yield is still added to the table's statistics. No-op
+        for non-Table yields (tuple-yielding UDFs must declare their schema
+        upfront).
         """
         df = _to_dataframe(output)
         if df is None:
@@ -665,36 +505,16 @@ class DataProcessor(Runnable, Stoppable):
 
     def _publish_column_stats(self, df: pandas.DataFrame) -> None:
         """
-        Compute per-column statistics from the DataFrame and publish them
-        via StatisticsManager.set_result_statistics so they ride out on the
-        next WorkerStatistics emission.
-
-        Each emitted value is a pre-formatted display string of the shape
-        `"(type): k=v, k=v, ..."` — the agent-service renderer just wraps
-        each one with `- "col" ` and emits it under a `Column stats:` block,
-        so the format is fully owned here. See `_compute_column_stats` for
-        the per-type field set.
-
-        Columns are read positionally via `df.iloc[:, i]` (not `df[name]`)
-        so duplicate labels — e.g. a DataFrame with two columns both named
-        "x" — return a Series per column rather than a DataFrame, which is
-        what `_compute_column_stats` needs. Names are deduped through the
-        same `deduplicate_columns` helper as `Table.as_tuples` so the stats
-        keys line up with the engine's Schema field names.
+        Publish the yielded table's diagnostics via
+        StatisticsManager.set_result_statistics, under reserved keys, so they
+        ride out on the next WorkerStatistics emission; then add the table to
+        its native profile (`_publish_table_profile`).
         """
-        from core.models.table import deduplicate_columns
-
         # A native operator's table carries its own typed profile
-        # (_publish_table_profile), and the agent renders only that: these
-        # display strings and table hints are never read for it, and they
-        # cost a full pass per column (about 110 s on an 8.6 M-row scan).
+        # (_publish_table_profile), and the agent renders only that: table
+        # hints are never read for it.
         native = isinstance(df.attrs.get("native_v2"), dict)
-        str_columns = [str(c) for c in df.columns]
-        deduped_columns, _ = deduplicate_columns(str_columns)
         stats: Dict[str, str] = {}
-        for i, col_name in enumerate([] if native else deduped_columns):
-            col = df.iloc[:, i]
-            stats[col_name] = self._compute_column_stats(col)
         # Lever 4: attach any coerce-to-NaN dataloss diagnostics.
         try:
             from core.util import coercion_telemetry
@@ -770,229 +590,6 @@ class DataProcessor(Runnable, Stoppable):
             self._store_table_profile()
 
     @staticmethod
-    def _compute_column_stats(col: pandas.Series) -> str:
-        """
-        Produce a per-column stats display line of the form
-        `"(<type>): null=N[, <type-specific kvs>]"`. The caller wraps it
-        with `- "<colname>" ` to get the final rendered line.
-
-        Per-type field set:
-          - bool      → null, true, false
-          - numeric   → null, mean, min, max, [top_10={...}]
-                                                      (top_10 only when
-                                                       0 < distinct <= 10 —
-                                                       numeric columns with
-                                                       small finite domains
-                                                       look categorical even
-                                                       though pandas typed
-                                                       them as numbers; the
-                                                       per-value frequency
-                                                       map is then more
-                                                       informative than just
-                                                       mean/min/max)
-          - datetime  → null, min, max               (ISO strings; trailing
-                                                       " 00:00:00" stripped for
-                                                       date-only columns)
-          - str/other → null, distinct[, top_5={...}]
-                                                      (top_5 only when
-                                                       0 < distinct <= 5 — for
-                                                       low-cardinality string
-                                                       columns. High-cardinality
-                                                       columns get just
-                                                       null + distinct.)
-
-        Type-conditional top-N cap: numeric/bool get 10, str gets 5. Strings
-        tend to have longer raw values (multi-word categories, paths), so a
-        tighter cap controls token cost; numeric values are short, so a
-        wider cap is cheap and lets the agent see the full small-domain
-        histogram. Bool already gets `true/false` counts which subsume the
-        same information.
-
-        Intentionally drops the older `count` / `std` / `p25` / `median` /
-        `p75` fields — they were noisy and the agent rarely acted on them.
-
-        Downstream per-cell size cap (`SyncExecutionResource.truncateColumn
-        StatsValues` using the agent's `maxOperatorResultCellCharLimit`)
-        applies on top of the per-type cap, so a pathological column with
-        very long string keys still can't blow the context budget.
-        """
-        null = int(col.isna().sum())
-        non_null = col.dropna()
-        parts = [f"null={null}"]
-
-        if pandas.api.types.is_bool_dtype(col):
-            col_type = "bool"
-            if not non_null.empty:
-                parts.append(f"true={int((non_null == True).sum())}")  # noqa: E712
-                parts.append(f"false={int((non_null == False).sum())}")  # noqa: E712
-        elif pandas.api.types.is_numeric_dtype(col):
-            col_type = "numeric"
-            if not non_null.empty:
-                try:
-                    mean = _sanitize_float(non_null.mean())
-                    cmin = _sanitize_float(non_null.min())
-                    cmax = _sanitize_float(non_null.max())
-                    if mean is not None:
-                        parts.append(f"mean={_format_number(mean)}")
-                    if cmin is not None:
-                        parts.append(f"min={_format_number(cmin)}")
-                    if cmax is not None:
-                        parts.append(f"max={_format_number(cmax)}")
-                except Exception:
-                    pass
-                # Append top_10 for low-cardinality numeric columns (e.g. a
-                # year column with 5 distinct values, or a coded category
-                # accidentally typed as int). Same distinct-count gate as
-                # strings — high-cardinality numeric columns get the
-                # long-tail dropped because the agent already has
-                # mean/min/max for the shape.
-                try:
-                    distinct = int(non_null.nunique())
-                    if 0 < distinct <= 10:
-                        top = non_null.value_counts().head(10)
-                        inner = ", ".join(
-                            f"{_format_number(_sanitize_float(k) or 0)}={int(v)}"
-                            if _sanitize_float(k) is not None
-                            else f"{k}={int(v)}"
-                            for k, v in top.items()
-                        )
-                        parts.append(f"top_10={{{inner}}}")
-                except Exception:
-                    pass
-        elif pandas.api.types.is_datetime64_any_dtype(col):
-            col_type = "datetime"
-            if not non_null.empty:
-                try:
-                    parts.append(f"min={_format_datetime(non_null.min())}")
-                    parts.append(f"max={_format_datetime(non_null.max())}")
-                except Exception:
-                    pass
-        elif (
-            not non_null.empty
-            and _is_container_column(non_null)
-        ):
-            # Container-cell columns (list / tuple / set / dict / ndarray)
-            # type as their own kind. Cardinality and top_N frequency
-            # analysis don't make sense for these — `["red","blue"]` and
-            # `["blue","red"]` shouldn't be treated as a stable categorical
-            # label, and stringified containers blow the per-cell budget
-            # on any non-trivial dataset.
-            #
-            # For LIST-shaped cells (list / tuple / set / ndarray) we
-            # surface the per-cell element-count distribution
-            # (items_min / items_max / items_mean) — that's the one piece
-            # of shape information the agent typically needs to decide
-            # whether to explode the column or aggregate it.
-            #
-            # For STRUCT-shaped cells (dict) we emit ONLY `null=N`. Dict
-            # keys-per-cell is rarely a useful planning signal, and the
-            # stable key set across rows is what the agent actually wants
-            # — that lives downstream in the columns we surface via
-            # explode/normalize, not in a column-stats summary.
-            kind = _container_kind(non_null.iloc[0])
-            if kind == "list":
-                col_type = "list"
-                try:
-                    lengths = non_null.map(_safe_len).dropna()
-                    if not lengths.empty:
-                        parts.append(f"items_min={int(lengths.min())}")
-                        parts.append(f"items_max={int(lengths.max())}")
-                        mean = float(lengths.mean())
-                        parts.append(f"items_mean={_format_number(mean)}")
-                except Exception:
-                    pass
-            else:  # struct
-                col_type = "struct"
-        elif not non_null.empty and _is_bytes_column(non_null):
-            # Raw bytes columns (UDF returned bytes directly, or the
-            # cells already went through cast_to_schema and are pickled
-            # payloads). Two useful pieces of information: the SIZE
-            # distribution (size_min/max/mean) and the SOURCE TYPE if
-            # the cells carry the `pyobj@1\n` class-name header (cheap
-            # fixed-offset peek — no unpickling).
-            col_type = "binary"
-            try:
-                first_class = _embedded_class_name(non_null.iloc[0])
-                if first_class:
-                    parts.append(f"type={first_class}")
-            except Exception:
-                pass
-            try:
-                sizes = non_null.map(_safe_len).dropna()
-                if not sizes.empty:
-                    parts.append(f"size_min={int(sizes.min())}")
-                    parts.append(f"size_max={int(sizes.max())}")
-                    parts.append(f"size_mean={_format_number(float(sizes.mean()))}")
-            except Exception:
-                pass
-        elif not non_null.empty and _is_binary_class_column(non_null):
-            # Non-primitive Python objects (e.g. shapely Polygon cells
-            # arriving BEFORE cast_to_schema turns them into bytes).
-            # Stats fire on the pre-cast DataFrame, so the bytes path
-            # above wouldn't trigger here — but the agent still wants
-            # to see the Python type. Emit `(binary): null=N,
-            # type=<module>.<class>`. No size info: pickling every
-            # cell just for stats is too expensive on wide columns,
-            # and the per-cell rendering already carries it.
-            col_type = "binary"
-            try:
-                cls = type(non_null.iloc[0])
-                parts.append(f"type={cls.__module__}.{cls.__qualname__}")
-            except Exception:
-                pass
-        else:
-            col_type = "str"
-            # Cardinality via pandas' hash table — but the column may carry
-            # unhashable cells (numpy.ndarray, list, dict, set) when a UDF
-            # returns object-typed cells. `nunique()` then raises
-            # `TypeError: unhashable type: 'numpy.ndarray'` outside user
-            # code and torpedoes the entire stats-publishing chain. Cast
-            # to str first so every cell is hashable; the resulting string
-            # cardinality is what we already report for the str column
-            # type anyway (the top_5 branch below uses the same .astype(str)
-            # path). Fall back to a try/except symmetric with the numeric
-            # branch above in case stringification itself fails on an
-            # exotic cell type.
-            distinct: Optional[int] = None
-            try:
-                distinct = int(non_null.astype(str).nunique())
-                parts.append(f"distinct={distinct}")
-            except Exception:
-                pass
-            # Only surface top_5 for low-cardinality string columns. The
-            # cutoff (5) matches the head-size below; high-cardinality
-            # columns (e.g. customer_id) get just null + distinct.
-            if (
-                distinct is not None
-                and not non_null.empty
-                and 0 < distinct <= 5
-            ):
-                try:
-                    top = non_null.astype(str).value_counts().head(5)
-                    inner = ", ".join(
-                        f'"{k}"={int(v)}' for k, v in top.items()
-                    )
-                    parts.append(f"top_5={{{inner}}}")
-                except Exception:
-                    pass
-            # Numeric values wearing formatting punctuation — currency
-            # "$1,234", thousands "1,234", percent "45%", accounting
-            # "(1,234)". Such a column arrived as str *because* the
-            # punctuation blocked numeric parsing; a later
-            # to_numeric(errors="coerce") then silently NULLs every formatted
-            # value (e.g. "$1,234" -> NaN), dropping exactly the rows that
-            # carry the data. Surface the format so the agent strips before
-            # converting. Full-column, pandas-native (see _detect_numeric_format).
-            try:
-                fmt = DataProcessor._detect_numeric_format(non_null)
-                if fmt is not None:
-                    parts.append(f"format={fmt}")
-            except Exception:
-                pass
-
-        return f"({col_type}): " + ", ".join(parts)
-
-    @staticmethod
     def _detect_table_structure(df: pandas.DataFrame) -> list:
         """
         Name-agnostic STRUCTURAL profile of a DataFrame, surfaced as short
@@ -1001,13 +598,11 @@ class DataProcessor(Runnable, Stoppable):
         offline-validated probes in ``claude/profile_probe.py`` (see
         ``claude/PROBE-FINDINGS.md``). Every signal is pure cardinality / null
         structure, so it generalizes without keying on column names or task
-        literals -- the same property that made ``_detect_numeric_format`` work
-        where post-hoc surfacing levers did not.
+        literals.
 
         RAW FACTS ONLY (no classification bands, no semantic labels — per
         review, banded key/partition/group labeling was hand-authored judgment
-        and was removed; per-column cardinality facts live in the columnStats
-        block instead, and what to DO with them is the prompt's/model's call):
+        and was removed; what to DO with the facts is the prompt's/model's call):
           - empty regions  -> exact all-null row/col counts (#25)
           - duplicate rows -> exact df.duplicated() count, shown when > 0 (#25)
           - unresolved header -> Unnamed:N placeholder count (pandas contract)
@@ -1068,70 +663,6 @@ class DataProcessor(Runnable, Stoppable):
             pass
 
         return hints
-
-    @staticmethod
-    def _detect_numeric_format(non_null: pandas.Series) -> Optional[str]:
-        """
-        Decide whether an object/str column is really numeric values wearing
-        formatting punctuation, and if so name the format. Returns one of
-        ``"currency"`` / ``"thousands"`` / ``"percent"`` / ``"accounting"`` /
-        ``"numeric-as-text"``, or ``None`` when the column is genuinely
-        non-numeric text.
-
-        Full-column and pandas-native — NOT a regex over a render-time
-        preview sample. We let ``pandas.to_numeric`` be the judge on the whole
-        column: a column qualifies only when stripping currency / grouping /
-        percent punctuation (and mapping accounting parens to a leading minus)
-        RECOVERS a large block of values that ``to_numeric`` misses as-is. That
-        gate ("cleaning materially beats raw parsing AND ends up almost all
-        numeric") is what separates a real $/comma-formatted number column from
-        free text that happens to contain the odd numeral — without keying on
-        any column name or task literal, so it generalizes.
-
-        The dominant punctuation among the *rescued* values (those that parse
-        only after cleaning) picks the tag, so the agent gets the specific
-        cleaning to apply rather than a generic warning.
-        """
-        s = non_null.astype(str).str.strip()
-        if len(s) < 2:
-            return None
-        raw = pandas.to_numeric(s, errors="coerce")
-        raw_frac = float(raw.notna().mean())
-        # Map accounting "(123)" -> "-123", then drop $, grouping commas,
-        # percent signs and whitespace. ($ is literal inside the char class.)
-        cleaned_str = s.str.replace(r"^\((.*)\)$", r"-\1", regex=True).str.replace(
-            r"[$,%\s]", "", regex=True
-        )
-        cleaned = pandas.to_numeric(cleaned_str, errors="coerce")
-        clean_frac = float(cleaned.notna().mean())
-        # Two gates:
-        #   clean_frac >= 0.8 — the column is predominantly numeric once cleaned,
-        #     i.e. a number column, not free text. (Set at 0.8 rather than higher
-        #     because raw loader output routinely mixes a header/footer row or
-        #     two into a data column — "# of Reports", "Source: ..." — which are
-        #     real strings that drag the parse fraction down without changing
-        #     what the column *is*.)
-        #   delta >= 0.1 — a material block (>=10%) of values parse ONLY after
-        #     cleaning. Since cleaning only ever adds parses (clean superset of
-        #     raw), delta == the rescued fraction: the formatted values a naive
-        #     to_numeric(coerce) would silently NULL. A plain digit-string column
-        #     parses raw (delta ~ 0) and is correctly NOT flagged.
-        if clean_frac < 0.8 or clean_frac - raw_frac < 0.1:
-            return None
-        rescued = s[cleaned.notna() & raw.isna()]
-        if rescued.empty:
-            rescued = s
-        # $ before commas: currency usually carries both, and $ is the more
-        # specific signal. Parens before commas for the same reason.
-        if float(rescued.str.contains("$", regex=False).mean()) >= 0.5:
-            return "currency"
-        if float(rescued.str.contains("%", regex=False).mean()) >= 0.5:
-            return "percent"
-        if float(rescued.str.match(r"^\(.*\)$").mean()) >= 0.5:
-            return "accounting"
-        if float(rescued.str.contains(",", regex=False).mean()) >= 0.5:
-            return "thousands"
-        return "numeric-as-text"
 
     def _set_output_state(self, output_state: State) -> None:
         """

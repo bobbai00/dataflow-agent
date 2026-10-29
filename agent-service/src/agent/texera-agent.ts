@@ -57,50 +57,13 @@ import type { TunerConfig } from "./context/tuner/tuner";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
 import {
-  AgentMode,
   AgentState as AgentStateEnum,
   ContextMode,
   DEFAULT_AGENT_SETTINGS,
   OperatorResultSerializationMode,
 } from "../types/agent";
-import { buildCodeModeSystemPrompt, withSessionInstructions } from "./prompts";
-
-/**
- * W2 — few-shot best-practices appended to the CODE-mode system prompt when the
- * `fewShotPrompt` setting is on. Examples (not just instructions, which got poor
- * .copy() adherence) of the good per-step discipline: inspect-then-decide, lean
- * comment-free code, messy-file handling, commit the answer at a terminal op.
- */
-const FEW_SHOT_BEST_PRACTICES = `
-
-# Worked examples — how to work at each step
-
-These show the WORKING STYLE to follow (not task answers).
-
-Example A — inspect before you transform. After a load/edit, READ the result's
-Schema + sample rows BEFORE writing the next operator. If columns are generic
-(\`Unnamed: 1\`, \`0\`) or a header/footer value sits in a data row, the file
-was parsed wrong — re-load with the right \`sep=\`/\`header=\`/\`skiprows=\`,
-don't build on the broken frame.
-
-Example B — lean, ephemeral code (each operator runs in isolation; code is
-discarded). Write the minimum:
-\`\`\`
-def process(sales):
-    df = sales[sales["status"] == "active"]
-    df["amount"] = pd.to_numeric(df["amount"].str.replace(r"[$,]", "", regex=True), errors="coerce")
-    return df.groupby("region", as_index=False)["amount"].sum()
-\`\`\`
-No comments/docstrings, no \`.copy()\`, no \`import pandas as pd\` (it's already \`pd\`).
-
-Example C — clean before you aggregate. Formatted numbers ("1,234", "$5") and
-sentinel/footer rows must be stripped/dropped BEFORE a sum/mean/count, or
-\`to_numeric(errors="coerce")\` silently NULLs them and the total is wrong.
-
-Example D — commit the answer. The final operator must OUTPUT the answer in the
-exact type/shape the question asks (a scalar, or a clean list) — don't leave it
-implicit in an intermediate frame.`;
-import { createDeleteOperatorTool, TOOL_NAME_DELETE_OPERATOR, type ToolContext } from "./tools/workflow-crud-tools";
+import { buildRegisteredNativeSystemPrompt, withSessionInstructions } from "./prompts";
+import { TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
 import { formatNativeDiagnostic } from "./native/diagnostics";
@@ -115,11 +78,8 @@ import {
 } from "./native/failure-loop";
 import { writtenOperatorId } from "./util/context-utils";
 import { withCurrentLayout } from "./util/auto-layout";
-import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
 import type { ResultSelection } from "../types/agent";
-import { createCreateOrModifyOperatorTool, TOOL_NAME_CREATE_OR_MODIFY_OPERATOR } from "./tools/code-op-tools";
-import { ToolCallScheduler } from "./tools/tool-call-scheduler";
 import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
 import { renderAnswer } from "./native/answer";
 import { hasCurrentResult, namedOperatorIds, namedResultsFeedback } from "./native/named-results";
@@ -135,7 +95,11 @@ import {
   type UserActionRequest,
 } from "./user-actions";
 import type { RetrievalSettings } from "../types/agent";
-import { availableRetrievalViews, nativeResultTransportLimit } from "./native/retrieval";
+import {
+  availableRetrievalViews,
+  nativeResultTransportLimit,
+  RESULT_TRANSPORT_CELL_CHAR_LIMIT,
+} from "./native/retrieval";
 import { executeDataflowActionBatch, type DataflowProgress } from "./tools/dataflow-action-runtime";
 import { editVersions, planRegisteredGraphEdit } from "./tools/graph-edits";
 import {
@@ -156,10 +120,6 @@ import {
 import { parseTraceContext, parsedResultToOperatorInfo } from "./util/parse-trace-results";
 
 const PERSIST_DEBOUNCE_MS = 500;
-
-/** Code-mode tool names whose successful invocation triggers post-step operator
- * execution; a native `dataflow` call executes through its own statements. */
-const EXECUTE_AFTER_TOOLS: ReadonlySet<string> = new Set([TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]);
 
 function createEmptyWorkflowContent(): WorkflowContent {
   return {
@@ -454,7 +414,7 @@ export class TexeraAgent {
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
       systemPrompt: this.systemPrompt,
-      parallelToolCalls: DEFAULT_AGENT_SETTINGS.agentMode !== AgentMode.NATIVE,
+      parallelToolCalls: false,
     };
 
     this.tools = this.createTools();
@@ -641,7 +601,7 @@ export class TexeraAgent {
         this.settings.contextMode,
         compactionEnabled
       );
-    } else if (this.settings.agentMode === AgentMode.NATIVE) {
+    } else {
       this.systemPrompt = buildRegisteredNativeSystemPrompt(this.settings.contextMode, {
         ...observationFormatPatch(this.settings),
         dataEvidence: this.settings.dataEvidence === true,
@@ -658,20 +618,6 @@ export class TexeraAgent {
         catalogSource: this.settings.catalogSource,
         catalogRecent: this.settings.catalogRecent,
       });
-    } else {
-      this.systemPrompt = buildCodeModeSystemPrompt(
-        this.settings.contextMode,
-        compactionEnabled,
-        false,
-        this.settings.enableRenderPrefs === true,
-        this.settings.enableCodeInSnapshot === true,
-        this.settings.sourceProvenanceHint === true
-      );
-    }
-    // W2: append worked per-step best-practice examples (few-shot). Examples,
-    // not just the instruction (which got poor .copy() adherence). Off by default.
-    if (this.settings.fewShotPrompt && this.settings.agentMode === AgentMode.CODE && !this.systemPromptBuilder) {
-      this.systemPrompt += FEW_SHOT_BEST_PRACTICES;
     }
     this.systemPrompt = withSessionInstructions(this.systemPrompt, this.settings.instructions);
     this.settings.systemPrompt = this.systemPrompt;
@@ -683,136 +629,25 @@ export class TexeraAgent {
       userToken: this.delegateConfig.userToken,
       workflowId: this.delegateConfig.workflowId,
       computingUnitId: this.delegateConfig.computingUnitId,
-      maxOperatorResultCharLimit:
-        this.settings.agentMode === AgentMode.NATIVE
-          ? nativeResultTransportLimit(this.settings)
-          : this.settings.maxOperatorResultCharLimit,
-      maxOperatorResultCellCharLimit:
-        this.settings.agentMode === AgentMode.NATIVE
-          ? Math.min(nativeResultTransportLimit(this.settings), 20000)
-          : this.settings.maxOperatorResultCellCharLimit,
+      maxOperatorResultCharLimit: nativeResultTransportLimit(this.settings),
+      maxOperatorResultCellCharLimit: Math.min(
+        nativeResultTransportLimit(this.settings),
+        RESULT_TRANSPORT_CELL_CHAR_LIMIT
+      ),
       executionTimeoutMs: this.settings.executionTimeoutMs,
       // Structured (versioned, profiled) results are what native operators
       // produce; a delegated GUI workflow of plain Texera operators keeps the
-      // legacy transport even under native mode.
-      structuredResults:
-        this.settings.agentMode === AgentMode.NATIVE && this.workflowState.getAllOperators().some(op => op.nativeOp),
+      // legacy transport.
+      structuredResults: this.workflowState.getAllOperators().some(op => op.nativeOp),
     };
-  }
-
-  /**
-   * Whether the agent can read its own operator code in the context it is fed.
-   * True by default: DELTA replays `code:` on every agent event, and LATEST
-   * carries per-operator `Code:` blocks whenever the snapshot flag is on. The
-   * single code-blind configuration is LATEST with `enableCodeInSnapshot` off —
-   * there the summaries are the only record of what an operator does, so the
-   * tool asks for detailed ones instead.
-   */
-  private isCodeShownToAgent(): boolean {
-    return this.settings.contextMode === ContextMode.DELTA || this.settings.enableCodeInSnapshot === true;
   }
 
   private createTools(): Record<string, any> {
-    const operatorSchemas = new Map<string, any>();
-    for (const type of Object.keys(this.metadataStore.getAllOperatorTypes())) {
-      const jsonSchema = this.metadataStore.getSchema(type);
-      const additionalMetadata = this.metadataStore.getAdditionalMetadata(type);
-      if (jsonSchema) {
-        operatorSchemas.set(type, { jsonSchema, additionalMetadata });
-      }
-    }
-
-    const context: ToolContext = {
-      metadataStore: this.metadataStore,
-      settings: {
-        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
-        toolTimeoutMs: this.settings.toolTimeoutMs,
-        executionTimeoutMs: this.settings.executionTimeoutMs,
-        nativeProfileCollection: this.settings.nativeProfileCollection,
-        nativeProfileScope: this.settings.nativeProfileScope,
-        nativeChecks: this.settings.nativeChecks === true,
-        flowEvidence: this.settings.flowEvidence === true,
-        dataHygiene: this.settings.dataHygiene === true,
-        pandasRound: this.settings.pandasRound === true,
-        operatorDoc: this.settings.operatorDoc === true,
-      },
-    };
-
-    const tools: Record<string, any> = {};
-
-    if (this.settings.agentMode === AgentMode.CODE) {
-      tools[TOOL_NAME_DELETE_OPERATOR] = createDeleteOperatorTool(this.workflowState, context);
-      tools[TOOL_NAME_CREATE_OR_MODIFY_OPERATOR] = createCreateOrModifyOperatorTool(
-        this.workflowState,
-        operatorSchemas,
-        context,
-        this.settings.maxOperatorEdits,
-        this.settings.enableRenderPrefs === true,
-        this.isCodeShownToAgent()
-      );
-    } else {
-      tools[TOOL_NAME_DATAFLOW] = createDataflowTool(
+    return {
+      [TOOL_NAME_DATAFLOW]: createDataflowTool(
         availableRetrievalViews(this.settings),
         this.settings.answerStatement === true,
         this.settings.optionalPython === true
-      );
-    }
-
-    // When parallel tool calls are enabled the model can emit N tool calls in
-    // one assistant turn; wrap each tool's `execute` so all calls in that
-    // turn land in one batch and run sequentially in dependency order. With
-    // parallel disabled, wrapping is a no-op equivalent (batch size 1), so we
-    // skip the wrap to keep the call path identical to the pre-batching code.
-    if (this.settings.parallelToolCalls) {
-      const scheduler = new ToolCallScheduler();
-      for (const name of Object.keys(tools)) {
-        tools[name] = scheduler.wrap(name, tools[name]);
-      }
-    }
-
-    return tools;
-  }
-
-  /**
-   * Build a tool registry for `importReActSteps` replay: the code-mode CRUD
-   * tools. Native `dataflow` calls replay the edits recorded in their saved
-   * results instead. No scheduler wrapping; the replay loop awaits each call.
-   */
-  private buildReplayTools(): Record<string, any> {
-    const operatorSchemas = new Map<string, any>();
-    for (const type of Object.keys(this.metadataStore.getAllOperatorTypes())) {
-      const jsonSchema = this.metadataStore.getSchema(type);
-      const additionalMetadata = this.metadataStore.getAdditionalMetadata(type);
-      if (jsonSchema) {
-        operatorSchemas.set(type, { jsonSchema, additionalMetadata });
-      }
-    }
-
-    const context: ToolContext = {
-      metadataStore: this.metadataStore,
-      settings: {
-        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
-        toolTimeoutMs: this.settings.toolTimeoutMs,
-        executionTimeoutMs: this.settings.executionTimeoutMs,
-        nativeProfileCollection: this.settings.nativeProfileCollection,
-        nativeProfileScope: this.settings.nativeProfileScope,
-        nativeChecks: this.settings.nativeChecks === true,
-        flowEvidence: this.settings.flowEvidence === true,
-        dataHygiene: this.settings.dataHygiene === true,
-        pandasRound: this.settings.pandasRound === true,
-        operatorDoc: this.settings.operatorDoc === true,
-      },
-    };
-
-    return {
-      [TOOL_NAME_DELETE_OPERATOR]: createDeleteOperatorTool(this.workflowState, context),
-      [TOOL_NAME_CREATE_OR_MODIFY_OPERATOR]: createCreateOrModifyOperatorTool(
-        this.workflowState,
-        operatorSchemas,
-        context,
-        0,
-        this.settings.enableRenderPrefs === true,
-        this.isCodeShownToAgent()
       ),
     };
   }
@@ -1092,14 +927,11 @@ export class TexeraAgent {
   updateSettings(
     updates: {
       maxOperatorResultCharLimit?: number;
-      maxOperatorResultCellCharLimit?: number;
       operatorResultSerializationMode?: OperatorResultSerializationMode;
       toolTimeoutMs?: number;
       executionTimeoutMs?: number;
       disabledTools?: Set<string>;
       maxSteps?: number;
-      maxOperatorEdits?: number;
-      agentMode?: AgentMode;
       nativeProfileCollection?: boolean;
       nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
@@ -1121,7 +953,6 @@ export class TexeraAgent {
       deckSampleRatio?: number;
       errorReflection?: boolean;
       errorReflectionThreshold?: number;
-      fewShotPrompt?: boolean;
       maxResultRows?: number;
       attemptReflection?: boolean;
       toolDialect?: LocalToolDialect;
@@ -1135,7 +966,6 @@ export class TexeraAgent {
       enableInspectTool?: boolean;
       enableRenderPrefs?: boolean;
       enableCodeInSnapshot?: boolean;
-      sourceProvenanceHint?: boolean;
       staticCompaction?: boolean;
       userTaskPlacement?: "top" | "bottom";
       messageLayout?: AgentSettings["messageLayout"];
@@ -1146,8 +976,8 @@ export class TexeraAgent {
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
-    // Validate the effective combination before mutating ANY setting. In
-    // particular a rejected mode change must not leave the prompt/tools split.
+    // Validate the effective combination before mutating ANY setting, so a
+    // rejected update cannot leave the prompt and tools split.
     validateNativeSettings(updates);
     // Anthropic's strict tool mode accepts a field that is not required; OpenAI's
     // rejects every request whose schema leaves one out.
@@ -1235,9 +1065,6 @@ export class TexeraAgent {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
       promptNeedsRebuild = true;
     }
-    if (updates.maxOperatorResultCellCharLimit !== undefined) {
-      this.settings.maxOperatorResultCellCharLimit = updates.maxOperatorResultCellCharLimit;
-    }
     if (updates.operatorResultSerializationMode !== undefined) {
       this.settings.operatorResultSerializationMode = updates.operatorResultSerializationMode;
     }
@@ -1253,15 +1080,6 @@ export class TexeraAgent {
     if (updates.maxSteps !== undefined) {
       this.settings.maxSteps = updates.maxSteps;
     }
-    if (updates.maxOperatorEdits !== undefined) {
-      this.settings.maxOperatorEdits = updates.maxOperatorEdits;
-      // Read by createTools() below when (re)building the code-op tool; the
-      // guard's consecutive-edit counter resets with the rebuilt closure.
-    }
-    if (updates.agentMode !== undefined && updates.agentMode !== this.settings.agentMode) {
-      this.settings.agentMode = updates.agentMode;
-      promptNeedsRebuild = true;
-    }
     if (updates.resultSelection !== undefined && updates.resultSelection !== this.settings.resultSelection) {
       // Render-time selection of result blocks; the native prompt describes the
       // shapes the agent will see, so it rebuilds too.
@@ -1276,12 +1094,8 @@ export class TexeraAgent {
     } else if (updates.contextMode !== undefined) {
       this.settings.contextMode = updates.contextMode;
     }
-    if (updates.parallelToolCalls !== undefined) {
-      this.settings.parallelToolCalls = updates.parallelToolCalls;
-      // The wrap/unwrap decision lives in createTools(); the call below
-      // rebuilds the tool set so the change takes effect on the next turn.
-    }
-    if (this.settings.agentMode === AgentMode.NATIVE) this.settings.parallelToolCalls = false;
+    // Native mode asks the provider for one tool call per turn.
+    this.settings.parallelToolCalls = false;
     if (updates.includeOperatorProperties !== undefined) {
       this.settings.includeOperatorProperties = updates.includeOperatorProperties;
       // Pure render-time toggle — controls whether each operator's
@@ -1337,10 +1151,6 @@ export class TexeraAgent {
       this.settings.errorReflectionThreshold = updates.errorReflectionThreshold;
       // Pure render-time setting — N consecutive refixes before folded history shows.
     }
-    if (updates.fewShotPrompt !== undefined) {
-      this.settings.fewShotPrompt = updates.fewShotPrompt;
-      promptNeedsRebuild = true; // W2: changes the SYSTEM prompt
-    }
     if (updates.attemptReflection !== undefined) {
       this.settings.attemptReflection = updates.attemptReflection;
       // Pure render-time toggle — injects an `Attempt reflection:` block on
@@ -1383,23 +1193,12 @@ export class TexeraAgent {
       this.settings.enableInspectTool = false;
     }
     if (updates.enableRenderPrefs !== undefined) {
-      // Write-time render prefs: gates the createOrModifyOperator params (tools
-      // rebuilt below), the prompt section + example variant (rebuilt here),
-      // and the render application (read by the assembler per call).
+      // Pure render-time: write-time render prefs, applied by the assembler per call.
       this.settings.enableRenderPrefs = updates.enableRenderPrefs;
-      promptNeedsRebuild = true;
     }
     if (updates.enableCodeInSnapshot !== undefined) {
-      // Code-in-snapshot: gates the tool summary description (tools rebuilt
-      // below), the prompt context-format + example variant (rebuilt here), and
-      // the includeCode render patch (read by the assembler per call, LATEST-only).
+      // Pure render-time: the includeCode render patch (LATEST-only), read by the assembler per call.
       this.settings.enableCodeInSnapshot = updates.enableCodeInSnapshot;
-      promptNeedsRebuild = true;
-    }
-    if (updates.sourceProvenanceHint !== undefined) {
-      // Provenance principle: one conditional bullet in the code-mode prompt.
-      this.settings.sourceProvenanceHint = updates.sourceProvenanceHint;
-      promptNeedsRebuild = true;
     }
     if (updates.staticCompaction !== undefined) {
       this.settings.staticCompaction = updates.staticCompaction;
@@ -1410,9 +1209,7 @@ export class TexeraAgent {
     }
     if (updates.messageLayout !== undefined && updates.messageLayout !== this.settings.messageLayout) {
       this.settings.messageLayout = updates.messageLayout;
-      if (this.settings.agentMode === AgentMode.NATIVE) {
-        promptNeedsRebuild = true;
-      }
+      promptNeedsRebuild = true;
     }
     if (updates.tunerConfig !== undefined) {
       // Pure render-time: switches the assembler onto the LLM context-tuner
@@ -1434,13 +1231,7 @@ export class TexeraAgent {
     }
 
     this.tools = this.createTools();
-    this.log.info(
-      {
-        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
-        maxOperatorResultCellCharLimit: this.settings.maxOperatorResultCellCharLimit,
-      },
-      "settings updated"
-    );
+    this.log.info({ maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit }, "settings updated");
   }
 
   async refreshWorkflowFromBackend(): Promise<void> {
@@ -1615,7 +1406,7 @@ export class TexeraAgent {
         this.addStep(userStep);
         this.head = userStepId;
       }
-      if (this.settings.agentMode === AgentMode.NATIVE) this.rebuildSystemPrompt();
+      this.rebuildSystemPrompt();
       // User steps carry no tool calls and therefore own no snapshot — the
       // workflow visible here resolves to the nearest action-bearing
       // ancestor via `WorkflowSnapshotStorage.getAssociatedSnapshot`.
@@ -1650,7 +1441,7 @@ export class TexeraAgent {
           tools: this.tools,
           maxSteps,
           parallelToolCalls: this.settings.parallelToolCalls,
-          requireShownResult: this.settings.agentMode === AgentMode.NATIVE,
+          requireShownResult: true,
           resultShown: () => this.resultShownFor(messageId),
           ...(this.settings.answerStatement === true
             ? {
@@ -1675,11 +1466,7 @@ export class TexeraAgent {
                 protocolFeedbackSteps -
                 budgetFeedbackSteps -
                 repeatedFailureFeedbackSteps);
-            if (
-              this.settings.agentMode === AgentMode.NATIVE &&
-              [3, 1].includes(remaining) &&
-              !budgetReminders.has(remaining)
-            ) {
+            if ([3, 1].includes(remaining) && !budgetReminders.has(remaining)) {
               budgetReminders.add(remaining);
               const content =
                 remaining === 1
@@ -1870,10 +1657,7 @@ export class TexeraAgent {
             // one correction after two, and the turn ends after four. Counted
             // per model decision; a success, a different failure, or a changed
             // graph resets the streak.
-            const failure =
-              this.settings.agentMode === AgentMode.NATIVE
-                ? repeatedFailure(agentStep, this.workflowState.getWorkflowContent())
-                : undefined;
+            const failure = repeatedFailure(agentStep, this.workflowState.getWorkflowContent());
             failureStreak =
               failure && failure.signature === lastFailure?.signature ? failureStreak + 1 : failure ? 1 : 0;
             lastFailure = failure;
@@ -1917,9 +1701,7 @@ export class TexeraAgent {
             // ones that have no result, and send the reply back once if one
             // still has none.
             const missing =
-              this.settings.agentMode === AgentMode.NATIVE &&
-              !this.answerByMessage.has(messageId) &&
-              !this.abortController?.signal.aborted
+              !this.answerByMessage.has(messageId) && !this.abortController?.signal.aborted
                 ? await this.completeNamedResults(result.text)
                 : undefined;
             if (missing && !namedResultsCorrected && protocolFeedbackSteps < 2) {
@@ -1962,7 +1744,6 @@ export class TexeraAgent {
             if (
               error instanceof MissingAnswerActionError &&
               error.canContinue &&
-              this.settings.agentMode === AgentMode.NATIVE &&
               protocolFeedbackSteps < 2 &&
               !this.abortController?.signal.aborted
             ) {
@@ -2124,10 +1905,8 @@ export class TexeraAgent {
    * Same `assembleContext` code path that `prepareStep` uses, but synchronous
    * — the workflow compiler is intentionally skipped because (a) the preview
    * is broadcast on every step / settings change and we don't want to fire a
-   * compile on each frame, and (b) the schema lines are mode-gated to GENERAL
-   * so missing them in the CODE-mode preview is a no-op. If a compile result
-   * is needed for accuracy in GENERAL mode later, it can be plumbed through
-   * with a small refactor.
+   * compile on each frame, and (b) a compile result only adds the current
+   * snapshot's compilation errors, which the preview can go without.
    */
   getNextStepContext(): string {
     if (this.modelInputBudget.tokens > 0 && this.lastRenderedContext !== undefined) return this.lastRenderedContext;
@@ -2375,21 +2154,19 @@ export class TexeraAgent {
     for (const s of order) this.addStep(s);
 
     // Reconstruct snapshots in DFS order: for each action-bearing step,
-    // restore `workflowState` to its parent's content, replay the step's
-    // workflow-CRUD tool calls (skipping `initialize` and `executeOperator`),
-    // then snapshot the result. Explicit `snapshots[id]` overrides replay.
-    // Per-operator results aren't in the export, so each restored snapshot
-    // starts with whatever results its parent snapshot has (typically empty).
+    // restore `workflowState` to its parent's content, replay the edits its
+    // `dataflow` calls recorded, then snapshot the result. Explicit
+    // `snapshots[id]` overrides replay. Per-operator results aren't in the
+    // export, so each restored snapshot starts with whatever results its parent
+    // snapshot has (typically empty).
     //
-    // Seed minimal schemas for the two code-mode operator types before
-    // building the replay tools. Without this, `createOrModifyOperator`
-    // replay errors out on every step when the agent service can't reach
-    // its backend operator-metadata endpoint — and the imported workflow
-    // ends up empty even though the snapshot *tree* structure is fine.
-    // Backend-loaded metadata, if any, has already populated the store
+    // Seed minimal schemas for the two operator types native operators compile
+    // to. Without this, edit replay errors out on every step when the agent
+    // service can't reach its backend operator-metadata endpoint — and the
+    // imported workflow ends up empty even though the snapshot *tree* structure
+    // is fine. Backend-loaded metadata, if any, has already populated the store
     // and is left alone; the seed only fills in gaps.
     this.metadataStore.seedCodeModeDefaults();
-    const replayTools = this.buildReplayTools();
     const explicitSnapshots = snapshots ?? {};
     // A trace's own tree comes back as it was, each version with its results; nothing is replayed.
     const tree = restore.tree;
@@ -2475,16 +2252,7 @@ export class TexeraAgent {
             }
             continue;
           }
-          const tool = replayTools[tc.toolName];
-          if (!tool?.execute) {
-            this.log.warn({ stepId: id, toolName: tc.toolName }, "import replay: unknown tool, skipped");
-            continue;
-          }
-          try {
-            await tool.execute(tc.input);
-          } catch (err) {
-            this.log.warn({ err, stepId: id, toolName: tc.toolName }, "import replay: tool threw, continuing");
-          }
+          this.log.warn({ stepId: id, toolName: tc.toolName }, "import replay: unknown tool, skipped");
         }
         myContent = this.workflowState.getWorkflowContent();
         this.snapshotStorage.createSnapshot(id, myContent, {
@@ -2624,24 +2392,6 @@ export class TexeraAgent {
     return await toolDef.execute(input);
   }
 
-  /**
-   * Run the post-step operator-execution batch for tool calls that just
-   * modified the workflow. Skips when there's no execution config (no
-   * delegate mode), when no tool call was an edit, or when every edit
-   * returned an error.
-   *
-   * Batched semantics: every successful edit in this step contributes its
-   * downstream sinks to a single `opsToViewResult` set, and we run **one**
-   * `executeWorkflowAndPersist` call. The backend run materializes each sink
-   * once, regardless of how many sibling edits in this turn share upstream
-   * — replacing the previous per-sink loop that re-ran shared upstream once
-   * per sink. Per-operator results (including any backend errors) land via
-   * `onResult` and are persisted at the current HEAD.
-   *
-   * Used by both `sendMessage` (LLM path) and `handleDebugInput` (debug
-   * path) so a Function(...) tool call has identical post-step behaviour to
-   * an LLM-emitted one.
-   */
   /** A final reply can hand over tables by naming their operators in a JSON
    * object (a file-to-operator mapping). `set` only declares an operator, so a
    * named table can be one nothing computed; compute those now, on the
@@ -2658,7 +2408,7 @@ export class TexeraAgent {
     if (!pending.length) return undefined;
     let failure: string | undefined;
     try {
-      await this.executePostStepChanges([], [], true, pending, undefined, owner);
+      await this.executePostStepChanges(pending, undefined, owner);
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
     }
@@ -2791,7 +2541,7 @@ export class TexeraAgent {
             metadataStore: this.metadataStore,
             settings: this.settings,
           },
-          execute: (operatorIds, onExecution) => this.executePostStepChanges([], [], true, operatorIds, onExecution),
+          execute: (operatorIds, onExecution) => this.executePostStepChanges(operatorIds, onExecution),
           isCurrent: () => this.head === stepId && this.snapshotStorage.hasSnapshotFor(stepId),
           signal: this.abortController?.signal,
           author: overrides?.author,
@@ -2813,75 +2563,23 @@ export class TexeraAgent {
         this.stepCallback?.(step);
       }
       this.snapshotCallback?.(stepId, this.workflowState.getWorkflowContent());
-      return;
     }
-    // Code mode: execute what the step's operator edits changed.
-    await this.executePostStepChanges(toolCalls, toolResults);
   }
 
+  /** Execute the given operators, and every operator they read from (every
+   * operator when none are given), with the results kept on HEAD's snapshot. */
   private async executePostStepChanges(
-    toolCalls: ReadonlyArray<{ toolName: string; toolCallId: string; input: any }> | undefined,
-    toolResults: ReadonlyArray<{ toolCallId: string; output: any; isError?: boolean }> | undefined,
-    executeAll = false,
     operatorIds?: readonly string[],
     onExecution?: (run: ExecutionRunMetrics) => void,
     /** Persist the results on this step's snapshot instead of HEAD's (HEAD is then a reply without one). */
     owner?: string
   ): Promise<void> {
-    if (!toolCalls || !toolResults) return;
-
-    // Collect every operator successfully edited in this step.
-    const editedOpIds: string[] = [];
-    for (let i = 0; i < toolCalls.length; i++) {
-      const tc = toolCalls[i];
-      const tr = toolResults.find(result => result.toolCallId === tc.toolCallId);
-      if (!EXECUTE_AFTER_TOOLS.has(tc.toolName)) continue;
-      if (tr?.isError) continue;
-      const resultText = typeof tr?.output === "string" ? tr.output : String(tr?.output ?? "");
-      if (resultText.startsWith("[ERROR]")) continue;
-      const operatorId = (tc.input as any)?.operatorId;
-      if (operatorId) editedOpIds.push(operatorId);
-    }
-    if (editedOpIds.length === 0 && !executeAll) return;
     const execConfig = this.buildExecutionConfig();
-    if (!execConfig) {
-      if (executeAll) throw new Error("Execution is unavailable: this agent has no backend workflow connection.");
-      return;
-    }
-
-    // Build the materialization set: every edited op AND every downstream sink
-    // of every edited op. Including the edited op itself is critical for
-    // parallel-mode batches: if the model creates `A` and `B` in the same turn
-    // where `B` consumes `A`, by post-step time `A` already has `B` as a
-    // descendant, so `getDownstreamSinks(A)` returns `[B]` only. Without
-    // including `A` here, the backend would run `A` (because it's upstream of
-    // `B`) but never materialize its result table — the renderer would then
-    // omit `A`'s `Result:` block, and the model, seeing no result, would loop
-    // trying to "fix" an operator that's actually working. In serial mode this
-    // didn't surface because `A` was a sink at the moment of its own edit.
-    const targets = new Set<string>();
-    if (executeAll) {
-      const operators = operatorIds
-        ? this.workflowState.getSubDAGForTargets(operatorIds).operators
-        : this.workflowState.getAllOperators();
-      for (const op of operators) targets.add(op.operatorID);
-    }
-    for (const opId of editedOpIds) {
-      targets.add(opId);
-      if (this.settings.agentMode === AgentMode.NATIVE) {
-        // Typed chains are long and every operator below an edit is a table the
-        // render shows (or decides a shape from). Materialize all descendants,
-        // not just the sinks — otherwise an upstream modify leaves the
-        // intermediate blocks without a fresh Result (seen in the pilot).
-        for (const down of this.workflowState.getDownstreamOperators(opId)) {
-          targets.add(down);
-        }
-      } else {
-        for (const sink of this.workflowState.getDownstreamSinks(opId)) {
-          targets.add(sink);
-        }
-      }
-    }
+    if (!execConfig) throw new Error("Execution is unavailable: this agent has no backend workflow connection.");
+    const operators = operatorIds
+      ? this.workflowState.getSubDAGForTargets(operatorIds).operators
+      : this.workflowState.getAllOperators();
+    const targets = new Set(operators.map(op => op.operatorID));
     // An aborted request can still finish remotely (or return after checkout).
     // Capture ownership now; never route its data/profiles/errors via a later HEAD.
     const owningStepId = owner ?? this.head;
@@ -2949,7 +2647,7 @@ export class TexeraAgent {
         } as any);
       }
     }
-    if (executeAll && failure) throw new Error(failure);
+    if (failure) throw new Error(failure);
   }
 
   /**
@@ -3198,8 +2896,6 @@ export class TexeraAgent {
     action: UserActionRequest,
     onRecord?: () => void
   ): Promise<{ status: "ok" | "error" | "unchanged"; step?: ReActStep; respond?: boolean }> {
-    if (this.settings.agentMode !== AgentMode.NATIVE)
-      throw new UserActionError(400, "Canvas actions apply to dataflows the agent builds in native mode.");
     if (this.state !== AgentStateEnum.AVAILABLE)
       throw new UserActionError(409, "The agent is working; try again when it finishes.");
     const operator = this.workflowState.getOperator(action.operatorId);

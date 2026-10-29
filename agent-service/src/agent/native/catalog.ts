@@ -18,7 +18,7 @@
  */
 
 /**
- * NATIVE operator catalog — the operators of `agentMode: "native"`.
+ * NATIVE operator catalog — the operators the model writes.
  *
  * The model writes a dataflow as a program of assignments,
  *

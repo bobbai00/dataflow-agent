@@ -123,7 +123,7 @@ def main():
         "pricing_overrides": install_provider_prices(cost_utils, ["claude-sonnet-5.5"]),
         "arms": {"adaptive_flow1": {"retrievalViews": ["full", "sample", "sample_stats"],
                                      "flowEvidence": True, "dataEvidence": True}},
-        "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
+        "settings": {"contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
                      "fullResultCharLimit": 100000, "dataEvidenceCharLimit": 2000,
                      "flowEvidenceCharLimit": 2000, "thoughtReplay": False, "enableCodeInSnapshot": False},

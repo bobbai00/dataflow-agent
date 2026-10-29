@@ -80,9 +80,8 @@ export class VercelToolUseDriver implements LLMDriver {
       // reasoning_effort is configured per-model in litellm-config.yaml via
       // extra_body to bypass LiteLLM's param validation — do not pass it here.
       providerOptions: {
-        // Provider-side parallel tool-call gating. The agent serializes
-        // execution into a topological order via ToolCallScheduler so it's
-        // safe to let the model emit multiple tool calls in one turn.
+        // Provider-side parallel tool-call gating; native mode asks for one
+        // tool call per turn.
         openai: { parallelToolCalls: input.parallelToolCalls },
         anthropic: { disableParallelToolUse: !input.parallelToolCalls },
         mistral: { parallelToolCalls: input.parallelToolCalls },

@@ -96,8 +96,8 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -d '{"username":"texera","password":"texera"}' | jq -r .accessToken)
 
 # 1. create an agent bound to a workflow + computing unit
-#    (no `settings` = native mode, DELTA context, sample_stats/full retrieval, flow evidence off;
-#     pass e.g. {"agentMode":"code"} or {"flowEvidence":true} to change them)
+#    (no `settings` = DELTA context, sample_stats/full retrieval, flow evidence off;
+#     pass e.g. {"flowEvidence":true} to change them)
 AGENT=$(curl -s -X POST $BASE/agents/ \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"modelType":"gpt-5.2","workflowId":1,"computingUnitId":1}' | jq -r .id)
@@ -118,16 +118,14 @@ curl -s $BASE/agents/$AGENT/snapshots/head   # steps + workflow at HEAD
 curl -s -X DELETE $BASE/agents/$AGENT
 ```
 
-### Modes and tools
+### The tool
 
-`agentMode` selects how the model builds the dataflow. Native mode uses one
-tool with explicit execution and retrieval statements. Code mode executes
-automatically after operator edits.
+The model builds the dataflow through one tool, with explicit execution and
+retrieval statements.
 
-| Mode | Tools the model sees | What one call does |
-|---|---|---|
-| `native` (default) | `dataflow(python, statements)` | `python` registers definitions; `statements` declares operators with `set id: type(inputs, settings)` or `delete id`, then runs and reads them with `execute` and `show` lines. A call's edits apply together or not at all. Thirteen built-ins and registered table functions share this graph. The model answers by replying without the tool after `show result` has displayed what the answer rests on. |
-| `code` | `createOrModifyOperator`, `deleteOperator` | one operator per call as a Python `def load()` / `def process(...)` function (`DataLoading` / `DataProcessing`). |
+| Tool the model sees | What one call does |
+|---|---|
+| `dataflow(python, statements)` | `python` registers definitions; `statements` declares operators with `set id: type(inputs, settings)` or `delete id`, then runs and reads them with `execute` and `show` lines. A call's edits apply together or not at all. Thirteen built-ins and registered table functions share this graph. The model answers by replying without the tool after `show result` has displayed what the answer rests on. |
 
 Native mode forces provider parallel tool calls off and never forces a tool
 call, so models can think before calling and answer with a plain reply. After
@@ -198,7 +196,6 @@ An agent created with no `settings` uses
 
 | Setting | Default | What it gives the model |
 |---|---|---|
-| `agentMode` | `native` | the `dataflow` tool above; `code` is the other mode |
 | `contextMode` | `delta` | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `true` | controls data measurements outside native mode; native statistics depend only on `retrievalViews` and the requested view |
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
@@ -210,7 +207,6 @@ An agent created with no `settings` uses
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
 | `fullResultCharLimit` | `5000` | full-record display cap; native transport independently retains up to 100,000 characters; incomplete views remain labeled |
 | `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
-| `maxOperatorResultCellCharLimit` | `2000` | sample cells are clipped and marked; native full retrieval preserves retained cell contents |
 | `maxSteps` | `100` | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
 | `parallelToolCalls` | `true` | provider-side parallel calls (forced off in native mode) |
@@ -220,9 +216,9 @@ Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
 Increasing a retrieval budget does not recover records absent from an earlier
 execution. See [Retrieval views](docs/retrieval-views.md) for the tool contract,
 prompt behavior, result caching and experiment driver.
-Retired settings (`nativeToolMode`, `nativeCatalogVersion`,
-`allowedOperatorTypes`, `agentMode: "general"`, and the old level/statistics
-overlays) are rejected with an error, not translated. `inspectResult` is not a
+A key that is not a setting, such as a retired one (`agentMode`,
+`nativeToolMode`, `allowedOperatorTypes`, the old level/statistics overlays), is
+refused with a 400 that names it (`<key> is not a setting`), not translated. `inspectResult` is not a
 tool. For the evidence formulas, budgets and rendered examples of all four
 evidence configurations, see [Data and flow evidence](docs/data-flow-evidence.md).
 

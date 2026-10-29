@@ -68,7 +68,6 @@ for (const scenario of cases) {
         workflowId: wid,
         computingUnitId: cuid,
         settings: {
-          agentMode: "native",
           contextMode: "delta",
           executionTimeoutMinutes: 0.25,
           toolTimeoutSeconds: 25,

@@ -217,7 +217,6 @@ object CacheReusePreSchedulingStep {
           pid -> OutputPortConfig(
             storageURIBase = cachedPortBaseURI(cached.resultUri),
             cachedTupleCount = cached.tupleCount,
-            cachedResultStatistics = cached.resultStatistics,
             materialize = false
           )
         }
@@ -297,7 +296,6 @@ object CacheReusePreSchedulingStep {
             outputPort -> OutputPortConfig(
               storageURIBase = cachedPortBaseURI(cached.resultUri),
               cachedTupleCount = cached.tupleCount,
-              cachedResultStatistics = cached.resultStatistics,
               materialize = false
             )
           }

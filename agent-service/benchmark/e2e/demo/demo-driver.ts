@@ -29,7 +29,6 @@
  *      opened in the frontend afterwards; a JSON transcript lands next to the scenario file.
  */
 import { login, createWorkflow } from "../../../src/api";
-import { EMPTY_WORKFLOW } from "../agent-driven-specs";
 
 const scenarioPath = process.argv[2];
 if (!scenarioPath) {
@@ -38,6 +37,13 @@ if (!scenarioPath) {
 }
 const sc = JSON.parse(await Bun.file(scenarioPath).text());
 const MODEL = sc.model ?? process.env.PROBE_MODEL ?? "claude-haiku-4.5";
+const EMPTY_WORKFLOW = {
+  operators: [],
+  operatorPositions: {},
+  links: [],
+  commentBoxes: [],
+  settings: { dataTransferBatchSize: 400 },
+};
 const CUID = Number(process.env.DEMO_CUID ?? "39");
 const A = `${process.env.AGENT_BASE ?? "http://localhost:3001"}/api/agents`;
 const token = await login(process.env.DEMO_USER ?? "agent-demo", process.env.DEMO_PASSWORD ?? "agent-demo-2026");
@@ -60,7 +66,6 @@ const agent = await post("", {
   workflowId: wid,
   computingUnitId: CUID,
   settings: {
-    agentMode: "code",
     maxSteps: sc.maxSteps ?? 60,
     ...(sc.allowedOperatorTypes ? { allowedOperatorTypes: sc.allowedOperatorTypes } : {}),
   },

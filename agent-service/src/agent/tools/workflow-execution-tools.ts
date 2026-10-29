@@ -35,6 +35,7 @@ import { DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { createLogger } from "../../logger";
 import { prepareStructuredExecutionResult } from "../native/execution-transport";
 import { orderedResultIds } from "../native/result-versions";
+import { RESULT_TRANSPORT_CELL_CHAR_LIMIT } from "../native/retrieval";
 
 const log = createLogger("ExecutionTools");
 
@@ -374,8 +375,7 @@ async function executeWorkflowHttp(
     targetOperatorIds: logicalPlan.opsToViewResult || [],
     timeoutSeconds,
     maxOperatorResultCharLimit: config.maxOperatorResultCharLimit ?? DEFAULT_AGENT_SETTINGS.maxOperatorResultCharLimit,
-    maxOperatorResultCellCharLimit:
-      config.maxOperatorResultCellCharLimit ?? DEFAULT_AGENT_SETTINGS.maxOperatorResultCellCharLimit,
+    maxOperatorResultCellCharLimit: config.maxOperatorResultCellCharLimit ?? RESULT_TRANSPORT_CELL_CHAR_LIMIT,
   };
 
   log.debug(

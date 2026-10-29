@@ -1021,7 +1021,6 @@ describe("AgentService", () => {
 
       expect(settings).toEqual({
         maxOperatorResultCharLimit: 20000,
-        maxOperatorResultCellCharLimit: 4000,
         toolTimeoutSeconds: 120,
         executionTimeoutMinutes: 10,
         disabledTools: [],

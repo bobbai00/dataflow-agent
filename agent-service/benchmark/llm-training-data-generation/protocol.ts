@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import type { ReActStep, AgentMode } from "../../src/types/agent";
+import type { ReActStep } from "../../src/types/agent";
 import type { WorkflowContent } from "../../src/types/workflow";
 
 /**
@@ -106,7 +106,6 @@ export interface PromptContext {
 }
 
 export interface AgentSettingsHints {
-  agentMode?: AgentMode;
   maxSteps?: number;
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
@@ -162,7 +161,6 @@ export interface TraceRecord {
   agentInfo: {
     agentId: string;
     modelType: string;
-    agentMode: AgentMode | "unknown";
   };
   finalState: string;
   finalAnswer: string;
@@ -253,7 +251,6 @@ export interface RunSummary {
   finishedAt: string;
   durationMs: number;
   modelType: string;
-  agentMode: string;
   thresholds: { passF1: number };
   /** One row per task — small enough to inline but big enough to drive plots. */
   perTask: Array<{
@@ -270,7 +267,6 @@ export interface RunSummary {
 export function aggregateSummary(input: {
   source: string;
   modelType: string;
-  agentMode: string;
   startedAt: string;
   finishedAt: string;
   records: TraceRecord[];
@@ -307,7 +303,6 @@ export function aggregateSummary(input: {
     finishedAt: input.finishedAt,
     durationMs: new Date(input.finishedAt).getTime() - new Date(input.startedAt).getTime(),
     modelType: input.modelType,
-    agentMode: input.agentMode,
     thresholds: { passF1: 0.5 },
     perTask,
   };

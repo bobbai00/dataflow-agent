@@ -19,7 +19,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { assembleContext } from "../../util/context-utils";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import { summarize, type SummarizeInput } from "./summarize";
 import { deltaPreset, latestPreset, parseSummarizeParams } from "./params";
 import {
@@ -66,11 +66,9 @@ describe("summarize — presets ≡ legacy modes", () => {
     const legacy = contentOf(
       assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
         compilationResult: null,
-        agentMode: AgentMode.CODE,
         includeOperatorProperties: true,
         thoughtReplay: true,
         thoughtReplayK: 10,
-        maxOperatorResultCellCharLimit: 2000,
       })
     );
     const viaParams = summarize(input(), latestPreset()).text;
@@ -82,9 +80,7 @@ describe("summarize — presets ≡ legacy modes", () => {
     const legacy = contentOf(
       assembleContext(steps, workflowState, storage, ContextMode.DELTA, {
         compilationResult: null,
-        agentMode: AgentMode.CODE,
         includeOperatorProperties: true,
-        maxOperatorResultCellCharLimit: 2000,
       })
     );
     const viaParams = summarize(input(), deltaPreset()).text;
@@ -283,11 +279,9 @@ describe("summarizePatch — the settings-level door into the param space", () =
     const text = contentOf(
       assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
         compilationResult: null,
-        agentMode: AgentMode.CODE,
         includeOperatorProperties: true,
         thoughtReplay: true,
         thoughtReplayK: 10,
-        maxOperatorResultCellCharLimit: 2000,
         summarizePatch: {
           operators: {
             defaults: { property: { includeCode: true } },
@@ -309,7 +303,6 @@ describe("summarizePatch — the settings-level door into the param space", () =
     expect(() =>
       assembleContext(steps, workflowState, storage, ContextMode.LATEST, {
         compilationResult: null,
-        agentMode: AgentMode.CODE,
         summarizePatch: { trajectory: { events: "bogus" } } as any,
       })
     ).toThrow();

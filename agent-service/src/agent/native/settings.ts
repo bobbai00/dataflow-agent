@@ -28,8 +28,10 @@ export function refuseUnknownSettings(settings: unknown, keys: ReadonlySet<strin
     if (!keys.has(key)) throw new NativeCatalogSettingsError(`${key} is not a setting`);
 }
 
-/** Deliberate breaking change: never silently reinterpret old experiments. */
-export function validateEvidenceSettings(settings: object): void {
+/** Shared by creation (before allocating an agent) and atomic settings
+ * updates. Deliberate breaking change: never silently reinterpret old
+ * experiments. */
+export function validateNativeSettings(settings: object = {}): void {
   const supplied = settings as Record<string, unknown>;
   if (supplied.retrievalViews !== undefined) {
     const views = supplied.retrievalViews;
@@ -101,14 +103,4 @@ export function validateEvidenceSettings(settings: object): void {
     (!Number.isInteger(catalogRecent) || Number(catalogRecent) < 0 || Number(catalogRecent) > 50)
   )
     throw new NativeCatalogSettingsError("catalogRecent must be an integer between 0 and 50");
-}
-
-/** Shared by creation (before allocating an agent) and atomic settings updates. */
-export function validateNativeSettings(settings: { agentMode?: string } = {}): void {
-  validateEvidenceSettings(settings);
-  if (settings.agentMode !== undefined && settings.agentMode !== "native" && settings.agentMode !== "code") {
-    throw new NativeCatalogSettingsError(
-      `Unknown agentMode ${JSON.stringify(settings.agentMode)}; use "native" or "code"`
-    );
-  }
 }

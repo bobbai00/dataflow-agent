@@ -18,8 +18,8 @@
  */
 
 import { expect, spyOn, test } from "bun:test";
-import { AgentMode, ContextMode } from "../types/agent";
-import { buildCodeModeSystemPrompt, buildRegisteredNativeSystemPrompt } from "./prompts";
+import { ContextMode } from "../types/agent";
+import { buildRegisteredNativeSystemPrompt } from "./prompts";
 import { TexeraAgent } from "./texera-agent";
 import { WorkflowSystemMetadata } from "./util/workflow-system-metadata";
 
@@ -32,32 +32,29 @@ function agent() {
   });
 }
 
-test("inspectResult cannot be enabled in any mode or by live settings changes", async () => {
+test("inspectResult cannot be enabled in any context mode or by live settings changes", async () => {
   const subject = agent();
   expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-  const configurations = [{ agentMode: AgentMode.CODE }, { agentMode: AgentMode.NATIVE }];
-  for (const config of [...configurations, ...configurations.toReversed()]) {
-    for (const contextMode of [ContextMode.DELTA, ContextMode.LATEST]) {
-      for (const enableInspectTool of [false, true]) {
-        subject.updateSettings({ ...config, contextMode, enableInspectTool });
-        expect(subject.getSettings().enableInspectTool).toBe(false);
-        const info = subject.getSystemInfo();
-        expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
-        expect(info.systemPrompt).not.toContain("inspectResult");
-        await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
-          "not found"
-        );
-        expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
-        subject.updateSettings({ maxSteps: 20 });
-        expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-      }
+  for (const contextMode of [ContextMode.DELTA, ContextMode.LATEST, ContextMode.DELTA]) {
+    for (const enableInspectTool of [false, true]) {
+      subject.updateSettings({ contextMode, enableInspectTool });
+      expect(subject.getSettings().enableInspectTool).toBe(false);
+      const info = subject.getSystemInfo();
+      expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
+      expect(info.systemPrompt).not.toContain("inspectResult");
+      await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
+        "not found"
+      );
+      expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
+      subject.updateSettings({ maxSteps: 20 });
+      expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
     }
   }
 });
 
 test("initialization and delegate rebuilds cannot restore result inspection", async () => {
   const subject = agent();
-  subject.updateSettings({ agentMode: AgentMode.NATIVE, enableInspectTool: true });
+  subject.updateSettings({ enableInspectTool: true });
   const metadata = WorkflowSystemMetadata.getInstance();
   const initialized = spyOn(metadata, "isInitialized").mockReturnValue(true);
   try {
@@ -84,16 +81,15 @@ test("the model driver receives no result-inspection schema", async () => {
       },
     },
   });
-  subject.updateSettings({ agentMode: AgentMode.NATIVE, enableInspectTool: true });
+  subject.updateSettings({ enableInspectTool: true });
   await subject.sendMessage("Answer without executing a workflow.");
   expect(dispatchedTools).toBeDefined();
   expect(dispatchedTools).not.toContain("inspectResult");
   expect(dispatchedTools).toEqual(["dataflow"]);
 });
 
-test("prompt builders cannot advertise a removed tool", () => {
+test("the prompt builder cannot advertise a removed tool", () => {
   for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
-    expect(buildCodeModeSystemPrompt(mode, false, true)).toBe(buildCodeModeSystemPrompt(mode, false, false));
     const prompt = buildRegisteredNativeSystemPrompt(mode);
     expect(prompt).not.toContain("inspectResult");
     expect(prompt).toContain("show result");

@@ -626,11 +626,9 @@ describe("AgentChatComponent", () => {
       expect(component.availableTools).toEqual([tool]);
       // ?? defaults for a settings payload with no fields set:
       expect(component.settingsMaxCharLimit).toBe(20000);
-      expect(component.settingsMaxCellCharLimit).toBe(4000);
       expect(component.settingsToolTimeoutSeconds).toBe(120);
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
-      expect(component.settingsAgentMode).toBe("native");
       // agent-service defaults: dataEvidence on, flowEvidence and operatorDoc off
       expect(component.settingsDataEvidence).toBe("enabled");
       expect(component.settingsFlowEvidence).toBe("disabled");
@@ -642,11 +640,9 @@ describe("AgentChatComponent", () => {
       agentService.getAgentSettings.mockReturnValue(
         of({
           maxOperatorResultCharLimit: 111,
-          maxOperatorResultCellCharLimit: 222,
           toolTimeoutSeconds: 33,
           executionTimeoutMinutes: 4,
           maxSteps: 5,
-          agentMode: "code",
           dataEvidence: false,
           flowEvidence: true,
           operatorDoc: true,
@@ -656,11 +652,9 @@ describe("AgentChatComponent", () => {
       component.showSystemInfo();
 
       expect(component.settingsMaxCharLimit).toBe(111);
-      expect(component.settingsMaxCellCharLimit).toBe(222);
       expect(component.settingsToolTimeoutSeconds).toBe(33);
       expect(component.settingsExecutionTimeoutMinutes).toBe(4);
       expect(component.settingsMaxSteps).toBe(5);
-      expect(component.settingsAgentMode).toBe("code");
       expect(component.settingsDataEvidence).toBe("disabled");
       expect(component.settingsFlowEvidence).toBe("enabled");
       expect(component.settingsOperatorDoc).toBe("enabled");
@@ -682,13 +676,6 @@ describe("AgentChatComponent", () => {
         key: "maxOperatorResultCharLimit",
         value: 31000,
         toast: "Max character limit saved",
-      },
-      {
-        method: "saveMaxCellCharLimit",
-        prop: "settingsMaxCellCharLimit",
-        key: "maxOperatorResultCellCharLimit",
-        value: 512,
-        toast: "Max cell character limit saved",
       },
       {
         method: "saveToolTimeout",
@@ -1204,10 +1191,11 @@ describe("AgentChatComponent", () => {
         expect(document.body.textContent).toContain("Creates an operator");
 
         clickTab("Parameters");
-        expect(document.querySelectorAll("nz-input-number").length).toBe(5);
+        expect(document.querySelectorAll("nz-input-number").length).toBe(4);
         const paramsText = document.body.textContent ?? "";
         expect(paramsText).toContain("Max Operator Result Character Limit");
-        expect(paramsText).toContain("Max Cell Character Limit");
+        expect(paramsText).not.toContain("Max Cell Character Limit");
+        expect(paramsText).not.toContain("Agent Mode");
         expect(paramsText).toContain("Tool Execution Timeout (seconds)");
         expect(paramsText).toContain("Workflow Execution Timeout (minutes)");
         expect(paramsText).toContain("Max Steps per Message");

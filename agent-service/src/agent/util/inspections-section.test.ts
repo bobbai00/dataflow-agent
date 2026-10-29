@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../types/agent";
+import { ContextMode } from "../../types/agent";
 import { assembleContext } from "./context-utils";
 import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../context/summarize/fixtures";
 
@@ -82,7 +82,7 @@ function pullScenario(): Scenario {
   return scenario;
 }
 
-const OPTS = { compilationResult: null, agentMode: AgentMode.CODE, maxResultRows: 3 } as const;
+const OPTS = { compilationResult: null, maxResultRows: 3 } as const;
 
 describe("# Inspections persistence", () => {
   test("fresh error inspections never advertise a removed result tool", () => {

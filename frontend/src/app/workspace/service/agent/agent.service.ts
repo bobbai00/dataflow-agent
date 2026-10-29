@@ -56,8 +56,6 @@ import { ComputingUnitStatusService } from "../../../common/service/computing-un
 export interface AgentSettingsApi {
   /** Maximum character limit for operator results (uses symmetric truncation) */
   maxOperatorResultCharLimit?: number;
-  /** Maximum character limit per cell (truncates individual cell values beyond this limit) */
-  maxOperatorResultCellCharLimit?: number;
   /** Serialization mode for operator results */
   operatorResultSerializationMode?: "tsv";
   /** Tool execution timeout in seconds */
@@ -68,16 +66,13 @@ export interface AgentSettingsApi {
   disabledTools?: string[];
   /** Maximum number of steps per message */
   maxSteps?: number;
-  /** List of allowed operator types (empty = all operators allowed) */
-  /** Agent operating mode: "native" (operator expressions + filter/map/process) or "code" (Python load/process) */
-  agentMode?: "code" | "native";
   /** Snapshot-selection policy for ReAct context (paper §5): "delta"
    *  interleaves snapshots with only changed operators rendered in full,
    *  "latest" emits one trailing snapshot of the current state. The agent
    *  service accepts exactly these two values. */
   contextMode?: "delta" | "latest";
-  /** When true, the model may emit multiple tool calls in one assistant turn.
-   *  The agent serializes them in topological order via `ToolCallScheduler`. */
+  /** Whether the model may emit multiple tool calls in one assistant turn;
+   *  native mode asks for one. */
   parallelToolCalls?: boolean;
   /** When true, results the agent observes carry bounded, version-bound
    *  column/table facts (null and distinct counts, ranges, top values).
@@ -885,9 +880,6 @@ export class AgentService {
    * @param modelType - The LLM model type to use
    * @param customName - Optional custom name for the agent
    * @param workflowId - Optional workflow ID for delegate mode
-   *
-   * The agent always starts in CODE mode (the backend default). Users can
-   * still flip to GENERAL afterwards via the agent's settings panel.
    */
   public createAgent(modelType: string, customName?: string, workflowId?: number): Observable<AgentInfo> {
     return defer(() => {
@@ -1582,7 +1574,6 @@ export class AgentService {
         catchError(() =>
           of({
             maxOperatorResultCharLimit: 20000,
-            maxOperatorResultCellCharLimit: 4000,
             toolTimeoutSeconds: 120,
             executionTimeoutMinutes: 10,
             disabledTools: [],

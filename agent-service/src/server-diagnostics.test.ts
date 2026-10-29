@@ -98,7 +98,6 @@ async function create() {
     {
       modelType: "test",
       workflowId: 17,
-      settings: { agentMode: "native" },
     },
     token()
   );

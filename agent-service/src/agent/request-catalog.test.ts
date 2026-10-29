@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentMode, ContextMode, type CatalogSource, type MultiRequestMode } from "../types/agent";
+import { ContextMode, type CatalogSource, type MultiRequestMode } from "../types/agent";
 import { VercelToolUseDriver } from "./llm-drivers/vercel-tool-use-driver";
 import { NativeCatalogSettingsError } from "./native/settings";
 import { TexeraAgent } from "./texera-agent";
@@ -83,7 +83,6 @@ function session(
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
     contextAssembler: input =>
       assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, ContextMode.DELTA, {
-        agentMode: AgentMode.NATIVE,
         messageLayout: "native",
         multiRequest,
         ...catalog,
@@ -91,7 +90,6 @@ function session(
       }),
   });
   agent.updateSettings({
-    agentMode: AgentMode.NATIVE,
     maxSteps: 25,
     thoughtReplay: false,
     retrievalViews: ["sample", "full"],

@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode, type ReActStep, type ResultSelection } from "../../types/agent";
+import { ContextMode, type ReActStep, type ResultSelection } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { assembleContext, latestNativeActionReceipt } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -98,12 +98,7 @@ describe("dataflow receipts and observations in LATEST context", () => {
     await f.record("write", "", source);
     f.result("write", "source", "visible_after_pull");
     await f.record("read", "", "show result source", ["source"]);
-    const render = (mode: ContextMode) =>
-      JSON.stringify(
-        assembleContext(f.steps, f.state, f.storage, mode, {
-          agentMode: AgentMode.NATIVE,
-        })
-      );
+    const render = (mode: ContextMode) => JSON.stringify(assembleContext(f.steps, f.state, f.storage, mode, {}));
     expect(render(ContextMode.LATEST)).toContain("Last completed action in this task:");
     expect(render(ContextMode.LATEST)).toContain("visible_after_pull");
     expect(render(ContextMode.DELTA)).not.toContain("Last completed action in this task:");
@@ -144,7 +139,6 @@ describe("dataflow receipts and observations in LATEST context", () => {
         const text = () =>
           JSON.stringify(
             assembleContext(steps, state, storage, ContextMode.LATEST, {
-              agentMode: AgentMode.NATIVE,
               resultSelection,
               messageLayout,
               flowEvidence: true,

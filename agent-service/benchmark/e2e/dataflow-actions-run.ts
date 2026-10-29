@@ -70,7 +70,6 @@ async function provision(name: string, settings: Record<string, unknown> = {}) {
     workflowId: wid,
     computingUnitId: cuid,
     settings: {
-      agentMode: "native",
       contextMode: "delta",
       messageLayout: "native",
       maxSteps: 12,

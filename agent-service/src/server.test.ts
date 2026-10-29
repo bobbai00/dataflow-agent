@@ -159,7 +159,7 @@ describe(`POST ${API}/agents`, () => {
     const created = await readJson<any>(await createAgent());
     const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
     // Removed settings and a misspelled one alike.
-    for (const key of ["nativeTransport", "multiTask", "columnStats", "nativeToolMode", "maxStep"]) {
+    for (const key of ["agentMode", "maxOperatorResultCellCharLimit", "nativeTransport", "columnStats", "maxStep"]) {
       const response = await createAgent({ settings: { maxSteps: 7, [key]: true } });
       expect(response.status).toBe(400);
       expect(await readJson<any>(response)).toEqual({ error: `${key} is not a setting` });
@@ -177,7 +177,7 @@ describe(`POST ${API}/agents`, () => {
     expect(response.status).toBe(200);
     const created = await readJson<any>(response);
     expect(created.settings).toEqual(reported);
-    const fixedAtCreation = ["enableCodeInSnapshot", "sourceProvenanceHint", "staticCompaction"];
+    const fixedAtCreation = ["enableCodeInSnapshot", "staticCompaction"];
     const patch = Object.fromEntries(Object.entries(reported).filter(([key]) => !fixedAtCreation.includes(key)));
     const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
     expect(patched.status).toBe(200);
@@ -192,11 +192,9 @@ describe(`POST ${API}/agents`, () => {
     const created = await readJson<any>(response);
     for (const patch of [
       { maxOperatorResultCharLimit: 20000 },
-      { maxOperatorResultCellCharLimit: 4000 },
       { toolTimeoutSeconds: 120 },
       { executionTimeoutMinutes: 10 },
       { maxSteps: 10 },
-      { agentMode: "native" },
       { contextMode: "delta" },
       { parallelToolCalls: false },
       { dataEvidence: true },
@@ -221,27 +219,17 @@ describe(`POST ${API}/agents`, () => {
     expect(settings.messageLayout).toBe("native");
   });
 
-  test("native mode survives create and forces provider parallel calls off; code mode keeps them", async () => {
-    const created = await createAgent({ settings: { agentMode: "native", parallelToolCalls: true } });
+  test("provider parallel calls stay off through create and PATCH", async () => {
+    const created = await createAgent({ settings: { parallelToolCalls: true } });
     expect(created.status).toBe(200);
-    const body = await readJson<{ id: string; settings: { agentMode: string; parallelToolCalls: boolean } }>(created);
-    expect(body.settings.agentMode).toBe("native");
+    const body = await readJson<{ id: string; settings: { parallelToolCalls: boolean } }>(created);
     expect(body.settings.parallelToolCalls).toBe(false);
     const patched = await patchJson(`${API}/agents/${body.id}/settings`, {
-      agentMode: "code",
       parallelToolCalls: true,
       resultSelection: "all",
     });
     expect(patched.status).toBe(200);
-    const settings = await readJson<{ agentMode: string; parallelToolCalls: boolean }>(patched);
-    expect(settings.agentMode).toBe("code");
-    expect(settings.parallelToolCalls).toBe(true);
-  });
-
-  test("rejects retired native settings and unknown modes", async () => {
-    expect((await createAgent({ settings: { agentMode: "native", nativeToolMode: "batch" } })).status).toBe(400);
-    expect((await createAgent({ settings: { agentMode: "native", nativeCatalogVersion: "v2" } })).status).toBe(400);
-    expect((await createAgent({ settings: { agentMode: "general" } })).status).toBe(400);
+    expect((await readJson<{ parallelToolCalls: boolean }>(patched)).parallelToolCalls).toBe(false);
   });
 
   test("creates an agent for the delegating user", async () => {
@@ -524,7 +512,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     const created = await readJson<any>(
       await createAgent({
         settings: {
-          agentMode: "native",
           nativeProfileCollection: true,
           dataEvidence: true,
           flowEvidence: false,
@@ -545,7 +532,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
 
   test("operator docs survive create, GET, and PATCH, and rebuild the native prompt", async () => {
     expect((await readJson<any>(await createAgent())).settings.operatorDoc).toBe(false);
-    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native", operatorDoc: true } }));
+    const created = await readJson<any>(await createAgent({ settings: { operatorDoc: true } }));
     expect(created.settings.operatorDoc).toBe(true);
     const prompt = async () =>
       (await readJson<any>(await getJson(`${API}/agents/${created.id}/system-info`))).systemPrompt as string;
@@ -563,7 +550,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
 
   test("the session's instructions survive create, GET and PATCH, and end the system prompt", async () => {
     const rules = "Answer questions about the analysis; change it only when told what to change.";
-    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native", instructions: rules } }));
+    const created = await readJson<any>(await createAgent({ settings: { instructions: rules } }));
     expect(created.settings.instructions).toBe(rules);
     const prompt = async () =>
       (await readJson<any>(await getJson(`${API}/agents/${created.id}/system-info`))).systemPrompt as string;
@@ -573,9 +560,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(changed.status).toBe(200);
     expect(await readJson(changed)).toMatchObject({ instructions: "Be brief." });
     expect(await prompt()).toEndWith("## Instructions for this session\n\nBe brief.\n");
-    // Code mode carries them too.
-    await patchJson(`${API}/agents/${created.id}/settings`, { agentMode: "code" });
-    expect(await prompt()).toContain("## Instructions for this session\n\nBe brief.");
 
     // An empty string clears them, and an agent without any has no such section.
     await patchJson(`${API}/agents/${created.id}/settings`, { instructions: "" });

@@ -79,10 +79,7 @@ test("the agent's execution call is sent with those limits and the engine timeou
     { preconnect: originalFetch.preconnect }
   );
   try {
-    await agent.runPostStepExecution(
-      [{ toolName: "createOrModifyOperator", toolCallId: "t", input: { operatorId: "source" } }],
-      [{ toolCallId: "t", output: "ok" }]
-    );
+    await agent.executePostStepChanges(["source"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

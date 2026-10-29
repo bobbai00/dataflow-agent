@@ -18,7 +18,7 @@
  */
 
 import { beforeAll, expect, test } from "bun:test";
-import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
+import { ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { WorkflowState } from "../workflow-state";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
@@ -287,7 +287,6 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
     expect(agent.getSettings()).toEqual(before);
   }
   agent.updateSettings({
-    agentMode: AgentMode.NATIVE,
     tableFormat: "tsv",
     keyValueColumns: 0,
     columnsShown: 0,

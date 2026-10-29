@@ -26,7 +26,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { AgentSettings, CompactionStrategy, ReActStep } from "../../types/agent";
-import { AgentMode, ContextMode } from "../../types/agent";
+import { ContextMode } from "../../types/agent";
 import type { WorkflowCompilationResponse } from "../../api/compile-api";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import type { OperatorInfo } from "../../types/execution";
@@ -159,7 +159,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  can't recompile historical snapshots cheaply, so non-current snapshots
    *  render without schema lines regardless of mode. */
   compilationResult?: WorkflowCompilationResponse | null;
-  agentMode: AgentMode;
   /** NATIVE-mode result selection for the current snapshot: "all" (every
    *  executed operator renders its full result) or "rule" (ship only what the
    *  data decided — see native/selection.ts). */
@@ -268,9 +267,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
-  /** Per-cell char cap (reused as the truncation limit for the surfaced print
-   *  output block). Undefined ⇒ no cap. */
-  maxOperatorResultCellCharLimit?: number;
   /** The arm's per-operator result character budget (the engine-side sample
    *  cap). The `scoped` selection expresses its per-type sample sizes as
    *  shares of it. Undefined ⇒ 2000, the campaign default. */
@@ -317,10 +313,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  / error history, built from the path only when errorReflection is on and the
    *  mode is LATEST. */
   errorReflectionMap?: Map<string, ErrorReflectionEntry>;
-  /** W2: few-shot best-practices prompt toggle. Not used by the assembler (it
-   *  affects the SYSTEM prompt, applied in TexeraAgent.rebuildSystemPrompt) —
-   *  declared here only so the settings pass-through type-checks. */
-  fewShotPrompt?: boolean;
   /** When true, an operator edited >= the reflection threshold times gets an
    *  `Attempt reflection:` block on the current snapshot (edit count + latest
    *  symptom + current code, otherwise stripped in CODE mode + a change-strategy
@@ -707,8 +699,6 @@ export function renderContextCore(
     }
   }
 
-  // Native mode survives the legacy summarize mapping as nativeOp metadata,
-  // not as agentMode (which only distinguishes compiled-schema rendering).
   if (mode === ContextMode.LATEST && workflowState.getAllOperators().some(op => op.nativeOp)) {
     const receipt = latestNativeActionReceipt(visibleSteps);
     // The receipt changes every step. Without a heading it is glued to the
@@ -2471,8 +2461,7 @@ function serializeSnapshotFull(
   // every step back to the system prompt (measured on a 3-turn session:
   // 13-36% cached). Creation order is append-only, and the model built the
   // DAG in that order anyway. Modified operators keep their position.
-  // (Gated on the operators themselves: the summarize path maps agentMode to
-  // GENERAL / CODE only, so `options.agentMode` never says NATIVE here.)
+  // (Gated on the operators themselves.)
   const ordered = workflow.operators.some(o => o.nativeOp) ? workflow.operators : sortedOps;
   for (const op of ordered) {
     const compilationError = isCurrent ? options.compilationResult?.operatorErrors?.[op.operatorID] : undefined;
@@ -2891,12 +2880,12 @@ function serializeOperatorFull(
   // Print output (debug-only). Surface the operator's captured stdout so the model
   // can see what it printed instead of having it silently dropped. It is NOT the
   // operator's result and is NOT passed downstream — the returned DataFrame remains
-  // the only data plane. Truncated to the per-cell char cap.
+  // the only data plane.
   if (info?.consoleLogs && info.consoleLogs.length > 0) {
     // Only actual print() output (ConsoleMessageType.PRINT). consoleLogs also
     // carries ERROR/COMMAND/DEBUGGER messages — the error traceback is already in
     // the Result block, so including it here would duplicate + mislabel it.
-    let text = info.consoleLogs
+    const text = info.consoleLogs
       .filter(c => {
         const t = String(c.msgType ?? "").toUpperCase();
         return t === "PRINT" || t === "0";
@@ -2906,8 +2895,6 @@ function serializeOperatorFull(
       .filter(m => typeof m === "string" && m.trim().length > 0)
       .join("\n")
       .trimEnd();
-    const cap = options.maxOperatorResultCellCharLimit;
-    if (cap && cap > 0 && text.length > cap) text = text.slice(0, cap) + " …(truncated)";
     if (text) {
       lines.push(
         "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"

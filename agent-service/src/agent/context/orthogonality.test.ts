@@ -31,7 +31,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../types/agent";
+import { ContextMode } from "../../types/agent";
 import { assembleContext } from "../util/context-utils";
 import { buildDossier } from "./summarize/dossier";
 import { mapLegacyToParams } from "./summarize/params";
@@ -168,7 +168,6 @@ function kitchenSinkScenario(): Scenario {
 
 const BASE = {
   compilationResult: null,
-  agentMode: AgentMode.CODE,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;

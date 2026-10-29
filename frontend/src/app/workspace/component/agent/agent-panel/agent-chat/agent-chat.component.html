@@ -748,33 +748,6 @@
       <nz-tab nzTitle="Parameters">
         <div class="settings-section">
           <div class="settings-param-item">
-            <label class="settings-param-label">Agent Mode</label>
-            <div class="settings-param-input">
-              <nz-select
-                [(ngModel)]="settingsAgentMode"
-                nzSize="small"
-                style="width: 180px">
-                <nz-option
-                  nzValue="native"
-                  nzLabel="Native"></nz-option>
-                <nz-option
-                  nzValue="code"
-                  nzLabel="Code"></nz-option>
-              </nz-select>
-              <button
-                nz-button
-                nzType="primary"
-                nzSize="small"
-                (click)="saveAgentMode()">
-                Save
-              </button>
-            </div>
-            <div class="settings-param-hint-block">
-              Code mode uses Python <code>load()</code> / <code>process(...)</code>; general mode picks typed operators.
-            </div>
-          </div>
-
-          <div class="settings-param-item">
             <label class="settings-param-label">Context Mode</label>
             <div class="settings-param-input">
               <nz-select
@@ -1014,27 +987,6 @@
                 Save
               </button>
               <span class="settings-param-hint">Max characters for operator results (uses symmetric truncation)</span>
-            </div>
-          </div>
-
-          <div class="settings-param-item">
-            <label class="settings-param-label">Max Cell Character Limit</label>
-            <div class="settings-param-input">
-              <nz-input-number
-                [(ngModel)]="settingsMaxCellCharLimit"
-                [nzMin]="100"
-                [nzMax]="20000"
-                [nzStep]="100"
-                nzSize="small"
-                style="width: 120px"></nz-input-number>
-              <button
-                nz-button
-                nzType="primary"
-                nzSize="small"
-                (click)="saveMaxCellCharLimit()">
-                Save
-              </button>
-              <span class="settings-param-hint">Max characters per cell - truncates large cell values</span>
             </div>
           </div>
 

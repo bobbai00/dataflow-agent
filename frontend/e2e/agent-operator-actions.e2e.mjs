@@ -277,7 +277,7 @@ async function main() {
     await openAgentPanel(page);
     await waitForChat(page, "e2e-actions");
     const agent = (await agentsForWorkflow(wid))[0];
-    check("agent created on the workflow, native mode", agent?.settings?.agentMode === "native", agent?.modelType);
+    check("agent created on the workflow", agent !== undefined, agent?.modelType);
 
     // ===== 1. the agent builds a dataflow with a filter =====
     await sendAndWait(

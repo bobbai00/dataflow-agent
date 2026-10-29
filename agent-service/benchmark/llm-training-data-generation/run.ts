@@ -37,7 +37,7 @@ import {
   terminateComputingUnit,
   uploadFileToDataset,
 } from "../../src/api";
-import { AgentMode, type ReActStep } from "../../src/types/agent";
+import type { ReActStep } from "../../src/types/agent";
 import type { WorkflowContent } from "../../src/types/workflow";
 
 import {
@@ -195,7 +195,6 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
   let finalAnswer = "";
   let finalState = "UNKNOWN";
   let finalWorkflow: WorkflowContent | null = null;
-  let agentMode: TraceRecord["agentInfo"]["agentMode"] = "unknown";
   let agentName = "";
 
   try {
@@ -217,7 +216,7 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
     // over the adapter defaults without a bespoke runner.
     const extraSettings = process.env.TEXERA_SETTINGS_JSON ? JSON.parse(process.env.TEXERA_SETTINGS_JSON) : {};
     const settingsHints = { ...(adapter.defaultAgentSettings?.() ?? {}), ...extraSettings };
-    log(`task ${task.id}: creating agent (model=${MODEL_TYPE}, mode=${settingsHints.agentMode ?? "default"})`);
+    log(`task ${task.id}: creating agent (model=${MODEL_TYPE})`);
     const agentInfo = await createAgent({
       modelType: MODEL_TYPE,
       name: `${adapter.name}-${task.id}`,
@@ -228,8 +227,6 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
     });
     resources.agentId = agentInfo.id;
     agentName = agentInfo.name;
-    const reportedMode = agentInfo.settings?.agentMode;
-    agentMode = reportedMode === "code" ? AgentMode.CODE : reportedMode === "native" ? AgentMode.NATIVE : "unknown";
 
     prompt = adapter.buildPrompt(task, { datasetPathPrefix });
     log(`task ${task.id}: running agent turn (timeout=${TURN_TIMEOUT_MS}ms)`);
@@ -306,7 +303,6 @@ async function processTask(input: ProcessTaskInput): Promise<TraceRecord> {
     agentInfo: {
       agentId: resources.agentId ?? "",
       modelType: MODEL_TYPE,
-      agentMode,
     },
     finalState,
     finalAnswer,
@@ -449,7 +445,6 @@ async function main(): Promise<void> {
   const summary = aggregateSummary({
     source: adapter.name,
     modelType: MODEL_TYPE,
-    agentMode: records[0]?.agentInfo.agentMode ?? "unknown",
     startedAt,
     finishedAt,
     records,
@@ -461,7 +456,7 @@ async function main(): Promise<void> {
 
   log("=================== summary ===================");
   log(`source         : ${summary.source}`);
-  log(`model          : ${summary.modelType} (mode=${summary.agentMode})`);
+  log(`model          : ${summary.modelType}`);
   log(`total tasks    : ${summary.total}`);
   log(`completed (no err): ${summary.total - summary.errored}`);
   log(`errored        : ${summary.errored}`);

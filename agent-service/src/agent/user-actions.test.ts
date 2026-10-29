@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentMode, AgentState, ContextMode, type ReActStep } from "../types/agent";
+import { AgentState, ContextMode, type ReActStep } from "../types/agent";
 import { VercelToolUseDriver } from "./llm-drivers/vercel-tool-use-driver";
 import { TexeraAgent } from "./texera-agent";
 import { assembleContext } from "./util/context-utils";
@@ -71,12 +71,11 @@ function session(replies: Reply[]) {
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
     contextAssembler: input =>
       assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, ContextMode.DELTA, {
-        agentMode: AgentMode.NATIVE,
         messageLayout: "native",
         turnNumberByMessageId: agent.turnNumberMap(),
       }),
   });
-  agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 10, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 10, thoughtReplay: false });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators()) {
       const threshold = /> (\d+)/.exec(op.nativeOp?.source ?? "")?.[1];
@@ -252,14 +251,11 @@ test("an edit is checked first: a rejected or empty edit records nothing", async
   expect(agent.getState()).toBe(AgentState.AVAILABLE);
 });
 
-test("an action needs an available native agent and a native operator", async () => {
+test("an action needs an available agent and a native operator", async () => {
   const { agent } = await built();
   await expect(agent.applyUserAction({ kind: "run", operatorId: "nope" })).rejects.toMatchObject({ status: 404 });
   (agent as any).state = AgentState.GENERATING;
   await expect(agent.applyUserAction({ kind: "run", operatorId: "kept" })).rejects.toMatchObject({ status: 409 });
-  (agent as any).state = AgentState.AVAILABLE;
-  agent.updateSettings({ agentMode: AgentMode.CODE });
-  await expect(agent.applyUserAction({ kind: "run", operatorId: "kept" })).rejects.toMatchObject({ status: 400 });
 });
 
 test("each action of a call is a version of its own: its edits, its run and its show", async () => {

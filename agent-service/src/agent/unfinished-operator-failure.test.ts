@@ -56,10 +56,8 @@ async function executeAgainst(response: Record<string, unknown>) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = Object.assign(async () => Response.json(response), { preconnect: originalFetch.preconnect });
   try {
-    await agent.runPostStepExecution(
-      [{ toolName: "createOrModifyOperator", toolCallId: "t", input: { operatorId: "source" } }],
-      [{ toolCallId: "t", output: "ok" }]
-    );
+    // A failed run is reported to the caller too; the stored entry is what this checks.
+    await agent.executePostStepChanges(["source"]).catch(() => undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

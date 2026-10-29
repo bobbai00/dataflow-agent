@@ -108,11 +108,6 @@ case class OperatorInfo(
     consoleLogs: Option[List[ConsoleMessageInfo]],
     error: Option[String],
     warnings: Option[List[String]],
-    // Per-column result statistics from data_processor.py's
-    // _compute_column_stats. JSON-encoded value per column. None when the
-    // operator did not produce stats (non-DataProcessing/DataLoading, or
-    // stats not yet propagated).
-    columnStats: Option[Map[String, String]],
     resultMetadata: Option[Map[String, String]] = None,
     metadataOmissions: Option[List[String]] = None,
     numWorkers: Option[Int] = None,
@@ -553,22 +548,10 @@ class SyncExecutionResource extends LazyLogging {
         .map(_.filter(_.title.startsWith("WARNING: ")).map(_.title))
         .filter(_.nonEmpty)
 
-      // Per-column stats forwarded from WorkerStatistics.result_statistics.
-      // Each value is a JSON-encoded blob (count/null/distinct + type-specific
-      // stats). Empty map -> None so the response stays compact.
-      //
-      // The blob's string-typed sub-fields (notably top_10[i].value for string
-      // columns) are NOT bounded by the cell-char limit applied to tuple
-      // results, so a column whose values are large strings (e.g. WKT
-      // geometries) would otherwise ship multi-MB stats payloads that blow
-      // the LLM context. Walk every value JSON and apply the same per-cell
-      // truncation we use on tuple cells.
+      // The table profile envelopes forwarded from WorkerStatistics.result_statistics.
       val partitioned = StructuredResultTransport.partitionStatistics(
         stats.map(_.operatorStatistics.resultStatistics.toMap).getOrElse(Map.empty)
       )
-      val columnStats = Option(partitioned.columnStats)
-        .filter(_.nonEmpty)
-        .map(m => truncateColumnStatsValues(m, maxOperatorResultCellCharLimit))
 
       operatorInfos(opId) = OperatorInfo(
         state = state,
@@ -583,7 +566,6 @@ class SyncExecutionResource extends LazyLogging {
         consoleLogs = consoleLogs,
         error = errorMsg,
         warnings = warningMsgs,
-        columnStats = columnStats,
         resultMetadata =
           Option.when(structuredResults && partitioned.metadata.nonEmpty)(partitioned.metadata),
         metadataOmissions =
@@ -873,78 +855,6 @@ class SyncExecutionResource extends LazyLogging {
       mapper: ObjectMapper
   ): Int = {
     mapper.writeValueAsString(tuple).length + 1 // +1 for the array separator
-  }
-
-  /**
-    * Recursively walk a parsed JSON node and replace every textual leaf whose
-    * raw length exceeds `maxChars` with a symmetric-truncated copy. Numeric,
-    * boolean, and null leaves are passed through; arrays and objects are
-    * rebuilt with truncated children. Used to bound the size of per-column
-    * stat blobs before they leave the engine — the `top_10[i].value` slot is
-    * the dominant offender for high-cardinality string columns.
-    */
-  private def truncateStringsInJsonValue(
-      node: com.fasterxml.jackson.databind.JsonNode,
-      maxChars: Int
-  ): com.fasterxml.jackson.databind.JsonNode = {
-    import com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode, TextNode}
-
-    if (node == null || node.isNull) {
-      node
-    } else if (node.isTextual) {
-      val text = node.asText()
-      if (text.length > maxChars) new TextNode(symmetricTruncateCellValue(text, maxChars)) else node
-    } else if (node.isArray) {
-      val arr = node.asInstanceOf[ArrayNode]
-      val out = arr.arrayNode()
-      val it = arr.elements()
-      while (it.hasNext) out.add(truncateStringsInJsonValue(it.next(), maxChars))
-      out
-    } else if (node.isObject) {
-      val obj = node.asInstanceOf[ObjectNode]
-      val out = obj.objectNode()
-      val it = obj.fields()
-      while (it.hasNext) {
-        val e = it.next()
-        out.set(e.getKey, truncateStringsInJsonValue(e.getValue, maxChars))
-      }
-      out
-    } else {
-      node
-    }
-  }
-
-  /**
-    * Per-column stat blobs are currently a `String → "(type): k=v, …"`
-    * pre-formatted display line per column (the renderer just wraps each
-    * with `- "col" ` under a `Column stats:` block). For backward compat
-    * with older callers that still ship JSON-typed values, we first try
-    * parsing as a JSON object/array and walk it to truncate oversized
-    * string leaves; if that doesn't apply (the typical new path), we fall
-    * back to symmetric string truncation against the same per-cell budget.
-    */
-  private def truncateColumnStatsValues(
-      stats: Map[String, String],
-      maxCellChars: Int
-  ): Map[String, String] = {
-    val mapper = new ObjectMapper()
-    stats.map {
-      case (col, raw) =>
-        val truncated =
-          try {
-            val node = mapper.readTree(raw)
-            if (node != null && (node.isObject || node.isArray)) {
-              mapper.writeValueAsString(truncateStringsInJsonValue(node, maxCellChars))
-            } else {
-              // Bare JSON scalar (string/number/bool/null) — not a structured
-              // stat blob; treat as plain text and symmetric-truncate.
-              symmetricTruncateCellValue(raw, maxCellChars)
-            }
-          } catch {
-            case _: Exception => symmetricTruncateCellValue(raw, maxCellChars)
-          }
-        col -> truncated
-    }
   }
 
   private def symmetricTruncateCellValue(text: String, maxChars: Int): String = {

@@ -139,7 +139,7 @@ class CampaignTests(unittest.TestCase):
     def test_final_reply_is_the_answer_but_a_lapse_is_not(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
-            settings = {"agentMode": "native", "retrievalViews": ["sample", "full"], "flowEvidence": False}
+            settings = {"retrievalViews": ["sample", "full"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
             receipt = {"kind": "dataflow-actions", "status": "completed", "actions": [
                 {"action": {"type": "retrieve", "operator_ids": ["rows"], "view": "sample"}, "status": "ok",
@@ -208,7 +208,7 @@ class CampaignTests(unittest.TestCase):
     def test_whole_call_rejections_are_errors_without_failed_actions(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
-            settings = {"agentMode": "native", "retrievalViews": ["sample"], "flowEvidence": False}
+            settings = {"retrievalViews": ["sample"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
             (path / "react_steps.json").write_text(json.dumps([{"toolResults": [
                 {"isError": True, "output": {"status": "error", "actions": [],
@@ -227,7 +227,7 @@ class CampaignTests(unittest.TestCase):
     def test_a_reply_before_any_result_is_a_lapse_until_a_final_reply_ends_the_task(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
-            settings = {"agentMode": "native", "retrievalViews": ["sample_stats"], "flowEvidence": False}
+            settings = {"retrievalViews": ["sample_stats"], "flowEvidence": False}
             (path / "settings.json").write_text(json.dumps(settings))
             steps = [{"role": "agent", "content": "Final Answer: No", "inputMessages": [{"role": "user", "content": "question"}], "toolCalls": []},
                      {"role": "agent", "content": "Error: No final answer was produced.", "isEnd": True}]

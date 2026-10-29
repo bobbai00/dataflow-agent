@@ -30,7 +30,7 @@
 
 import { createAgent, deleteAgent, getSnapshot, runAgentTurn } from "../../src/api/agent-service-api";
 import { createComputingUnit, createWorkflow, deleteWorkflow, login, terminateComputingUnit } from "../../src/api";
-import { AgentMode, ContextMode } from "../../src/types/agent";
+import { ContextMode } from "../../src/types/agent";
 import type { AgentSettingsApi } from "../../src/types/agent";
 
 const USERNAME = process.env.TEXERA_USERNAME ?? "texera";
@@ -106,7 +106,7 @@ async function runVariant(v: Variant, ctx: { token: string; cuid: number; runId:
       userToken: ctx.token,
       workflowId: wid,
       computingUnitId: ctx.cuid,
-      settings: { agentMode: AgentMode.CODE, ...v.settings } as AgentSettingsApi,
+      settings: v.settings as AgentSettingsApi,
     });
     agentId = info.id;
     const turn = await runAgentTurn(agentId, TASK_PROMPT, { timeoutMs: TURN_TIMEOUT_MS });

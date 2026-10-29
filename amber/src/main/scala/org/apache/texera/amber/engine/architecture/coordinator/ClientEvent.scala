@@ -61,9 +61,5 @@ final case class WorkflowRecoveryStatus(isRecovering: Boolean) extends ClientEve
 case class PortMaterialized(
     portId: org.apache.texera.amber.core.workflow.GlobalPortIdentity,
     resultUri: java.net.URI,
-    tupleCount: Option[Long],
-    // Per-column result statistics snapshot from the producing operator at the time
-    // the output port completed. Persisted alongside the cache row so subsequent
-    // cache hits can replay these stats to the frontend without re-execution.
-    resultStatistics: Map[String, String] = Map.empty
+    tupleCount: Option[Long]
 ) extends ClientEvent

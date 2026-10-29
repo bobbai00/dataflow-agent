@@ -26,7 +26,7 @@ import type { OperatorInfo } from "../../types/execution";
 import { REPAIR_HINTS, formatNativeDiagnostic, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { assembleContext } from "../util/context-utils";
-import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
+import { ContextMode, type ReActStep } from "../../types/agent";
 
 const revision = "0123456789abcdef";
 test("a multi-file scan gets a repair hint that can be applied to its definition", () => {
@@ -306,7 +306,6 @@ test("V2 process code/reflection and flow-error decorations use submitted code a
     }
     const rendered = JSON.stringify(
       assembleContext(steps, state, storage, ContextMode.LATEST, {
-        agentMode: AgentMode.NATIVE,
         attemptReflection: true,
         opExtras: () =>
           ({ detail: "shape", includeCode: true, column: {}, tuple: {}, codeHistory: [], resultHistory: [] }) as any,

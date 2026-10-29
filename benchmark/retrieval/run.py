@@ -158,7 +158,7 @@ def main():
             ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval", "bin"])).hexdigest(),
         "working_tree_sources_sha256": source_hash.hexdigest(),
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
-        "settings": {"agentMode": "native", "contextMode": "delta", "nativeProfileCollection": True,
+        "settings": {"contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 3,
                      "fullResultCharLimit": args.full_result_char_limit, "dataEvidenceCharLimit": 2000, "flowEvidenceCharLimit": 2000,
                      "thoughtReplay": False, "enableCodeInSnapshot": False},

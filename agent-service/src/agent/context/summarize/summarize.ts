@@ -38,7 +38,7 @@
  */
 
 import type { ModelMessage } from "ai";
-import { AgentMode, ContextMode, type ReActStep } from "../../../types/agent";
+import { ContextMode, type ReActStep } from "../../../types/agent";
 import type { WorkflowState } from "../../workflow-state";
 import type { WorkflowSnapshotStorage } from "../../workflow-snapshot-storage";
 import type { WorkflowCompilationResponse } from "../../../api/compile-api";
@@ -227,7 +227,6 @@ export function paramsToRenderOptions(
   return {
     compilationResult,
     nativeEvidence: params.nativeEvidence,
-    agentMode: AgentMode.CODE,
     resultSelection: params.resultSelection,
     // The renderer needs the layout for one decision: in the native transcript
     // a later turn's request is also rendered inline (see renderAgentEvents).
@@ -247,7 +246,6 @@ export function paramsToRenderOptions(
     schemaInResult: col.schema,
     maxResultRows: d.result.latest.tuple.sampleRows,
     maxResultChars: d.result.latest.tuple.maxChars,
-    maxOperatorResultCellCharLimit: params.maxCellChars > 0 ? params.maxCellChars : undefined,
     thoughtReplay: params.trajectory.reasoningReplayK > 0,
     thoughtReplayK: params.trajectory.reasoningReplayK > 0 ? params.trajectory.reasoningReplayK : undefined,
     errorReflection: params.flow.errorReflection,

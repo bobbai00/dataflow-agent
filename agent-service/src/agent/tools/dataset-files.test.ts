@@ -23,13 +23,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  compileNativeOp,
-  datasetFilesStagingCode,
-  inlineNativeRuntime,
-  nativeSpecOf,
-  withNativeDatasetFiles,
-} from "../native/codegen";
+import { compileNativeOp, inlineNativeRuntime, nativeSpecOf, withNativeDatasetFiles } from "../native/codegen";
 import type { NativeOpView } from "../native/catalog";
 import { datasetFilePath, withDatasetFiles } from "./dataset-files";
 
@@ -159,15 +153,13 @@ describe("withDatasetFiles", () => {
     expect(asked).toEqual(["/texera/up/v1/missing.csv"]);
   });
 
-  test("appends staging after a code-mode loader, keyed by the literal as written", async () => {
+  test("leaves a Python operator without a native spec as it was", async () => {
     presigned["/texera/up/v1/homes.csv"] = "http://minio/object?sig=2";
     const code = "import pandas as pd\ndef load():\n    return pd.read_csv('texera/up/v1/homes.csv')\n";
-    const [operator] = await withDatasetFiles([{ operatorID: "loader", operatorType: "DataLoading", code }], token());
-    expect(operator!.code.startsWith(code)).toBe(true);
-    expect(operator!.code).toContain(
-      JSON.stringify(JSON.stringify({ "texera/up/v1/homes.csv": "http://minio/object?sig=2" }))
-    );
-    expect(asked).toEqual(["/texera/up/v1/homes.csv"]);
+    const operator = { operatorID: "loader", operatorType: "DataLoading", code };
+    const [same] = await withDatasetFiles([operator], token());
+    expect(same).toBe(operator);
+    expect(asked).toEqual([]);
   });
 
   test("leaves operators that do not run Python code to the engine", async () => {
@@ -215,22 +207,6 @@ describe("dataset files in the worker", () => {
     expect(result.error).toContain("SCAN_NOT_FOUND");
   });
 
-  test("a code-mode loader reads its dataset path literals, globals and lambdas from the local copy", () => {
-    const here = directory();
-    const csv = join(here, "homes.csv");
-    writeFileSync(csv, HOMES);
-    const code =
-      [
-        "import pandas as pd",
-        "SOURCE = '/texera/up/v1/homes.csv'",
-        "def load():",
-        "    first = pd.read_csv('/texera/up/v1/homes.csv')",
-        "    again = (lambda: pd.read_csv(SOURCE))()",
-        "    return pd.concat([first, again])",
-      ].join("\n") + datasetFilesStagingCode({ "/texera/up/v1/homes.csv": pathToFileURL(csv).href });
-    expect(load(code, here).rows).toHaveLength(4);
-  });
-
   test("a registered function's setting naming a dataset file arrives as the local copy", () => {
     const here = directory();
     const csv = join(here, "homes.csv");
@@ -259,26 +235,5 @@ with open(settings["path"]) as handle:
       }
     );
     expect(JSON.parse(result.stdout)).toEqual({ same: true, limit: 2, text: HOMES });
-  });
-
-  test("staging passes the engine's file-I/O screen for DataProcessing code", () => {
-    // The patterns of PythonCodeValidator.validateNoFileIO (common/workflow-operator).
-    const screened = [
-      /(?<![.\w])open\s*\(/,
-      /\.read\s*\(/,
-      /\.write\s*\(/,
-      /\.readline\s*\(/,
-      /\.readlines\s*\(/,
-      /\.writelines\s*\(/,
-      /^(?:from\s+os\s+import|import\s+os)/m,
-      /^(?:from\s+shutil\s+import|import\s+shutil)/m,
-      /^(?:from\s+pathlib\s+import|import\s+pathlib)/m,
-      /^(?:from\s+io\s+import|import\s+io)/m,
-      /^(?:from\s+subprocess\s+import|import\s+subprocess)/m,
-      /^(?:from\s+glob\s+import|import\s+glob)/m,
-      /Path\s*\(/,
-    ];
-    const staging = datasetFilesStagingCode({ "/texera/up/v1/homes.csv": "http://minio/object?sig=5" });
-    for (const pattern of screened) expect(staging).not.toMatch(pattern);
   });
 });

@@ -180,7 +180,6 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
       const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
       views = retrievalViews;
       const settings = {
-        agentMode: "native" as const,
         contextMode: "delta" as const,
         messageLayout: "native" as const,
         retrievalViews,

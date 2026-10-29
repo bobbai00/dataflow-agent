@@ -44,7 +44,7 @@
 
 import { observationFormat } from "../../native/observation-format";
 import { z } from "zod";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import type { AssembleContextOptions } from "../../util/context-utils";
 
 /* ============================================================================
@@ -308,8 +308,6 @@ export const SummarizeParamsSchema = z.object({
       overrides: z.record(z.string(), OperatorParamsOverrideSchema).default({}),
     })
     .default({}),
-  /** Per-cell char cap reused for the surfaced print-output block. 0 ⇒ none. */
-  maxCellChars: z.number().int().min(0).default(0),
   /** Wire framing: one user block (legacy) or a native tool-calling transcript. */
   messageLayout: z.enum(["block", "blockSplit", "native", "opBlock", "opSplit", "turnSplit"]).optional(),
 });
@@ -334,7 +332,6 @@ export const SummarizeParamsPatchSchema = z.object({
       overrides: z.record(z.string(), OperatorParamsOverrideSchema).optional(),
     })
     .optional(),
-  maxCellChars: z.number().int().min(0).optional(),
 });
 export type SummarizeParamsPatch = z.infer<typeof SummarizeParamsPatchSchema>;
 
@@ -448,21 +445,17 @@ export function mapLegacyToParams(mode: ContextMode, options: AssembleContextOpt
       },
       overrides: {},
     },
-    maxCellChars: options.maxOperatorResultCellCharLimit ?? 0,
   });
 }
 
 /** The legacy LATEST context mode as a point in the parameter space, at the
- *  server's default agent settings (thoughtReplay on, K=10, properties on,
- *  2000-char print cap). */
+ *  server's default agent settings (thoughtReplay on, K=10, properties on). */
 export function latestPreset(): SummarizeParams {
   return mapLegacyToParams(ContextMode.LATEST, {
     compilationResult: null,
-    agentMode: AgentMode.CODE,
     includeOperatorProperties: true,
     thoughtReplay: true,
     thoughtReplayK: 10,
-    maxOperatorResultCellCharLimit: 2000,
   });
 }
 
@@ -471,8 +464,6 @@ export function latestPreset(): SummarizeParams {
 export function deltaPreset(): SummarizeParams {
   return mapLegacyToParams(ContextMode.DELTA, {
     compilationResult: null,
-    agentMode: AgentMode.CODE,
     includeOperatorProperties: true,
-    maxOperatorResultCellCharLimit: 2000,
   });
 }

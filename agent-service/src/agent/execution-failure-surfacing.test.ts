@@ -32,7 +32,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../types/agent";
+import { ContextMode } from "../types/agent";
 import { assembleContext } from "./util/context-utils";
 import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "./context/summarize/fixtures";
 
@@ -69,7 +69,6 @@ const render = (s: Scenario): string =>
   String(
     assembleContext(s.steps, s.workflowState, s.storage, ContextMode.DELTA, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
     } as any)
       .map(m => m.content)
       .join("\n")

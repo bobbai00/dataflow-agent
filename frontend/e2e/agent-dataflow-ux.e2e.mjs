@@ -317,7 +317,7 @@ async function main() {
     await openAgentPanel(page);
     await waitForChat(page, "e2e-ux");
     const agent = (await agentsForWorkflow(wid))[0];
-    check("agent created on the workflow, native mode", agent?.settings?.agentMode === "native", agent?.modelType);
+    check("agent created on the workflow", agent !== undefined, agent?.modelType);
     check("the workspace has no separate result panel", (await page.locator("texera-result-panel").count()) === 0);
 
     // ===== 1. a task: the dataflow builds up action by action =====

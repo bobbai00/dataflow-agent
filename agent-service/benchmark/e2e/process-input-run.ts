@@ -144,7 +144,6 @@ try {
       computingUnitId: cuid,
       modelType: "gpt-5.6-luna",
       settings: {
-        agentMode: "native",
         retrievalViews: ["full"],
         nativeProfileCollection: false,
         executionTimeoutMinutes: 1,

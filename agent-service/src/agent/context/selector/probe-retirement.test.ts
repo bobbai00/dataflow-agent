@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
 import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
 import { summarize } from "../summarize/summarize";
@@ -110,7 +110,6 @@ function retiredProbeScenario(loadCode = CODE_LOAD_ENCODED): Scenario {
 function richLatestParams() {
   return mapLegacyToParams(ContextMode.LATEST, {
     compilationResult: null,
-    agentMode: AgentMode.CODE,
     schemaInResult: true,
   });
 }
@@ -156,7 +155,6 @@ describe("probe retirement", () => {
     const dossier = buildDossier(scenario.steps, scenario.storage);
     const delta = mapLegacyToParams(ContextMode.DELTA, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       schemaInResult: true,
     });
     expect(applyProbeRetirement(delta, dossier, parseProbeRetirementConfig({}))).toEqual(delta);

@@ -1,6 +1,6 @@
 # Operators as tools: specification
 
-The contract between the model and the agent-service in `agentMode: "native"`.
+The contract between the model and the agent-service in native mode.
 Design and rationale: [typed-operators-design.md](typed-operators-design.md).
 Source of truth for names, schemas and signatures: `NATIVE_OPERATORS` in
 `src/agent/native/catalog.ts`; the tools, the validator and the prompt catalog
@@ -380,7 +380,6 @@ carried over from code mode minus the pandas-specific ones.
 
 | setting | values | default |
 |---|---|---|
-| `agentMode` | `native` (this document), `code`, … | per request |
 | `resultSelection` | `all`, `rule`, `scoped` | `all` |
 | `contextMode` | `latest`, `delta` | per request |
 | `messageLayout` | `opSplit` (LATEST), `native` (DELTA) | chosen from `contextMode` when unset |

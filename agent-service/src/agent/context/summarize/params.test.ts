@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import {
   deepMerge,
   deltaPreset,
@@ -82,7 +82,6 @@ describe("mapLegacyToParams — the presets", () => {
     expect(p.trajectory.events).toBe("none");
     expect(p.currentSnapshot).toBe(true);
     expect(p.trajectory.reasoningReplayK).toBe(10); // server default thoughtReplay on
-    expect(p.maxCellChars).toBe(2000);
   });
 
   test("DELTA maps to events:interleaved without a currentSnapshot section", () => {
@@ -98,7 +97,6 @@ describe("mapLegacyToParams — the presets", () => {
     // …including with every legacy knob turned on:
     const maxed = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       thoughtReplay: true,
       agentTurns: true,
       errorReflection: true,

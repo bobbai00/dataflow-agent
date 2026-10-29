@@ -20,7 +20,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { AgentMode } from "../../../src/types/agent";
 import {
   buildNaturalPrompt,
   defaultScore,
@@ -116,7 +115,6 @@ export class FetaqaAdapter implements DatasetAdapter {
 
   defaultAgentSettings(): AgentSettingsHints {
     return {
-      agentMode: AgentMode.CODE,
       maxSteps: 30,
       toolTimeoutSeconds: 120,
       executionTimeoutMinutes: 5,

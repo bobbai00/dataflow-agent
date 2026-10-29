@@ -99,9 +99,8 @@ External callers ──rest/ws──▶ agent-service (:3001)│ compute: Comput
   (logical → physical plan) → CU-managing (allocate) → Amber engine
   (execute, stream results). The sbt module graph in `build.sbt` mirrors this.
 - **`agent-service/`** is a standalone Bun/Elysia process, NOT part of the
-  sbt build. Tools live in `src/agent/tools/` (`dataflow` action tool and
-  upsert for native mode, code authoring for code mode, execution,
-  inspection/recall); the native catalog, expression parser and Python runtime
+  sbt build. Tools live in `src/agent/tools/` (the `dataflow` action tool and
+  native upsert, execution, inspection/recall); the native catalog, expression parser and Python runtime
   in `src/agent/native/`; context assembly in `src/agent/context/` and
   `src/agent/util/context-utils.ts`; the ReAct loop in
   `src/agent/texera-agent.ts`. **Never import frontend or amber code from
@@ -174,7 +173,7 @@ REST surface on `:3001` under `/api/agents` — full curl walkthrough in
 | Step | Call |
 |---|---|
 | auth | `POST :8080/api/auth/login` → JWT (the agent acts on the user's behalf) |
-| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (`agentMode`, `dataEvidence`, `flowEvidence`, budgets, every context knob) |
+| create | `POST /api/agents/` — `modelType`, `workflowId`, `computingUnitId`, optional `settings` (`dataEvidence`, `flowEvidence`, budgets, every context knob; a key that is not a setting is refused with a 400) |
 | run a turn | `POST /api/agents/:id/message` `{content}` — **synchronous**; returns `{answer, state, steps, headId}`; 409 while a turn runs |
 | inspect | `GET /:id/react-steps` (trace) · `/:id/workflow` (DAG) · `/:id/operator-results` · `/:id/snapshots/:stepId` |
 | tune live | `GET`/`PATCH /:id/settings` |
@@ -186,12 +185,11 @@ results, and history carry over.
 Programmatic clients: TS helpers in `agent-service/src/api/agent-service-api.ts`,
 Python in `benchmark/Kramabench/dataflow_agent.py`.
 
-Tools per mode: native exposes one tool, `dataflow(python, statements)`.
+The agent exposes one tool, `dataflow(python, statements)`.
 `python` holds definitions; `statements` holds `set`, `delete`, `execute` and
 `show` lines, one per line. The model answers by replying without the tool
 once `show result` has displayed what the answer rests on; tool choice is
-never forced, so models can think before calling. Code exposes
-`createOrModifyOperator` and `deleteOperator`.
+never forced, so models can think before calling.
 The rendered native system prompt, tool definition and operator reference
 live in [native-mode/](native-mode/), generated from the code by
 `bun run render:native-reference` (a test fails when they drift).
@@ -199,15 +197,14 @@ live in [native-mode/](native-mode/), generated from the code by
 ### Default agent configuration
 
 `DEFAULT_AGENT_SETTINGS` (`agent-service/src/types/agent.ts`) is what an agent
-created with no `settings` runs: **`agentMode: native`** (explicit graph
-commands; `code` is the other mode), **`contextMode: delta`**,
+created with no `settings` runs: **`contextMode: delta`**,
 **`nativeProfileCollection: true`**, **`dataEvidence: true`** and
 **`flowEvidence: false`**. Native retrieval choices control data-statistics
 exposure; `flowEvidence` independently adds flow metadata. Collection is
 compiled into each operator and cannot change on an existing workflow. Also on: `maxSteps: 100`,
 `maxOperatorResultCharLimit: 2000`, `enableCodeInSnapshot`, `thoughtReplay`
-(K=10). Native mode forces provider parallel tool calls off (one call carries
-the whole step). Graph inspection is built into `dataflow` (`show operator`,
+(K=10). Provider parallel tool calls are off (one call carries the whole
+step). Graph inspection is built into `dataflow` (`show operator`,
 `show function`, `show builtin`, `show schema`). See [README.md §2](README.md)
 for the full table.
 
@@ -302,9 +299,7 @@ Fast smoke of the whole stack (backends must be up; no `bun run dev` needed):
 ```bash
 cd agent-service
 bun run e2e                                    # static workflows through execution
-bun run e2e:agent                              # real agent driving the LLM gateway
 bun run benchmark/e2e/context-tuning-run.ts    # context-knob smoke matrix
-bun run benchmark/e2e/context-format-check.ts  # LATEST/DELTA assembled-context markers
 bun test && bun run typecheck                  # unit tests + types
 ```
 

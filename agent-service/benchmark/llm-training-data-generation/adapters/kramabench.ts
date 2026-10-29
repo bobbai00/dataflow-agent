@@ -21,7 +21,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { AgentMode } from "../../../src/types/agent";
 import {
   buildNaturalPrompt,
   type AdapterLoadOptions,
@@ -180,7 +179,6 @@ export class KramabenchAdapter implements DatasetAdapter {
 
   defaultAgentSettings(): AgentSettingsHints {
     return {
-      agentMode: AgentMode.CODE,
       maxSteps: 50,
       toolTimeoutSeconds: 240,
       executionTimeoutMinutes: 4,

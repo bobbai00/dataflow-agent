@@ -18,7 +18,6 @@
  */
 
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { isTransientModelError, LLM_DEADLINE_HEADER, withRequestTimeout } from "./request-timeout";
 import { ProviderRefusalError } from "./types";
@@ -119,7 +118,7 @@ function agentWith(runTurn: (input: any) => Promise<any>) {
     contextAssembler: () => [],
     driver: { runTurn },
   });
-  agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25 });
+  agent.updateSettings({ maxSteps: 25 });
   return agent;
 }
 

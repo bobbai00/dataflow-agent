@@ -129,7 +129,7 @@ def main():
             for previous_request, current_request in zip(requests, requests[1:]):
                 row["prefix_checks"] += 1
                 row["prefix_failures"] += current_request[:len(previous_request)] != previous_request
-        elif row["native_actions_observed"] or manifest.get("settings", {}).get("agentMode") == "native":
+        else:
             row["no_answer"] = not row["answer_recorded"]
         row["answered_after_action_errors"] = row["answer_recorded"] and statuses["error"] > 0
         row["answered_after_tool_errors"] = row["answer_recorded"] and row["tool_errors"] > 0

@@ -29,11 +29,7 @@ case class CachedOutput(
     resultUri: URI,
     fingerprintJson: String,
     tupleCount: Option[Long],
-    sourceExecutionId: Option[ExecutionIdentity],
-    // Per-column result statistics blob (e.g., the Python DataProcessor column profiler
-    // output: column name -> JSON-encoded stats). Empty when the producing operator
-    // did not publish per-column stats.
-    resultStatistics: Map[String, String] = Map.empty
+    sourceExecutionId: Option[ExecutionIdentity]
 )
 
 case class WorkflowSettings(

@@ -19,7 +19,6 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentMode } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import { TexeraAgent } from "../texera-agent";
@@ -95,22 +94,14 @@ function fixture(statements: string[], reply: string, fail: ReadonlySet<string> 
     driver: new VercelToolUseDriver({ model }),
     contextAssembler: ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
       assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-        agentMode: AgentMode.NATIVE,
         messageLayout: "native",
         thoughtReplay: false,
       }),
   });
-  agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 25, thoughtReplay: false });
   // No engine in a unit test: an execution computes exactly the operators it is asked for.
   const executed: string[][] = [];
-  (agent as any).executePostStepChanges = async (
-    _calls: unknown,
-    _results: unknown,
-    _all: boolean,
-    operatorIds: string[] = [],
-    _onExecution: unknown,
-    owner?: string
-  ) => {
+  (agent as any).executePostStepChanges = async (operatorIds: string[] = [], _onExecution: unknown, owner?: string) => {
     executed.push([...operatorIds]);
     const workflow = agent.getWorkflowState();
     for (const id of operatorIds) {

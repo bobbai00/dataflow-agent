@@ -121,7 +121,7 @@ def audit_attempt(path, settings):
     answered = final_reply(steps)
     for step in steps:
         messages = step.get("inputMessages")
-        if (settings.get("agentMode") == "native" and step.get("role") == "agent" and messages is not None
+        if (step.get("role") == "agent" and messages is not None
                 and not step.get("toolCalls") and step.get("content") and not (answered and step is final)):
             text_replies += 1
         if step.get("role") == "agent" and messages:
@@ -157,7 +157,7 @@ def audit_attempt(path, settings):
                     if action.get("view") != "sample_stats" and any(
                             f.startswith("data.") and f not in allowed for f in facts):
                         violations.append("data_evidence_leak")
-    if settings.get("agentMode") == "native" and raw is not None:
+    if raw is not None:
         if text_replies:
             warnings.append("text_without_dataflow")
         if not answered:

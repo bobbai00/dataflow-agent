@@ -18,14 +18,14 @@
  */
 
 /**
- * System prompts for the Texera agent. Two modes:
+ * System prompts for the Texera agent:
  *
- * - `buildRegisteredNativeSystemPrompt` — native mode: the model edits, runs
- *   and reads the Dataflow through the `dataflow(python, statements)` tool
- *   (template `prompts/native-registered.md`; worked examples rendered by the
- *   production receipt renderer in `prompts/registered-examples.ts`).
- * - `buildCodeModeSystemPrompt` — code mode: every operator is one free Python
- *   function written through `createOrModifyOperator`. Includes a worked example.
+ * - `buildRegisteredNativeSystemPrompt` — the model edits, runs and reads the
+ *   Dataflow through the `dataflow(python, statements)` tool (template
+ *   `prompts/native-registered.md`; worked examples rendered by the production
+ *   receipt renderer in `prompts/registered-examples.ts`).
+ * - `buildLocalReactSystemPrompt` — the local text-mode driver's prompt, one per
+ *   tool-call dialect.
  */
 
 import { readFileSync } from "node:fs";
@@ -41,71 +41,7 @@ import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
 import { exampleStatement, registeredExamples } from "./prompts/registered-examples";
 
-// The CODE-mode system prompt is a template in `prompts/code-mode.md` with two
-// context-mode-dependent placeholders — `{{CONTEXT_FORMAT}}` and `{{EXAMPLE}}`.
-// They are filled per `contextMode` (see `buildCodeModeSystemPrompt`) so the
-// prompt always describes the format the agent actually receives: the LATEST
-// `# Current Dataflow` snapshot, or the DELTA/FULL `# Agent Events` trajectory.
-// Edit the .md files (template + fragments), not this TypeScript.
-const CODE_MODE_TEMPLATE: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
 const rd = (name: string) => readFileSync(new URL(`./prompts/${name}`, import.meta.url), "utf8").trimEnd();
-const CONTEXT_FORMAT_FRAGMENTS: Record<"latest" | "delta", string> = {
-  latest: rd("context-format.latest.md"),
-  delta: rd("context-format.delta.md"),
-};
-const EXAMPLE_FRAGMENTS: Record<"latest" | "delta", string> = {
-  latest: rd("example.latest.md"),
-  delta: rd("example.delta.md"),
-};
-// Conditional section: only injected into the DELTA prompt when the context-window
-// budget is enabled (compaction can fire), so the model is told its history may
-// fold into a `# Dataflow (compacted)` stats deck. When the window is off the
-// deck never appears, so the section is omitted to avoid dead tokens.
-const COMPACTION_FRAGMENT: string = rd("compaction.delta.md");
-const RENDER_PREFS_FRAGMENT: string = rd("render-prefs.md");
-/** Example variants demonstrating render prefs + investigation-operator
- *  cleanup, selected only when the feature is enabled so control arms keep a
- *  byte-identical prompt. */
-const RENDER_PREFS_EXAMPLE_FRAGMENTS: Record<string, string> = {
-  latest: rd("example.latest.render-prefs.md"),
-  delta: rd("example.delta.render-prefs.md"),
-};
-// Code-in-snapshot (LATEST-only): the snapshot now renders each operator's code,
-// so the context-format description and the worked example change (code blocks
-// shown; short summaries). Selected only when the flag is on, so control arms
-// keep a byte-identical prompt.
-const CONTEXT_FORMAT_CODE_LATEST: string = rd("context-format.latest.code.md");
-/**
- * The three Key Principles whose truth depends on whether the agent can see its
- * own code. They used to be unconditional prose in `code-mode.md`, written for
- * the code-blind case, and so contradicted every arm that shows code: the
- * context-format fragment said "your current code **is** shown" while the
- * principles said "code is not preserved in history", "but not its code", and
- * "your code is discarded after each step" — in one prompt.
- *
- * The gate is `noCode` (LATEST *without* code in the snapshot), NOT
- * `enableCodeInSnapshot`: DELTA carries operator code inline in every Action, so
- * DELTA arms were being told their code was gone while looking straight at it.
- * `noCode` is exactly `isCodeShownToAgent()` inverted, which is the same
- * predicate the createOrModifyOperator tool already uses to pick its `summary`
- * description — so prompt and tool schema now agree instead of contradicting.
- *
- * Not cosmetic: "the summary is your only record" drives verbose summaries that
- * restate code the agent can already read, which is wasted output on precisely
- * the arms that pay for the code twice.
- */
-const PRINCIPLES_CODE_BLIND: string = rd("principles.code-blind.md");
-const PRINCIPLES_CODE_VISIBLE: string = rd("principles.code-visible.md");
-const EXAMPLE_CODE_LATEST: string = rd("example.latest.code.md");
-
-/** A4 arm (sourceProvenanceHint): multi-file loads must carry a `__source_file`
- *  column. Grounded in the gold-solution trace dive (2026-07-28): per-file
- *  identity is a load-time fact erased by concat — deriving it later from a
- *  name-suffix regex was a 0%-pass failure mode on legal-hard-29 (n=26), while
- *  file-derived grouping passed 88-100%. Rendered as one principle bullet,
- *  directly after "Load all data before subsetting"; byte-identical when off. */
-const PROVENANCE_FRAGMENT =
-  "\n- **Multi-file loads must carry provenance**: when one loader reads MULTIPLE files (glob/listdir), add a `__source_file` column recording each row's file before concatenating (`df['__source_file'] = path`). Grouping identity often lives ONLY in the file name (one file per state/station/year) — a row's content cannot recover which file it came from after concat, and deriving that identity from a name-suffix regex instead of the file is a known failure mode. Downstream, group by `__source_file` (or a column derived from it) whenever the question asks per-<unit> and <unit> matches the file layout.";
 
 /**
  * The system prompt with the session's instructions appended
@@ -115,48 +51,6 @@ const PROVENANCE_FRAGMENT =
 export function withSessionInstructions(prompt: string, instructions: string | undefined): string {
   const text = instructions?.trim();
   return text ? `${prompt.trimEnd()}\n\n## Instructions for this session\n\n${text}\n` : prompt;
-}
-
-export function buildCodeModeSystemPrompt(
-  contextMode: ContextMode = ContextMode.LATEST,
-  compactionEnabled = false,
-  _legacyInspectEnabled = false,
-  renderPrefsEnabled = false,
-  codeInSnapshotEnabled = true,
-  sourceProvenanceHint = false
-): string {
-  const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
-  // The only code-blind configuration: LATEST without code in the snapshot.
-  // DELTA always shows code per event, so it is never code-blind.
-  const noCode = key === "latest" && !codeInSnapshotEnabled;
-  const compaction = key === "delta" && compactionEnabled ? `\n${COMPACTION_FRAGMENT}\n` : "";
-  const renderPrefs = renderPrefsEnabled ? `\n${RENDER_PREFS_FRAGMENT}\n` : "";
-  // Context format tracks the LAYOUT the agent is fed, which is a separate axis
-  // from code visibility: DELTA is always `# Agent Events`, LATEST is
-  // `# Current Dataflow` with or without the per-operator Code: blocks.
-  const contextFormat =
-    key === "delta"
-      ? CONTEXT_FORMAT_FRAGMENTS.delta
-      : noCode
-        ? CONTEXT_FORMAT_FRAGMENTS.latest
-        : CONTEXT_FORMAT_CODE_LATEST;
-  const example = renderPrefsEnabled
-    ? RENDER_PREFS_EXAMPLE_FRAGMENTS[key]
-    : key === "delta"
-      ? EXAMPLE_FRAGMENTS.delta
-      : noCode
-        ? EXAMPLE_FRAGMENTS.latest
-        : EXAMPLE_CODE_LATEST;
-  return CODE_MODE_TEMPLATE.replace(
-    "{{CODE_VISIBILITY_PRINCIPLES}}",
-    noCode ? PRINCIPLES_CODE_BLIND.trimEnd() : PRINCIPLES_CODE_VISIBLE.trimEnd()
-  )
-    .replace("{{CONTEXT_FORMAT}}", contextFormat)
-    .replace("{{PROVENANCE}}", sourceProvenanceHint ? PROVENANCE_FRAGMENT : "")
-    .replace("{{COMPACTION}}", compaction)
-    .replace("{{RENDER_PREFS}}", renderPrefs)
-    .replace("{{EXAMPLE}}", example)
-    .replace(/\n{3,}/g, "\n\n");
 }
 
 // ============================================================================
@@ -313,11 +207,11 @@ export function registeredReferenceText(request: { topic: "operators"; operator_
 // system prompt (no `tools` on the wire; the driver parses the model's text).
 // The two dialects pair a prompt with the context renderer that prompt
 // describes, so the model's stated input format matches what it actually sees:
-//   - "qwen-xml"  — the CODE-mode body (`code-mode.md`, shared with the
-//     vercel-tool-use driver) + the `<tools>`/`<tool_call>` appendix
-//     (`local-qwen-tools.txt`), composed below. It describes the
-//     `# User Task` / `# Current Dataflow` context → paired with the SDK
-//     assembler `assembleContext` (server.ts).
+//   - "qwen-xml"  — the template in `code-mode.md`, where every operator is
+//     one Python function written through `createOrModifyOperator`, plus the
+//     `<tools>`/`<tool_call>` appendix (`local-qwen-tools.txt`), composed
+//     below. It describes the `# User Task` / `# Current Dataflow` context →
+//     paired with the SDK assembler `assembleContext` (server.ts).
 //   - "react-text" — the standalone `local-react.txt` (plain-text tool list +
 //     `Thought / Action / Action Input / Observation`, down to `Begin!`). It
 //     describes the `# Event N` context → paired with `assembleLocalReactContext`.
@@ -327,22 +221,23 @@ export function registeredReferenceText(request: { topic: "operators"; operator_
 // `<|im_start|>user\n…<|im_end|>` automatically when the driver sends
 // role-tagged messages — so NO framing/BOS tokens belong in these files.
 // ---------------------------------------------------------------------------
-// `qwen-xml` is NOT a standalone file: it is the CODE-mode prompt (the single
-// source of truth in `code-mode.md`, shared with the vercel-tool-use driver)
-// plus the XML tool-call appendix in `local-qwen-tools.txt` (the `# Tools` /
-// `<tools>` catalog + `<tool_call>` output-format instructions). Composing at
-// load time keeps the body in lock-step with `code-mode.md` — no drift — and
-// is why the qwen-xml dialect is paired with the SDK context assembler
-// (`assembleContext`, server.ts): `code-mode.md` describes the `# User Task` /
-// `# Current Dataflow` context that assembler renders, so prompt and context
-// agree. `react-text` keeps its standalone `# Event N` prompt + the
-// `assembleLocalReactContext` renderer.
+const QWEN_XML_TEMPLATE: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
+// The template's context format and worked example describe the layout the
+// agent receives: the LATEST `# Current Dataflow` snapshot with each operator's
+// code, or the DELTA `# Agent Events` trajectory. The DELTA prompt describes the
+// `# Dataflow (compacted)` deck only when compaction can fire.
+const QWEN_XML_SECTIONS: Record<"latest" | "delta", { format: string; example: string }> = {
+  latest: { format: rd("context-format.latest.code.md"), example: rd("example.latest.code.md") },
+  delta: { format: rd("context-format.delta.md"), example: rd("example.delta.md") },
+};
+const QWEN_XML_COMPACTION: string = rd("compaction.delta.md");
 const QWEN_TOOL_APPENDIX: string = readFileSync(new URL("./prompts/local-qwen-tools.txt", import.meta.url), "utf8");
 const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/local-react.txt", import.meta.url), "utf8");
 /**
  * Returns the local driver's system prompt for the given tool-call dialect.
- * `react-text` is standalone; `qwen-xml` is the CODE-mode body (mode-aware, so
- * it matches the SDK context assembler) plus the XML tool-call appendix.
+ * `react-text` is standalone; `qwen-xml` is the `code-mode.md` template
+ * (mode-aware, so it matches the SDK context assembler) plus the XML tool-call
+ * appendix.
  */
 export function buildLocalReactSystemPrompt(
   dialect: LocalToolDialect,
@@ -350,5 +245,10 @@ export function buildLocalReactSystemPrompt(
   compactionEnabled = false
 ): string {
   if (dialect === "react-text") return REACT_TEXT_SYSTEM_PROMPT;
-  return `${buildCodeModeSystemPrompt(contextMode, compactionEnabled).trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
+  const key = contextMode === ContextMode.DELTA ? "delta" : "latest";
+  const prompt = QWEN_XML_TEMPLATE.replace("{{CONTEXT_FORMAT}}", QWEN_XML_SECTIONS[key].format)
+    .replace("{{COMPACTION}}", key === "delta" && compactionEnabled ? `\n${QWEN_XML_COMPACTION}\n` : "")
+    .replace("{{EXAMPLE}}", QWEN_XML_SECTIONS[key].example)
+    .replace(/\n{3,}/g, "\n\n");
+  return `${prompt.trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 }

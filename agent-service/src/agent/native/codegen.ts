@@ -43,13 +43,12 @@ export interface CompiledNativeOp {
 }
 
 const runtimePath = fileURLToPath(new URL("./python/runtime.py", import.meta.url));
-const datasetFilesSource = readFileSync(fileURLToPath(new URL("./python/dataset_files.py", import.meta.url)), "utf8");
 const runtimeSource =
   readFileSync(runtimePath, "utf8") +
   "\n" +
   readFileSync(fileURLToPath(new URL("./python/registered.py", import.meta.url)), "utf8") +
   "\n" +
-  datasetFilesSource;
+  readFileSync(fileURLToPath(new URL("./python/dataset_files.py", import.meta.url)), "utf8");
 const defaultPython = fileURLToPath(new URL("../../../../.venv/bin/python", import.meta.url));
 
 /** What a compiled operator's code holds in place of the runtime source (about 200 KB, the same in every operator):
@@ -233,17 +232,4 @@ export function withNativeDatasetFiles(code: string, datasetFiles: Record<string
     const spec = { ...(JSON.parse(JSON.parse(literal)) as object), datasetFiles };
     return `${prefix}_spec = ${prefix}_json.loads(${JSON.stringify(JSON.stringify(spec))})`;
   });
-}
-
-/** Lines appended to a code-mode operator for one execution: they copy the
- * Texera dataset files its code names to local files and point the code's
- * string constants at those copies (`localize_module` in dataset_files.py).
- * Appended, never prepended, so error line numbers still match the model's code. */
-export function datasetFilesStagingCode(datasetFiles: Record<string, string>): string {
-  return [
-    "",
-    `_texera_dataset_scope = {"__name__": "__texera_dataset_files__"}`,
-    `exec(${JSON.stringify(datasetFilesSource)}, _texera_dataset_scope)`,
-    `_texera_dataset_scope["localize_module"](globals(), __import__("json").loads(${JSON.stringify(JSON.stringify(datasetFiles))}))`,
-  ].join("\n");
 }

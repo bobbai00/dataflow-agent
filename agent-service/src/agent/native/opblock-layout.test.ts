@@ -39,7 +39,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { AgentMode, ContextMode, type ReActStep } from "../../types/agent";
+import { ContextMode, type ReActStep } from "../../types/agent";
 import type { OperatorInfo } from "../../types/execution";
 import { assembleContext } from "../util/context-utils";
 import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
@@ -194,7 +194,6 @@ function fixture() {
 
   const render = (layout: "opBlock" | "opSplit") =>
     assembleContext(steps, state, storage, ContextMode.LATEST, {
-      agentMode: AgentMode.NATIVE,
       messageLayout: layout,
       dataEvidence: true,
       flowEvidence: true,

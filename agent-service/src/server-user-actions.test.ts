@@ -118,7 +118,7 @@ async function created(respondToCanvasRuns = false): Promise<string> {
   const response = await call("POST", "", {
     modelType: "test",
     workflowId: 17,
-    settings: { agentMode: "native", respondToCanvasRuns },
+    settings: { respondToCanvasRuns },
   });
   expect(response.status).toBe(200);
   const id = ((await response.json()) as { id: string }).id;

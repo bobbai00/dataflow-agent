@@ -24,6 +24,8 @@ import type { NativeObservationOptions } from "./evidence";
 export const RETRIEVAL_VIEWS: readonly RetrievalView[] = ["full", "sample", "sample_stats"];
 export const FULL_RESULT_CHAR_LIMIT = 5000;
 export const RESULT_TRANSPORT_CHAR_LIMIT = 100_000;
+/** The engine truncates each transported cell to this many characters. */
+export const RESULT_TRANSPORT_CELL_CHAR_LIMIT = 20_000;
 export const EVIDENCE_CHAR_LIMIT = 2000;
 
 export function availableRetrievalViews(

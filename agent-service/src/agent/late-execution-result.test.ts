@@ -66,10 +66,8 @@ for (const scenario of ["success", "operator-error", "execution-error", "abort"]
       { preconnect: originalFetch.preconnect }
     );
     try {
-      const pending = agent.runPostStepExecution(
-        [{ toolName: "createOrModifyOperator", toolCallId: "t", input: { operatorId: "source" } }],
-        [{ toolCallId: "t", output: "ok" }]
-      );
+      // A failed run is reported to the caller too; where its results land is what this checks.
+      const pending = agent.executePostStepChanges(["source"]).catch(() => undefined);
       await started;
       if (scenario === "abort") agent.abortController.abort();
       else {

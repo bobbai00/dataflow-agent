@@ -18,14 +18,13 @@
  */
 
 import { expect, test } from "bun:test";
-import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
+import { ContextMode, DEFAULT_AGENT_SETTINGS } from "../../types/agent";
 import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summarize/params";
 import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
 import { profileDiff } from "./selection";
 import { parseRolePolicyConfig } from "../context/selector/role-policy";
 import { validateNativeSettings } from "./settings";
 
-const native = { agentMode: AgentMode.NATIVE };
 const removed = [
   "flowLevel",
   "dataLevel",
@@ -111,22 +110,20 @@ for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
 for (const key of ["dataEvidence", "flowEvidence"]) {
   test(`${key} is a boolean, never a truthy level or string`, () => {
     for (const value of [1, "true", null]) {
-      expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(/boolean/);
+      expect(() => validateNativeSettings({ [key]: value })).toThrow(/boolean/);
     }
   });
 }
 
 test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recent requests", () => {
-  const settings = (extra: Record<string, unknown>) => ({ ...native, ...extra }) as object;
   for (const value of ["full", "docstring"])
-    expect(() => validateNativeSettings(settings({ catalogSource: value }))).not.toThrow();
-  expect(() => validateNativeSettings(settings({ catalogSource: "none" }))).toThrow(
+    expect(() => validateNativeSettings({ catalogSource: value })).not.toThrow();
+  expect(() => validateNativeSettings({ catalogSource: "none" })).toThrow(
     'catalogSource must be "full" or "docstring"'
   );
-  for (const value of [0, 5, 50])
-    expect(() => validateNativeSettings(settings({ catalogRecent: value }))).not.toThrow();
+  for (const value of [0, 5, 50]) expect(() => validateNativeSettings({ catalogRecent: value })).not.toThrow();
   for (const value of [-1, 2.5, 51, "5"])
-    expect(() => validateNativeSettings(settings({ catalogRecent: value }))).toThrow(
+    expect(() => validateNativeSettings({ catalogRecent: value })).toThrow(
       "catalogRecent must be an integer between 0 and 50"
     );
 });
@@ -134,18 +131,16 @@ test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recen
 test("multiRequest is off, transcript or catalog", () => {
   const key: string = "multiRequest";
   for (const value of ["off", "transcript", "catalog"])
-    expect(() => validateNativeSettings({ ...native, [key]: value })).not.toThrow();
+    expect(() => validateNativeSettings({ [key]: value })).not.toThrow();
   for (const value of ["on", true, "dependencies"])
-    expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(
+    expect(() => validateNativeSettings({ [key]: value })).toThrow(
       'multiRequest must be "off", "transcript" or "catalog"'
     );
   // Entries replace earlier requests in the delta context's native transcript only.
-  expect(() => validateNativeSettings({ ...native, [key]: "catalog", contextMode: "delta" } as object)).not.toThrow();
+  expect(() => validateNativeSettings({ [key]: "catalog", contextMode: "delta" } as object)).not.toThrow();
   for (const other of [{ contextMode: "latest" }, { messageLayout: "opSplit" }])
-    expect(() => validateNativeSettings({ ...native, [key]: "catalog", ...other } as object)).toThrow(
+    expect(() => validateNativeSettings({ [key]: "catalog", ...other } as object)).toThrow(
       'multiRequest "catalog" needs contextMode "delta" and messageLayout "native"'
     );
-  expect(() =>
-    validateNativeSettings({ ...native, [key]: "transcript", contextMode: "latest" } as object)
-  ).not.toThrow();
+  expect(() => validateNativeSettings({ [key]: "transcript", contextMode: "latest" } as object)).not.toThrow();
 });

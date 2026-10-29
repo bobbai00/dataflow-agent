@@ -95,7 +95,6 @@ try {
       workflowId: wid,
       computingUnitId: cuid,
       settings: {
-        agentMode: "native",
         contextMode: "delta",
         retrievalViews: ["full"],
         executionTimeoutMinutes: 0.5,

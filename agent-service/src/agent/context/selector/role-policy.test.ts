@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import { buildDossier } from "../summarize/dossier";
 import { applySummarizeParamsPatch, mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
 import { buildScenario, makeInfo, makeWorkflow } from "../summarize/fixtures";
@@ -62,7 +62,6 @@ function chainDossier() {
 function latestBase() {
   return mapLegacyToParams(ContextMode.LATEST, {
     compilationResult: null,
-    agentMode: AgentMode.CODE,
     schemaInResult: true,
   });
 }
@@ -111,7 +110,6 @@ describe("role policy (Rule A: rich source / lean interior)", () => {
     const dossier = chainDossier();
     const deltaBase = mapLegacyToParams(ContextMode.DELTA, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       schemaInResult: true,
     });
     expect(applyRolePolicy(deltaBase, dossier, parseRolePolicyConfig({}))).toBe(deltaBase);
@@ -228,7 +226,6 @@ describe("applyRolePolicy — char-budget mode binds on DELTA", () => {
     const dossier = chainDossier();
     const deltaBase = mapLegacyToParams(ContextMode.DELTA, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       schemaInResult: true,
     });
     // the rows/stats legs must still no-op on DELTA...

@@ -100,9 +100,9 @@ UPSTREAM = {"tables-upstream", "tables-gold"}
 GOLD_TABLES = {"tables-gold"}
 # Arms whose requests see the task catalog, the annotated dependencies in detail (gold_dependencies).
 CATALOG_TASKS = {"catalog-gold", "catalog-gold-answer"}
-# Everything else is stable's default (native mode, delta context, native
-# message layout, sample+stats retrieval, full-table profiles).
-BASE_SETTINGS = {"agentMode": "native", "contextMode": "delta"}
+# Everything else is stable's default (delta context, native message layout,
+# sample+stats retrieval, full-table profiles).
+BASE_SETTINGS = {"contextMode": "delta"}
 EMPTY_WORKFLOW = {"operators": [], "operatorPositions": {}, "links": [], "commentBoxes": [],
                   "settings": {"dataTransferBatchSize": 400}}
 

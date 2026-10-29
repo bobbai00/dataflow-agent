@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import { assembleContext } from "../../util/context-utils";
 import { buildDossier } from "../summarize/dossier";
 import { buildScenario, makeInfo, makeWorkflow, type Scenario } from "../summarize/fixtures";
@@ -418,7 +418,6 @@ describe("fold-resolved-revisions rendering (DELTA)", () => {
     const scenario = resolvedLoaderScenario();
     const baseOptions = {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       includeOperatorProperties: true,
       maxResultRows: 10,
     } as const;
@@ -465,7 +464,7 @@ describe("fold-resolved-revisions rendering (DELTA)", () => {
     scenario.storage.createSnapshot("a1", makeWorkflow([{ id: "loader", type: "DataLoading" }]));
     scenario.storage.setOperatorResult("a1", "loader", makeInfo(100));
 
-    const opts = { compilationResult: null, agentMode: AgentMode.CODE, maxResultRows: 10 } as const;
+    const opts = { compilationResult: null, maxResultRows: 10 } as const;
     const off = String(
       assembleContext(scenario.steps, scenario.workflowState, scenario.storage, ContextMode.DELTA, { ...opts })[0]
         .content

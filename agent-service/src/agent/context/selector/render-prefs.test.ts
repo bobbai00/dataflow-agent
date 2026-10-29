@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import { assembleContext } from "../../util/context-utils";
 import { buildDossier } from "../summarize/dossier";
 import { mapLegacyToParams, resolveOperatorParams } from "../summarize/params";
@@ -114,7 +114,6 @@ function prefsScenario(withPrefs = true): Scenario {
 
 const DELTA_OPTS = {
   compilationResult: null,
-  agentMode: AgentMode.CODE,
   schemaInResult: true,
   maxResultRows: 0,
 } as const;
@@ -157,7 +156,6 @@ describe("render prefs — core semantics", () => {
     const dossier = buildDossier(scenario.steps, scenario.storage);
     const base = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       schemaInResult: true,
     });
     const params = applyRenderPrefs(base, dossier);
@@ -171,7 +169,6 @@ describe("render prefs — core semantics", () => {
     const dossier = buildDossier(scenario.steps, scenario.storage);
     const base = mapLegacyToParams(ContextMode.LATEST, {
       compilationResult: null,
-      agentMode: AgentMode.CODE,
       maxResultRows: 2,
     });
     // Current version has no prefs anyway; nothing changes.

@@ -164,21 +164,6 @@ export enum OperatorResultSerializationMode {
 }
 
 /**
- * Agent operating mode.
- *  - NATIVE (default): the model writes a program of `name = operator(...)`
- *    expressions over the fixed operator catalog (`native/catalog.ts`), with
- *    three custom operators that carry Python (filter, map, process). The
- *    service compiles every operator to Python for the engine.
- *  - CODE: the previous script-based approach — every operator is one free
- *    Python `def load()` / `def process(...)` function written through
- *    `createOrModifyOperator`.
- */
-export enum AgentMode {
-  CODE = "code",
-  NATIVE = "native",
-}
-
-/**
  * Which operator results the LATEST snapshot ships, and at what fidelity.
  *  - "all":  every executed operator renders its full result block (legacy).
  *  - "rule": ship only what the data decided (native mode): full blocks for
@@ -215,23 +200,10 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   systemPrompt: string;
   disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
-  maxOperatorResultCellCharLimit: number;
   operatorResultSerializationMode: OperatorResultSerializationMode;
   toolTimeoutMs: number;
   executionTimeoutMs: number;
   maxSteps: number;
-  /**
-   * Convergence guard (paper §C / goal.md lever C). The maximum number of
-   * *consecutive* `createOrModifyOperator` calls that may target the SAME
-   * operator before the next same-operator MODIFY is rejected. A call to a
-   * different operator resets the run. `0` disables the guard entirely
-   * (default — byte-identical to pre-guard behavior). When `> 0`, a rejected
-   * edit returns an `[ERROR]` result and mutates nothing, so it triggers no
-   * execution and does not grow the per-step context — this is what truncates
-   * the L1 (semantic thrashing) × L2 (super-linear context) cost blow-up.
-   */
-  maxOperatorEdits: number;
-  agentMode: AgentMode;
   /** Collect table profiles and operator counters in the engine, independently
    *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
    *  each operator, so it cannot change on an existing workflow. */
@@ -243,14 +215,8 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** Which operator results the snapshot ships (see ResultSelection). */
   resultSelection: ResultSelection;
   contextMode: ContextMode;
-  /**
-   * When true, the model may emit multiple tool calls in a single assistant
-   * turn (provider-side parallel tool calls). The agent still executes them
-   * sequentially in topological order via `ToolCallScheduler` so an op that
-   * references a sibling created in the same turn can't run before its
-   * upstream. When false, the provider is asked to emit one tool call per
-   * turn (the pre-batching behavior).
-   */
+  /** Whether the provider may emit several tool calls in one assistant turn.
+   *  Native mode asks for one call per turn. */
   parallelToolCalls: boolean;
   /**
    * When true, each operator's `operatorProperties` are rendered as a
@@ -332,7 +298,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   errorReflection: boolean;
   /** N consecutive same-operator refixes before the folded error/attempt history shows. */
   errorReflectionThreshold: number;
-  fewShotPrompt: boolean;
   maxResultRows: number;
   /** Bounded, version-bound column/table facts on explicitly observed results. */
   dataEvidence: boolean;
@@ -359,7 +324,7 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /**
    * Tool-call dialect for the local text-mode driver (`local-react`). Selects
    * the system prompt, the output parser, AND the context assembler so all
-   * three agree (qwen-xml → CODE-mode prompt + SDK context; react-text →
+   * three agree (qwen-xml → `code-mode.md` prompt + SDK context; react-text →
    * `local-react.txt` + `# Event N` context). Ignored by the `vercel-tool-use`
    * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
    */
@@ -414,12 +379,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    * byte-identical to legacy. Experiment: does seeing its own code help the agent?
    */
   enableCodeInSnapshot: boolean;
-  /**
-   * A4 arm: append the multi-file provenance principle to the code-mode system
-   * prompt (loaders reading multiple files must add a `__source_file` column).
-   * Off by default; when off the prompt is byte-identical to legacy.
-   */
-  sourceProvenanceHint: boolean;
   /**
    * Where the `# User Task` block goes.
    *
@@ -484,7 +443,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ...DEFAULT_OBSERVATION_FORMAT,
   disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
-  maxOperatorResultCellCharLimit: 2000,
   fullResultCharLimit: 5000,
   retrievalViews: ["sample_stats", "full"],
   dataEvidenceCharLimit: 2000,
@@ -493,8 +451,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
-  maxOperatorEdits: 0,
-  agentMode: AgentMode.NATIVE,
   // Results are read through a sample with full-table column statistics by
   // default (the matrix of 2026-10-10: equal accuracy at lower cost than the
   // full view); flow evidence stays opt-in.
@@ -521,7 +477,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   deckSampleRatio: 0.1,
   errorReflection: false,
   errorReflectionThreshold: 3,
-  fewShotPrompt: false,
   // Sample rows per `show result`: three keep a pattern or both ends in view
   // at about half the tokens of five (2026-10-11 cost study).
   maxResultRows: 3,
@@ -529,7 +484,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   enableInspectTool: false,
   enableRenderPrefs: false,
   enableCodeInSnapshot: true,
-  sourceProvenanceHint: false,
   staticCompaction: false,
   userTaskPlacement: "top",
   multiRequest: "off",
@@ -563,7 +517,7 @@ export type AgentDriverKind = "vercel-tool-use" | "local-react";
  * format — the system prompt, the output parser, and the context assembler:
  *
  *  - "qwen-xml"    — Qwen3-Coder XML: `<tool_call><function=…><parameter=…>…
- *    </function></tool_call>`. Prompt = CODE-mode body (`code-mode.md`) +
+ *    </function></tool_call>`. Prompt = `code-mode.md` +
  *    `local-qwen-tools.txt`; parser `parseQwenToolCall`; context the SDK
  *    `assembleContext` (`# User Task` / `# Current Dataflow`). Default.
  *  - "react-text"  — DeepSeek-style ReAct text: `Thought:` / `Action:` /
@@ -593,14 +547,11 @@ export interface AgentDelegateConfig {
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
   messageLayout?: AgentSettings["messageLayout"];
   maxOperatorResultCharLimit?: number;
-  maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
-  maxOperatorEdits?: number;
-  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   nativeProfileScope?: "prefix" | "full";
@@ -624,7 +575,6 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   deckSampleRatio?: number;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
-  fewShotPrompt?: boolean;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */
@@ -647,8 +597,6 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   enableRenderPrefs?: boolean;
   /** Show operator code in the LATEST snapshot + short-summary tool/prompt (see AgentSettings.enableCodeInSnapshot). */
   enableCodeInSnapshot?: boolean;
-  /** Append the multi-file provenance principle to the code-mode prompt (see AgentSettings.sourceProvenanceHint). */
-  sourceProvenanceHint?: boolean;
   /** Static compaction rule, DELTA-only (see AgentSettings.staticCompaction). */
   staticCompaction?: boolean;
   /** LLM context-tuner config (see AgentSettings.tunerConfig). */
@@ -688,14 +636,11 @@ export interface CreateAgentRequest {
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
   maxOperatorResultCharLimit?: number;
-  maxOperatorResultCellCharLimit?: number;
   operatorResultSerializationMode?: "tsv";
   toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
   disabledTools?: string[];
   maxSteps?: number;
-  maxOperatorEdits?: number;
-  agentMode?: "code" | "native";
   contextMode?: "delta" | "latest";
   nativeProfileCollection?: boolean;
   nativeProfileScope?: "prefix" | "full";
@@ -719,7 +664,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   deckSampleRatio?: number;
   errorReflection?: boolean;
   errorReflectionThreshold?: number;
-  fewShotPrompt?: boolean;
   maxResultRows?: number;
   toolDialect?: LocalToolDialect;
   /** Deep-partial summarize-params patch (see AgentSettings.summarizeParams). */

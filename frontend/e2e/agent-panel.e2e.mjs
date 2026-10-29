@@ -7,13 +7,12 @@
  *   0. the chat: the panel is open on arrival, and a workflow without an
  *      agent starts its chat by itself (Bob, Claude Haiku 5.5), with a hint
  *      that files can be dropped on it; "Start a new chat" replaces the agent
- *   1. agent features in native mode (the default): chat, streamed steps,
- *      hover→canvas highlight, snapshot tree, settings modal (agent mode /
- *      context mode / data and flow evidence), clear
+ *   1. agent features: chat, streamed steps, hover→canvas highlight, snapshot
+ *      tree, settings modal (context mode / data and flow evidence), clear
  *   2. versioning: checkout an earlier snapshot, branch from it with a new
  *      message, verify the tree forks and the canvas follows HEAD
- *   3. code mode: the next chat's agent switched to Code from the settings
- *      modal gets the code-mode tools and answers through a Python operator
+ *   3. a new chat: "Start a new chat" replaces the agent, and the next chat
+ *      starts by itself
  *
  * Cross-checks via the agent-service REST API are used only as oracles
  * (e.g. operator types actually in the DAG), never to drive the UI. The test
@@ -353,7 +352,7 @@ async function main() {
     );
     await shot("01-panel-open");
 
-    // ===== 1. Agent features (native mode, the default) =====
+    // ===== 1. Agent features =====
     // This run's own unit, then a new chat: an agent keeps the unit selected when it started.
     await selectComputingUnit(page, unitName);
     const nativeAgent = await startNewChat(page, wid, firstChat.id);
@@ -361,12 +360,9 @@ async function main() {
     check(
       "start a new chat: the old agent goes and the new one runs on the selected unit",
       agents.length === 1 && agents[0].id === nativeAgent.id && nativeAgent.delegate?.computingUnitId === cuid,
-      JSON.stringify(agents.map(a => ({ id: a.id, cu: a.delegate?.computingUnitId, mode: a.settings?.agentMode })))
+      JSON.stringify(agents.map(a => ({ id: a.id, cu: a.delegate?.computingUnitId })))
     );
-    check(
-      "new agent defaults: native mode + delta context",
-      nativeAgent.settings?.agentMode === "native" && nativeAgent.settings?.contextMode === "delta"
-    );
+    check("new agent defaults: delta context", nativeAgent.settings?.contextMode === "delta");
     await shot("02-agent-created");
 
     const t1 = await sendAndWait(
@@ -522,8 +518,6 @@ async function main() {
 
     // ===== settings modal =====
     let modal = await openSettingsModal(page);
-    const modeOpts = await selectOptions(page, modal, "Agent Mode");
-    check("Agent Mode select offers exactly Native/Code", modeOpts.join(",") === "Native,Code", modeOpts.join(","));
     const ctxOpts = await selectOptions(page, modal, "Context Mode");
     check(
       "Context Mode select offers exactly Latest/Delta (no Full)",
@@ -675,9 +669,9 @@ async function main() {
     check("clear from UI empties history", stepsAfterClear === 0, `steps=${stepsAfterClear} ${clearErr}`);
     check("chat empty after clear", (await chat(page).locator("[data-step-id]").count()) === 0);
 
-    // ===== 3. Code mode, switched from the settings modal =====
+    // ===== 3. A new chat =====
     // The panel holds one chat per workflow: "Start a new chat" replaces its agent.
-    const codeAgent = await startNewChat(page, wid, nativeAgent.id);
+    const nextAgent = await startNewChat(page, wid, nativeAgent.id);
     check(
       "start a new chat deletes the agent on the server",
       !(await agentsForWorkflow(wid)).some(a => a.id === nativeAgent.id),
@@ -685,47 +679,19 @@ async function main() {
     );
     check(
       "the next chat starts by itself",
-      codeAgent.modelType === MODEL && codeAgent.delegate?.computingUnitId === cuid
+      nextAgent.modelType === MODEL && nextAgent.delegate?.computingUnitId === cuid
     );
     check(
       "the panel title names the workflow's agent",
-      (await page.locator("#agent-container #title").innerText()).includes(codeAgent.name)
+      (await page.locator("#agent-container #title").innerText()).includes(nextAgent.name)
     );
-    modal = await openSettingsModal(page);
-    await setSelectParam(page, modal, "Agent Mode", "Code");
-    await sleep(1000);
-    await closeModal(page);
-    s = (await api(AGENT, "GET", `/api/agents/${codeAgent.id}/settings`)).json;
-    check("agent mode switched to code from UI", s.agentMode === "code", `agentMode=${s.agentMode}`);
-    const tools = ((await api(AGENT, "GET", `/api/agents/${codeAgent.id}/system-info`)).json?.tools ?? []).map(
-      t => t.name
-    );
-    check(
-      "code mode tools: createOrModifyOperator (not the native dataflow tool)",
-      tools.includes("createOrModifyOperator") && !tools.includes("dataflow"),
-      tools.join(",")
-    );
-    const c1 = await sendAndWait(
-      page,
-      "Create ONE operator that outputs a table with columns id (1,2,3) and value (10,20,30). Execute it and answer with the sum of value. Be minimal: one operator, then answer."
-    );
-    check("code turn: steps streamed", c1.after > c1.before + 1, `steps ${c1.before}→${c1.after}`);
-    const codeOps = await operatorsOf(codeAgent.id);
-    check(
-      "code turn: DAG holds a Python operator",
-      codeOps.some(o => o.operatorType === "DataLoading" || o.operatorType === "DataProcessing"),
-      codeOps.map(o => `${o.operatorID}:${o.operatorType}`).join(",")
-    );
-    answer = await lastStepText(page);
-    check("code turn: final answer contains 60", /\b60\b/.test(answer), answer.slice(0, 120));
-    await shot("09-code-mode");
 
-    // "Start a new chat" once more: the code agent goes and a fresh chat starts, nothing to pick
-    const lastChat = await startNewChat(page, wid, codeAgent.id);
+    // "Start a new chat" once more: the agent goes and a fresh chat starts, nothing to pick
+    const lastChat = await startNewChat(page, wid, nextAgent.id);
     agents = await agentsForWorkflow(wid);
     check(
-      "the code agent is deleted on the server",
-      !agents.some(a => a.id === codeAgent.id),
+      "the previous agent is deleted on the server",
+      !agents.some(a => a.id === nextAgent.id),
       agents.map(a => a.id).join(",")
     );
     check(

@@ -35,7 +35,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { assembleContext } from "../../util/context-utils";
-import { AgentMode, ContextMode } from "../../../types/agent";
+import { ContextMode } from "../../../types/agent";
 import type { AssembleContextOptions } from "../../util/context-utils";
 import { buildRichScenario, contentOf } from "./fixtures";
 
@@ -49,9 +49,7 @@ function render(mode: ContextMode, options: AssembleContextOptions): string {
 function base(): AssembleContextOptions {
   return {
     compilationResult: null,
-    agentMode: AgentMode.CODE,
     includeOperatorProperties: true,
-    maxOperatorResultCellCharLimit: 2000,
   };
 }
 

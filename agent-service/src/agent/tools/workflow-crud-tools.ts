@@ -18,15 +18,10 @@
  */
 
 /**
- * Shared tool context + the delete tool used by both CODE and GENERAL modes.
- * Mode-specific add/modify tools live in `general-op-tools.ts` and
- * `code-op-tools.ts`.
+ * The context native graph edits run with, and the names of the operator tools
+ * older traces carry, whose calls computeOperatorAccess reads.
  */
 
-import { z } from "zod";
-import { tool } from "ai";
-import { WorkflowState } from "../workflow-state";
-import { createToolResult, createErrorResult } from "./tools-utility";
 import { type WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 
 export interface ToolContext {
@@ -50,24 +45,5 @@ export interface ToolContext {
   };
 }
 
+export const TOOL_NAME_CREATE_OR_MODIFY_OPERATOR = "createOrModifyOperator";
 export const TOOL_NAME_DELETE_OPERATOR = "deleteOperator";
-
-export function createDeleteOperatorTool(workflowState: WorkflowState, _context?: ToolContext) {
-  return tool({
-    description: "Delete an operator from the workflow. This also deletes all connected links.",
-    inputSchema: z.object({
-      operatorId: z.string().describe("ID of the operator to delete"),
-    }),
-    execute: async (args: { operatorId: string }) => {
-      try {
-        const deleted = workflowState.deleteOperator(args.operatorId);
-        if (!deleted) {
-          return createErrorResult(`Operator ${args.operatorId} not found`);
-        }
-        return createToolResult(`Deleted operator: ${args.operatorId}`);
-      } catch (error: any) {
-        return createErrorResult(error.message || String(error));
-      }
-    },
-  });
-}

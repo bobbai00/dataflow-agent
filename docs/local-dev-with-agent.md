@@ -121,9 +121,8 @@ Models available through the DKNet gateway: `claude-haiku-4.5` (cheap,
 default for e2e), `claude-sonnet-4-6`, `gpt-5.4`, `local-llm`.
 
 Files in Texera datasets — addressed `/ownerEmail/datasetName/vN/file`, which is
-also what the agent panel's drag & drop inserts — are readable in both modes:
-native `scan` and registered-function settings, and the path literals of
-code-mode loaders. A computing unit holds no user credential, so before each
+also what the agent panel's drag & drop inserts — are readable through native
+`scan` and registered-function settings. A computing unit holds no user credential, so before each
 execution the agent-service has the file service resolve the dataset paths an
 operator names (with the user's token, which also checks access) to
 short-lived download links that travel with that request only; the worker
@@ -155,15 +154,12 @@ without moving HEAD.
 ```bash
 cd agent-service
 bun run e2e          # static workflows through the execution path
-bun run e2e:agent    # REAL agent driving the LLM gateway (haiku by default)
 
 # context-parameter smoke matrix (LATEST/DELTA, compaction, index caps):
 bun run benchmark/e2e/context-tuning-run.ts
-# multi-turn context FORMAT check (LATEST + DELTA assembled-context markers):
-bun run benchmark/e2e/context-format-check.ts
 
 # real-browser checks, from frontend/ (Playwright; each brings its own computing unit):
-node e2e/agent-panel.e2e.mjs                                         # chat, settings, versioning, code mode
+node e2e/agent-panel.e2e.mjs                                         # chat, settings, versioning, new chat
 PROBE_MODEL=claude-haiku-5.5 node e2e/agent-operator-actions.e2e.mjs # Run / Edit / Feedback on an operator
 ```
 
@@ -173,9 +169,7 @@ gateway):
 | Suite | Result |
 |---|---|
 | `bun run e2e` (8 static workflows + strict validators) | 8/8 pass |
-| `bun run e2e:agent` (16 real-agent specs) | 15/16 pass — T4 expects both operators in ONE parallel tool-call step; haiku emitted them sequentially (model behavior, DAG still correct) |
 | context-tuning matrix (6 configs) | 6/6 pass, all reached the correct answer |
-| context-format check (LATEST + DELTA, 2 turns) | all markers present |
 
 Context-tuning matrix configs, all green: `latest` default;
 `latest + columnStats + thoughtReplayK=3`; `delta` unbounded;
@@ -201,14 +195,12 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 
 | Knob | Values | What it does |
 |---|---|---|
-| `agentMode` | `native` (default) \| `code` | native: the model edits, runs and reads the dataflow through the `dataflow(python, statements)` tool; code: one Python `load()`/`process()` operator per `createOrModifyOperator` call |
 | `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
 | `operatorDoc` | bool (default `false`; agents made in the UI: `true`) | native mode: the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
 | `respondToCanvasRuns` | bool (default `true`) | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn; the panel's "Canvas Runs" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
-| `maxOperatorResultCellCharLimit` | int (default 2000) | clip long cells |
 | `contextMode` | `delta` (default) \| `latest` | DELTA = full event trajectory, append-only for the provider cache; LATEST = task + current snapshot |
 | `messageLayout` | `native` (default) \| `block` \| `blockSplit` \| `turnSplit` \| `opSplit` \| `opBlock` | how the transcript is split into messages; `opSplit`/`opBlock` are LATEST layouts with one message per operator |
 | `contextWindowTokens` | int (0 = unbounded) | DELTA budget; overflow triggers compaction |
@@ -217,16 +209,16 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `maxResultRows` | int (0 = no cap) | rows rendered per operator result |
 | `maxSteps` | int (default 100) | per-turn step budget |
 | `toolTimeoutSeconds` / `executionTimeoutMinutes` | int | per tool call / per workflow execution |
-| `parallelToolCalls` | bool (default `true`) | provider-side parallel tool calls; forced off in native mode |
+| `parallelToolCalls` | bool | provider-side parallel tool calls; always off |
 | `thoughtReplay` / `thoughtReplayK` | bool / int | recent reasoning re-injected (default on, K=10) |
 | `disabledTools` | string[] | hide tools by name |
 
-Retired knobs (`nativeToolMode`, `nativeCatalogVersion`, `allowedOperatorTypes`,
-`columnStats`, `flowLevel`/`dataLevel`, `agentMode: "general"`, and the protocol
-and multi-task knobs removed with the JSON action tool and the text transport,
-such as `nativeTransport`, `dataflowReasoning`, `taskContext`, `stateHistory`,
-`turnHistory`, `seedSources` and `enableRecallTool`) are rejected with an error
-rather than mapped.
+A key that is not a setting is refused with a 400 that names it
+(`<key> is not a setting`) rather than mapped; that includes retired knobs such
+as `agentMode`, `nativeToolMode`, `allowedOperatorTypes`, `columnStats`,
+`flowLevel`/`dataLevel`, and the protocol and multi-task knobs removed with the
+JSON action tool and the text transport (`nativeTransport`, `taskContext`,
+`stateHistory`, `seedSources`, `enableRecallTool`, …).
 
 ## Troubleshooting
 

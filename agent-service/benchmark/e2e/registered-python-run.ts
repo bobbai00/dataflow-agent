@@ -170,7 +170,6 @@ try {
     workflowId: wid,
     computingUnitId: cuid,
     settings: {
-      agentMode: "native",
       contextMode: "delta",
       messageLayout: "native",
       retrievalViews: views,

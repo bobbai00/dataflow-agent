@@ -96,19 +96,19 @@ class StructuredResultTransportSpec extends AnyFlatSpec with Matchers {
   private val envelope =
     """{"protocol":"texera.table-profile","version":1,"operatorId":"source","operatorRevision":"0123456789abcdef","producerId":"0123456789abcdef0123456789abcdef"}"""
 
-  "Profile transport" should "separate metadata without applying cell display truncation" in {
-    val result =
-      StructuredResultTransport.partitionStatistics(Map(metadataKey -> envelope, "x" -> "(str): a"))
+  "Profile transport" should "keep the profile envelopes and nothing else" in {
+    val result = StructuredResultTransport.partitionStatistics(
+      Map(metadataKey -> envelope, "__table_hints__" -> "a")
+    )
     result.metadata shouldBe Map(metadataKey -> envelope)
-    result.columnStats shouldBe Map("x" -> "(str): a")
     result.omissions shouldBe empty
   }
 
-  it should "leave ordinary column statistics alone even with a similar name" in {
+  it should "not take a value under a similar name for an envelope" in {
     val stats = Map(metadataKey -> "(str): nonnull=3", "__texera_profile_v1__:user" -> "ordinary")
     val result = StructuredResultTransport.partitionStatistics(stats)
-    result.columnStats shouldBe stats
     result.metadata shouldBe empty
+    result.omissions shouldBe empty
   }
 
   it should "bound metadata independently and never truncate an accepted envelope" in {
@@ -116,14 +116,12 @@ class StructuredResultTransportSpec extends AnyFlatSpec with Matchers {
     val result =
       StructuredResultTransport.partitionStatistics(stats, maxBytes = envelope.length + 1)
     result.metadata shouldBe Map(metadataKey -> envelope)
-    result.columnStats shouldBe empty
     result.omissions should contain("metadata_payload_budget")
   }
 
-  it should "omit oversized reserved payloads without parsing or leaking them into column stats" in {
+  it should "omit oversized reserved payloads without parsing them" in {
     val result = StructuredResultTransport.partitionStatistics(Map(metadataKey -> ("x" * 65537)))
     result.metadata shouldBe empty
-    result.columnStats shouldBe empty
     result.omissions should contain("metadata_payload_budget")
   }
 

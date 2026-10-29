@@ -33,7 +33,7 @@
 
 import { presignDatasetFile } from "../../api/dataset-api";
 import type { LogicalPlan } from "../../api/execution-api";
-import { datasetFilesStagingCode, nativeSpecOf, withNativeDatasetFiles } from "../native/codegen";
+import { nativeSpecOf, withNativeDatasetFiles } from "../native/codegen";
 
 /** `ownerEmail/datasetName/version/file…`. The file service names every
  * version `v<n>` or `v<n> - <label>`, which keeps local paths such as
@@ -47,11 +47,8 @@ export function datasetFilePath(value: string): string | undefined {
   return value.startsWith("/") ? value : `/${value}`;
 }
 
-/** Operators whose code reads files itself (code mode); native code is recognized by its spec. */
+/** The operator types native operators compile to; native code is recognized by its spec. */
 const CODE_OPERATORS = new Set(["DataLoading", "DataProcessing"]);
-
-/** Single- or double-quoted literals on one line (a triple-quoted one-liner yields its body too). */
-const STRING_LITERAL = /(['"])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 
 /** Links last 15 minutes; reuse one for 10 so repeated executions send identical code. */
 const LINK_REUSE_MS = 10 * 60_000;
@@ -96,9 +93,8 @@ async function datasetLinks(token: string, values: Iterable<string>): Promise<Re
 
 /**
  * The execution request's copy of `operators`, with download links for every
- * Texera dataset file they name: a native operator's spec gains `datasetFiles`;
- * a code-mode operator gets staging lines appended that point its path
- * literals at local copies. Operators naming no dataset file are returned as is.
+ * Texera dataset file they name: a native operator's spec gains `datasetFiles`.
+ * Other operators, and those naming no dataset file, are returned as is.
  */
 export async function withDatasetFiles(
   operators: LogicalPlan["operators"],
@@ -109,13 +105,9 @@ export async function withDatasetFiles(
       const code = operator.code;
       if (typeof code !== "string" || !CODE_OPERATORS.has(operator.operatorType)) return operator;
       const spec = nativeSpecOf(code);
-      if (spec) {
-        const files = await datasetLinks(token, strings(spec.properties, new Set()));
-        return files ? { ...operator, code: withNativeDatasetFiles(code, files) } : operator;
-      }
-      const literals = new Set([...code.matchAll(STRING_LITERAL)].map(match => match[2]!));
-      const files = await datasetLinks(token, literals);
-      return files ? { ...operator, code: code + datasetFilesStagingCode(files) } : operator;
+      if (!spec) return operator;
+      const files = await datasetLinks(token, strings(spec.properties, new Set()));
+      return files ? { ...operator, code: withNativeDatasetFiles(code, files) } : operator;
     })
   );
 }

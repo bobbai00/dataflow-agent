@@ -36,7 +36,6 @@ case class ResultMaterialization(
     subdagHash: Option[String]
 )
 case class PartitionedStatistics(
-    columnStats: Map[String, String],
     metadata: Map[String, String],
     omissions: List[String]
 )
@@ -107,14 +106,12 @@ object StructuredResultTransport {
       maxBytes: Int = 262144,
       maxWorkers: Int = 64
   ): PartitionedStatistics = {
-    val columns = mutable.Map[String, String]()
     val metadata = mutable.Map[String, String]()
     val omissions = mutable.Set[String]()
     var used = 0
-    statistics.toSeq.sortBy(_._1).foreach {
+    statistics.toSeq.filter { case (key, _) => profileKey.matches(key) }.sortBy(_._1).foreach {
       case (key, payload) =>
-        if (!profileKey.matches(key)) columns(key) = payload
-        else if (payload.length > 65536 || payload.getBytes(UTF_8).length > 65536) {
+        if (payload.length > 65536 || payload.getBytes(UTF_8).length > 65536) {
           omissions += "metadata_payload_budget"
         } else {
           val isEnvelope = Try {
@@ -123,17 +120,18 @@ object StructuredResultTransport {
             parsed.path("protocol").asText() == "texera.table-profile" &&
             parsed.path("version").isIntegralNumber && parsed.path("version").asInt() == 1
           }.getOrElse(false)
-          if (!isEnvelope) columns(key) = payload
-          else if (metadata.size >= maxWorkers) omissions += "metadata_worker_budget"
-          else if (used + payload.getBytes(UTF_8).length > maxBytes) {
-            omissions += "metadata_payload_budget"
-          } else {
-            metadata(key) = payload
-            used += payload.getBytes(UTF_8).length
+          if (isEnvelope) {
+            if (metadata.size >= maxWorkers) omissions += "metadata_worker_budget"
+            else if (used + payload.getBytes(UTF_8).length > maxBytes) {
+              omissions += "metadata_payload_budget"
+            } else {
+              metadata(key) = payload
+              used += payload.getBytes(UTF_8).length
+            }
           }
         }
     }
-    PartitionedStatistics(columns.toMap, metadata.toMap, omissions.toList.sorted)
+    PartitionedStatistics(metadata.toMap, omissions.toList.sorted)
   }
 
   def schemaFields(schema: Schema): List[ResultField] =

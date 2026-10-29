@@ -19,7 +19,6 @@
 
 import { expect, test } from "bun:test";
 import { MockLanguageModelV3 } from "ai/test";
-import { AgentMode } from "../../types/agent";
 import { TexeraAgent } from "../texera-agent";
 import { VercelToolUseDriver } from "../llm-drivers/vercel-tool-use-driver";
 import { assembleContext } from "../util/context-utils";
@@ -68,12 +67,11 @@ function fixture(replyAt: (call: number) => Call[] | string) {
     driver: new VercelToolUseDriver({ model }),
     contextAssembler: ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
       assembleContext(visibleSteps, workflowState, snapshotStorage, settings.contextMode, {
-        agentMode: AgentMode.NATIVE,
         messageLayout: "native",
         thoughtReplay: false,
       }),
   });
-  agent.updateSettings({ agentMode: AgentMode.NATIVE, maxSteps: 25, thoughtReplay: false });
+  agent.updateSettings({ maxSteps: 25, thoughtReplay: false });
   // No engine in a unit test: every operator "executes" to one row.
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators())

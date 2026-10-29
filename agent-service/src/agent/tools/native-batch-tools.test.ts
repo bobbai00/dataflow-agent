@@ -22,7 +22,7 @@ import { asSchema } from "ai";
 import { asNativeBatchResult, batchObservedIds, nativeBatchResults, TOOL_NAME_DATAFLOW } from "./native-batch-tools";
 import { prepareDataflowCall } from "./turn-tool";
 import { TexeraAgent } from "../texera-agent";
-import { AgentMode, type ReActStep } from "../../types/agent";
+import type { ReActStep } from "../../types/agent";
 
 const step = (
   calls: Array<{ statements: string; observe: string[] }>
@@ -40,14 +40,14 @@ const step = (
 });
 
 describe("native dataflow tool", () => {
-  test("agent native mode exposes only dataflow and forces provider parallel calls off", () => {
+  test("the agent exposes only dataflow and forces provider parallel calls off", () => {
     const agent = new TexeraAgent({
       agentId: "native-tools-test",
       modelType: "test",
       driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
       contextAssembler: () => [],
     });
-    agent.updateSettings({ agentMode: AgentMode.NATIVE, parallelToolCalls: true });
+    agent.updateSettings({ parallelToolCalls: true });
     expect(agent.getSettings().parallelToolCalls).toBe(false);
     expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
     expect(agent.getSettings().systemPrompt).toContain('aggregate(t, by=[], outputs={"output": reducer(...)})');
@@ -55,10 +55,6 @@ describe("native dataflow tool", () => {
     const schema = asSchema((agent as any).tools.dataflow.inputSchema).jsonSchema as any;
     expect(Object.keys(schema.properties).sort()).toEqual(["python", "statements"]);
     expect([...schema.required].sort()).toEqual(["python", "statements"]);
-    agent.updateSettings({ agentMode: AgentMode.CODE, parallelToolCalls: true });
-    expect((agent as any).tools.createOrModifyOperator).toBeDefined();
-    expect((agent as any).tools.dataflow).toBeUndefined();
-    expect(agent.getSettings().parallelToolCalls).toBe(true);
   });
 });
 

@@ -18,7 +18,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { AgentMode, ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
+import { ContextMode, DEFAULT_AGENT_SETTINGS, type ReActStep } from "../../types/agent";
 import { buildContextAssembler } from "../../server";
 import type { OperatorInfo } from "../../types/execution";
 import { assembleContext } from "../util/context-utils";
@@ -197,7 +197,6 @@ test("shared flow LATEST: dedup only visible outputs in this frame", async () =>
   const f = fixture();
   const render = () =>
     assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-      agentMode: AgentMode.NATIVE,
       messageLayout: "native",
       dataEvidence: true,
       flowEvidence: true,
@@ -254,7 +253,6 @@ for (const dataEvidence of [false, true])
         compilationResult: null,
         settings: {
           ...DEFAULT_AGENT_SETTINGS,
-          agentMode: AgentMode.NATIVE,
           contextMode: ContextMode.LATEST,
           dataEvidence,
           flowEvidence,
@@ -290,7 +288,6 @@ test("upstream summaries LATEST: a shown result pins its hidden calculation, rev
   const render = () =>
     JSON.stringify(
       assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-        agentMode: AgentMode.NATIVE,
         dataEvidence: false,
         flowEvidence: true,
         maxOperatorResultCharLimit: 2000,
@@ -323,7 +320,6 @@ for (const messageLayout of [undefined, "native", "block", "blockSplit", "opSpli
     const render = () =>
       JSON.stringify(
         assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-          agentMode: AgentMode.NATIVE,
           messageLayout,
           dataEvidence,
           flowEvidence,
@@ -423,7 +419,6 @@ for (const data of [false, true]) {
       expect(output.length).toBeLessThanOrEqual(2000);
       const rendered = JSON.stringify(
         assembleContext(f.steps, f.state, f.storage, ContextMode.LATEST, {
-          agentMode: AgentMode.NATIVE,
           dataEvidence: data,
           flowEvidence: flow,
           maxOperatorResultCharLimit: 2000,
@@ -452,7 +447,6 @@ for (const scenario of ["settings", "checkout", "abort"] as const) {
     agent.snapshotStorage = f.storage;
     agent.workflowState = f.state;
     agent.head = "A";
-    agent.settings.agentMode = AgentMode.NATIVE;
     agent.settings.flowEvidence = true;
     agent.settings.dataEvidence = true;
     agent.abortController = new AbortController();
