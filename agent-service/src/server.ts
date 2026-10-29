@@ -25,7 +25,12 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
-import { NativeCatalogSettingsError, validateNativeSettings, validateEvidenceSettings } from "./agent/native/settings";
+import {
+  NativeCatalogSettingsError,
+  refuseUnknownSettings,
+  validateNativeSettings,
+  validateEvidenceSettings,
+} from "./agent/native/settings";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
 import { nativeRuntimeForClients, workflowNativeRuntime } from "./agent/native/codegen";
 import { describeNativeStatement } from "./agent/native/statement-form";
@@ -553,6 +558,76 @@ const OBSERVATION_SETTINGS_SCHEMA = {
   answerOnlyReply: t.Optional(t.Boolean()),
 };
 
+/** Every setting a client can give: the keys of a create request's `settings`.
+ * PATCH takes them all but the few fixed when the agent is created. */
+const AGENT_SETTINGS_SCHEMA = t.Object({
+  maxOperatorResultCharLimit: t.Optional(t.Number()),
+  maxOperatorResultCellCharLimit: t.Optional(t.Number()),
+  operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
+  toolTimeoutSeconds: t.Optional(t.Number()),
+  executionTimeoutMinutes: t.Optional(t.Number()),
+  disabledTools: t.Optional(t.Array(t.String())),
+  maxSteps: t.Optional(t.Number()),
+  maxOperatorEdits: t.Optional(t.Number()),
+  agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
+  ...OBSERVATION_SETTINGS_SCHEMA,
+  nativeProfileCollection: t.Optional(t.Boolean()),
+  nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
+  dataEvidence: t.Optional(t.Boolean()),
+  retrievalViews: t.Optional(
+    t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+      minItems: 1,
+      maxItems: 3,
+    })
+  ),
+  fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+  dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+  flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
+  flowEvidence: t.Optional(t.Boolean()),
+  operatorDoc: t.Optional(t.Boolean()),
+  respondToCanvasRuns: t.Optional(t.Boolean()),
+  instructions: t.Optional(t.String({ maxLength: 20000 })),
+  answerStatement: t.Optional(t.Boolean()),
+  nativeChecks: t.Optional(t.Boolean()),
+  resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
+  contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
+  parallelToolCalls: t.Optional(t.Boolean()),
+  includeOperatorProperties: t.Optional(t.Boolean()),
+  thoughtReplay: t.Optional(t.Boolean()),
+  agentTurns: t.Optional(t.Boolean()),
+  contextWindowTokens: t.Optional(t.Number()),
+  compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
+  deckSampleRatio: t.Optional(t.Number()),
+  errorReflection: t.Optional(t.Boolean()),
+  errorReflectionThreshold: t.Optional(t.Number()),
+  thoughtReplayK: t.Optional(t.Number()),
+  fewShotPrompt: t.Optional(t.Boolean()),
+  maxResultRows: t.Optional(t.Number()),
+  attemptReflection: t.Optional(t.Boolean()),
+  toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
+  // Deep-partial summarize() params patch; zod-validated in-handler
+  // (the shape is too rich for a TypeBox mirror to earn its keep).
+  summarizeParams: t.Optional(t.Any()),
+  selectorConfig: t.Optional(t.Any()),
+  frontierDecayConfig: t.Optional(t.Any()),
+  foldResolvedRevisionsConfig: t.Optional(t.Any()),
+  probeRetirementConfig: t.Optional(t.Any()),
+  rolePolicyConfig: t.Optional(t.Any()),
+  learnedConfig: t.Optional(t.Any()),
+  enableInspectTool: t.Optional(t.Boolean()),
+  enableRenderPrefs: t.Optional(t.Boolean()),
+  enableCodeInSnapshot: t.Optional(t.Boolean()),
+  sourceProvenanceHint: t.Optional(t.Boolean()),
+  staticCompaction: t.Optional(t.Boolean()),
+  userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
+  messageLayout: t.Optional(t.String()),
+  multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
+  catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
+  catalogRecent: t.Optional(t.Integer()),
+  tunerConfig: t.Optional(t.Any()),
+});
+const SETTING_KEYS: ReadonlySet<string> = new Set(Object.keys(AGENT_SETTINGS_SCHEMA.properties));
+
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
   return {
@@ -811,6 +886,7 @@ async function runSeed(userToken: string, user: UserInfo): Promise<void> {
       bob.description ?? `Seeded for ${user.name} from ${seed.name}`
     );
     const settings = { operatorDoc: true, ...(bob.settings ?? {}) } as NonNullable<CreateAgentRequest["settings"]>;
+    refuseUnknownSettings(settings, SETTING_KEYS);
     validateNativeSettings(settings);
     const created = await createAgentInstance(
       bob.model,
@@ -1029,6 +1105,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         throw new Error("Invalid or expired token");
       }
 
+      refuseUnknownSettings(settings, SETTING_KEYS);
       validateNativeSettings(settings);
 
       const userInfo = extractUserFromToken(userToken);
@@ -1064,74 +1141,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // Explicit driver override. Must be in the schema or Elysia's
         // normalize pass strips it from the body before the handler reads it.
         driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
-        settings: t.Optional(
-          t.Object({
-            maxOperatorResultCharLimit: t.Optional(t.Number()),
-            maxOperatorResultCellCharLimit: t.Optional(t.Number()),
-            operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
-            toolTimeoutSeconds: t.Optional(t.Number()),
-            executionTimeoutMinutes: t.Optional(t.Number()),
-            disabledTools: t.Optional(t.Array(t.String())),
-            maxSteps: t.Optional(t.Number()),
-            maxOperatorEdits: t.Optional(t.Number()),
-            agentMode: t.Optional(t.Union([t.Literal("code"), t.Literal("native")])),
-            ...OBSERVATION_SETTINGS_SCHEMA,
-            nativeProfileCollection: t.Optional(t.Boolean()),
-            nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
-            dataEvidence: t.Optional(t.Boolean()),
-            retrievalViews: t.Optional(
-              t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
-                minItems: 1,
-                maxItems: 3,
-              })
-            ),
-            fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-            dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-            flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-            flowEvidence: t.Optional(t.Boolean()),
-            operatorDoc: t.Optional(t.Boolean()),
-            respondToCanvasRuns: t.Optional(t.Boolean()),
-            instructions: t.Optional(t.String({ maxLength: 20000 })),
-            answerStatement: t.Optional(t.Boolean()),
-            nativeChecks: t.Optional(t.Boolean()),
-            resultSelection: t.Optional(t.Union([t.Literal("all"), t.Literal("rule"), t.Literal("scoped")])),
-            contextMode: t.Optional(t.Union([t.Literal("delta"), t.Literal("latest")])),
-            parallelToolCalls: t.Optional(t.Boolean()),
-            includeOperatorProperties: t.Optional(t.Boolean()),
-            thoughtReplay: t.Optional(t.Boolean()),
-            agentTurns: t.Optional(t.Boolean()),
-            contextWindowTokens: t.Optional(t.Number()),
-            compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
-            deckSampleRatio: t.Optional(t.Number()),
-            errorReflection: t.Optional(t.Boolean()),
-            errorReflectionThreshold: t.Optional(t.Number()),
-            thoughtReplayK: t.Optional(t.Number()),
-            fewShotPrompt: t.Optional(t.Boolean()),
-            maxResultRows: t.Optional(t.Number()),
-            attemptReflection: t.Optional(t.Boolean()),
-            toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
-            // Deep-partial summarize() params patch; zod-validated in-handler
-            // (the shape is too rich for a TypeBox mirror to earn its keep).
-            summarizeParams: t.Optional(t.Any()),
-            selectorConfig: t.Optional(t.Any()),
-            frontierDecayConfig: t.Optional(t.Any()),
-            foldResolvedRevisionsConfig: t.Optional(t.Any()),
-            probeRetirementConfig: t.Optional(t.Any()),
-            rolePolicyConfig: t.Optional(t.Any()),
-            learnedConfig: t.Optional(t.Any()),
-            enableInspectTool: t.Optional(t.Boolean()),
-            enableRenderPrefs: t.Optional(t.Boolean()),
-            enableCodeInSnapshot: t.Optional(t.Boolean()),
-            sourceProvenanceHint: t.Optional(t.Boolean()),
-            staticCompaction: t.Optional(t.Boolean()),
-            userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-            messageLayout: t.Optional(t.String()),
-            multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
-            catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
-            catalogRecent: t.Optional(t.Integer()),
-            tunerConfig: t.Optional(t.Any()),
-          })
-        ),
+        settings: t.Optional(AGENT_SETTINGS_SCHEMA),
       }),
     }
   )
@@ -1679,6 +1689,9 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       return settingsToApi(agent);
     },
     {
+      // Before the body schema, which refuses a setting fixed at creation: a
+      // key that is no setting at all is named as such.
+      transform: ({ body }) => refuseUnknownSettings(body, SETTING_KEYS),
       body: t.Object({
         maxOperatorResultCharLimit: t.Optional(t.Number()),
         maxOperatorResultCellCharLimit: t.Optional(t.Number()),

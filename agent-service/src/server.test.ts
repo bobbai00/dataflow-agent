@@ -155,28 +155,60 @@ describe(`POST ${API}/agents`, () => {
     expect(created.driver).toBe("vercel-tool-use");
   });
 
-  test("removed protocol and multi-task settings are refused on create and patch, leaving settings unchanged", async () => {
-    const created = await readJson<any>(await createAgent({ settings: { agentMode: "native" } }));
+  test("a key that is not a setting is refused by name on create and PATCH, and changes nothing", async () => {
+    const created = await readJson<any>(await createAgent());
     const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
-    for (const settings of [
-      { nativeTransport: "turn" },
-      { taskContext: "dependencies" },
-      { multiTask: true },
-      { stateHistory: true },
-      { stateLedger: true },
-      { enableRecallTool: true },
-      { enableResumeTool: true },
-      { enableCompactTool: true },
-      { turnHistory: "index" },
-      { sessionTurns: true },
-      { versionedMode: true },
-    ]) {
-      const response = await createAgent({ settings: { agentMode: "native", ...settings } });
+    // Removed settings and a misspelled one alike.
+    for (const key of ["nativeTransport", "multiTask", "columnStats", "nativeToolMode", "maxStep"]) {
+      const response = await createAgent({ settings: { maxSteps: 7, [key]: true } });
       expect(response.status).toBe(400);
-      expect((await patchJson(`${API}/agents/${created.id}/settings`, { ...settings, maxSteps: 7 })).status).toBe(400);
+      expect(await readJson<any>(response)).toEqual({ error: `${key} is not a setting` });
+      const patched = await patchJson(`${API}/agents/${created.id}/settings`, { maxSteps: 7, [key]: true });
+      expect(patched.status).toBe(400);
+      expect(await readJson<any>(patched)).toEqual({ error: `${key} is not a setting` });
       expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
     }
     expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(1);
+  });
+
+  test("every setting an agent reports is taken on create, and on PATCH all but those fixed at creation", async () => {
+    const reported = (await readJson<any>(await createAgent())).settings as Record<string, unknown>;
+    const response = await createAgent({ settings: reported });
+    expect(response.status).toBe(200);
+    const created = await readJson<any>(response);
+    expect(created.settings).toEqual(reported);
+    const fixedAtCreation = ["enableCodeInSnapshot", "sourceProvenanceHint", "staticCompaction"];
+    const patch = Object.fromEntries(Object.entries(reported).filter(([key]) => !fixedAtCreation.includes(key)));
+    const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
+    expect(patched.status).toBe(200);
+    expect(await readJson<any>(patched)).toEqual(reported);
+    for (const key of fixedAtCreation)
+      expect((await patchJson(`${API}/agents/${created.id}/settings`, { [key]: reported[key] })).status).toBe(400);
+  });
+
+  test("the settings the UI sends are taken", async () => {
+    const response = await createAgent({ settings: { operatorDoc: true } });
+    expect(response.status).toBe(200);
+    const created = await readJson<any>(response);
+    for (const patch of [
+      { maxOperatorResultCharLimit: 20000 },
+      { maxOperatorResultCellCharLimit: 4000 },
+      { toolTimeoutSeconds: 120 },
+      { executionTimeoutMinutes: 10 },
+      { maxSteps: 10 },
+      { agentMode: "native" },
+      { contextMode: "delta" },
+      { parallelToolCalls: false },
+      { dataEvidence: true },
+      { flowEvidence: false },
+      { operatorDoc: true },
+      { respondToCanvasRuns: false },
+      { instructions: "Be brief." },
+    ]) {
+      const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
+      expect(patched.status).toBe(200);
+      expect(await readJson(patched)).toMatchObject(patch);
+    }
   });
 
   test("explicit message layout is echoed in create, info and settings", async () => {
@@ -552,16 +584,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     expect(plain.settings.instructions).toBe("");
     expect((await patchJson(`${API}/agents/${created.id}/settings`, { instructions: 7 })).status).toBe(400);
   });
-
-  for (const key of ["flowLevel", "dataLevel", "columnStats", "valueFormat", "dataHints", "statScopes"]) {
-    test(`removed ${key} is rejected by create and PATCH`, async () => {
-      expect((await createAgent({ settings: { [key]: true } })).status).toBe(400);
-      const created = await readJson<any>(await createAgent());
-      const before = await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`));
-      expect((await patchJson(`${API}/agents/${created.id}/settings`, { maxSteps: 7, [key]: true })).status).toBe(400);
-      expect(await readJson<any>(await getJson(`${API}/agents/${created.id}/settings`))).toEqual(before);
-    });
-  }
 
   test("rejects contextMode values outside delta|latest with 400", async () => {
     const created = await readJson<{ id: string }>(await createAgent());

@@ -23,7 +23,6 @@ import { mapLegacyToParams, SummarizeParamsPatchSchema } from "../context/summar
 import { REGISTERED_OPERATOR_NAMES, registeredCatalogText } from "./registered";
 import { profileDiff } from "./selection";
 import { parseRolePolicyConfig } from "../context/selector/role-policy";
-import { TexeraAgent } from "../texera-agent";
 import { validateNativeSettings } from "./settings";
 
 const native = { agentMode: AgentMode.NATIVE };
@@ -82,23 +81,6 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, "dataflowReasoning")).toBe(false);
 });
 
-for (const key of removed) {
-  test(`creation rejects removed ${key} rather than silently migrating it`, () => {
-    expect(() => validateNativeSettings({ ...native, [key]: false })).toThrow(/removed/i);
-  });
-  test(`live update rejects removed ${key} atomically`, () => {
-    const agent = new TexeraAgent({
-      agentId: `settings-${key}`,
-      modelType: "test",
-      driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
-      contextAssembler: () => [],
-    });
-    const before = structuredClone(agent.getSettings());
-    expect(() => agent.updateSettings({ maxSteps: 7, [key]: true } as any)).toThrow(/removed/i);
-    expect(agent.getSettings()).toEqual(before);
-  });
-}
-
 for (const mode of [ContextMode.DELTA, ContextMode.LATEST]) {
   for (const data of [false, true])
     for (const flow of [false, true]) {
@@ -133,21 +115,6 @@ for (const key of ["dataEvidence", "flowEvidence"]) {
     }
   });
 }
-
-test("settings of the removed protocols and multi-task state are refused with the reason", () => {
-  for (const key of [
-    "nativeTransport",
-    "dataflowReasoning",
-    "nativePromptDetail",
-    "multiTask",
-    "stateHistory",
-    "specAudit",
-  ])
-    for (const value of [true, false, "text"])
-      expect(() => validateNativeSettings({ ...native, [key]: value })).toThrow(
-        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and multiRequest for a session with several requests`
-      );
-});
 
 test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recent requests", () => {
   const settings = (extra: Record<string, unknown>) => ({ ...native, ...extra }) as object;

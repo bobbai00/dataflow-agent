@@ -20,56 +20,13 @@
 /** A rejected setting is a client error, not a server failure. */
 export class NativeCatalogSettingsError extends Error {}
 
-/** Settings that no longer exist. They are refused rather than mapped so an
- * old experiment configuration never silently becomes a new arm. */
-const REMOVED_SETTINGS = [
-  "nativeToolMode",
-  "nativeCatalogVersion",
-  "allowedOperatorTypes",
-  "flowLevel",
-  "dataLevel",
-  "columnStats",
-  "valueFormat",
-  "dataHints",
-  "statScopes",
-  "coercionTelemetry",
-  "rowLineage",
-  "loaderHint",
-  "lineageErrorContext",
-  "graphAudit",
-  "valueFormatFlags",
-  "tableStructureHint",
-  "fileIoFacts",
-  "nativeFlowEvidence",
-];
-
-/** Removed with the JSON action tool, the text transport and LongDS support:
- * native mode has one protocol, the dataflow(python, statements) tool. */
-const REMOVED_PROTOCOL_SETTINGS = [
-  "nativeTransport",
-  "dataflowReasoning",
-  "nativePromptDetail",
-  "enableAnswerGrounding",
-  "seedSources",
-  "taskContext",
-  "multiTask",
-  "stateHistory",
-  "stateLedger",
-  "turnHistory",
-  "enableRecallTool",
-  "recallMaxResultChars",
-  "recallOperatorLevel",
-  "specAudit",
-  "indexRichTables",
-  "indexDetailedOperators",
-  "indexThinObservations",
-  "enableResumeTool",
-  "versionedMode",
-  "versionedHeads",
-  "sessionTurns",
-  "enableCompactTool",
-  "compactKeepLastSteps",
-];
+/** Refuse a key that is not one of the settings, by name, so a client's
+ * removed or misspelled setting fails instead of being ignored. */
+export function refuseUnknownSettings(settings: unknown, keys: ReadonlySet<string>): void {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return;
+  for (const key of Object.keys(settings))
+    if (!keys.has(key)) throw new NativeCatalogSettingsError(`${key} is not a setting`);
+}
 
 /** Deliberate breaking change: never silently reinterpret old experiments. */
 export function validateEvidenceSettings(settings: object): void {
@@ -105,22 +62,6 @@ export function validateEvidenceSettings(settings: object): void {
     const value = supplied[key];
     if (value !== undefined && (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100000))
       throw new NativeCatalogSettingsError(`${key} must be an integer between 0 and 100000`);
-  }
-  for (const key of REMOVED_SETTINGS) {
-    if (Object.hasOwn(settings, key))
-      throw new NativeCatalogSettingsError(
-        key === "nativeToolMode" || key === "nativeCatalogVersion"
-          ? `${key} was removed; native mode uses explicit graph commands with the single catalog`
-          : key === "allowedOperatorTypes"
-            ? "allowedOperatorTypes was removed with the general mode; the modes are native and code"
-            : `${key} was removed; use dataEvidence and flowEvidence booleans`
-      );
-  }
-  for (const key of REMOVED_PROTOCOL_SETTINGS) {
-    if (Object.hasOwn(settings, key))
-      throw new NativeCatalogSettingsError(
-        `${key} was removed; native mode has one protocol, the dataflow(python, statements) tool, and multiRequest for a session with several requests`
-      );
   }
   for (const key of [
     "answerEcho",

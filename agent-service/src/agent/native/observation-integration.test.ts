@@ -281,13 +281,7 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
     contextAssembler: () => [],
     driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
   });
-  for (const patch of [
-    { tableFormat: "csv" },
-    { cellChars: -1 },
-    { columnsShown: 1.5 },
-    { answerEcho: "true" },
-    { multiTask: 1 },
-  ]) {
+  for (const patch of [{ tableFormat: "csv" }, { cellChars: -1 }, { columnsShown: 1.5 }, { answerEcho: "true" }]) {
     const before = structuredClone(agent.getSettings());
     expect(() => agent.updateSettings({ maxSteps: 3, ...patch } as any)).toThrow();
     expect(agent.getSettings()).toEqual(before);
