@@ -201,8 +201,11 @@ async function jump(snapshots: number) {
   });
 }
 
-// The recorded settings are what GET /settings returned; PATCH takes most of them. A setting it rejects (fixed at
-// creation, or read-only) is left as the agent has it, and the start line lists them.
+// The recorded settings are what GET /settings returned. Only the keys this agent still has are sent, since a recording
+// can hold settings a later agent removed. PATCH takes most of the rest; a setting it rejects (fixed at creation, or
+// read-only) is left as the agent has it. The end line lists both.
+const agentSettingKeys = new Set(Object.keys(await call("GET", `${api}/${agentId}/settings`)));
+const unknownSettings = new Set<string>();
 const unpatchable = new Set<string>(["enableCodeInSnapshot"]);
 async function patchSettings(patch: Record<string, unknown>) {
   for (;;) {
@@ -229,7 +232,10 @@ let agentSteps = 0;
 let nextJumpAt = Number(args["jump-every"]);
 const started = performance.now();
 for (const [index, conversation] of conversations.entries()) {
-  const patch = Object.fromEntries(Object.entries(conversation.settings).filter(([key]) => !unpatchable.has(key)));
+  for (const key of Object.keys(conversation.settings)) if (!agentSettingKeys.has(key)) unknownSettings.add(key);
+  const patch = Object.fromEntries(
+    Object.entries(conversation.settings).filter(([key]) => agentSettingKeys.has(key) && !unpatchable.has(key))
+  );
   if (JSON.stringify(patch) !== settings) {
     await patchSettings(patch);
     settings = JSON.stringify(patch);
@@ -280,7 +286,12 @@ for (const [index, conversation] of conversations.entries()) {
   if (args.history === "forget") await call("POST", `${api}/${agentId}/debug/forget-history`);
   emit({ kind: "rest", index, id: conversation.id, agentSteps, ...(await size()), memory: await memory() });
 }
-emit({ kind: "end", seconds: (performance.now() - started) / 1000, unpatchable: [...unpatchable] });
+emit({
+  kind: "end",
+  seconds: (performance.now() - started) / 1000,
+  unpatchable: [...unpatchable],
+  unknownSettings: [...unknownSettings],
+});
 // What the history holds, by part: after the last measurement, since reading the sizes allocates.
 emit({
   kind: "breakdown",
