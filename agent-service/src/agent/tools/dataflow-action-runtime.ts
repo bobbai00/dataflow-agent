@@ -141,7 +141,6 @@ export async function executeDataflowActionBatch(
       }
     }
     return describeOperator(op, info, {
-      ...result.format,
       namespace: state.getWorkflowContent().nativeNamespace,
       stale,
       scope: extra.scope ?? resultScope(op, state.getWorkflowContent(), current),
@@ -428,7 +427,6 @@ export async function executeDataflowActionBatch(
       return {
         operator_blocks: [
           describeOperator(op, info, {
-            ...result.format,
             namespace: workflow.nativeNamespace,
             definition: false,
             scope: resultScope(op, workflow, current),

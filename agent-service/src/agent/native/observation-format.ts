@@ -685,7 +685,7 @@ export function operatorBlock(block: OperatorBlock): string {
 export function describeOperator(
   op: OperatorPredicate,
   info: OperatorInfo | undefined,
-  options: ObservationFormatOptions & {
+  options: {
     state?: string;
     origin?: string;
     definition?: boolean;

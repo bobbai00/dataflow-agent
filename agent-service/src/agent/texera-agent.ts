@@ -2649,7 +2649,8 @@ export class TexeraAgent {
    * recorded as a user step carrying the equivalent `dataflow` call, which runs
    * exactly as the agent's own calls do (snapshot, edit, execution, receipt).
    * The step's content tells the model what the user did and what came of it,
-   * where it happened in the conversation; the agent is not asked to respond.
+   * where it happened in the conversation. A run is answered by the agent in a
+   * turn of its own (`respond`); a plain edit is read at its next turn.
    *
    * An edit is checked first: one `set` statement for this operator that the
    * planner accepts. A rejected edit throws a UserActionError and records

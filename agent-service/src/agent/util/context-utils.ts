@@ -1474,7 +1474,6 @@ function serializeOperatorFull(
     if (op.nativeOp)
       return operatorBlock(
         describeOperator(op, info, {
-          ...observationFormat(options.nativeEvidence ?? options),
           scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
           issues: ["- note: result not requested."],
         })
@@ -1499,7 +1498,6 @@ function serializeOperatorFull(
 
   if (op.nativeOp) {
     const block = describeOperator(op, info, {
-      ...observationFormat(options.nativeEvidence ?? options),
       scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
       implementation: true,
       usedBy: snapshot.workflow.operators

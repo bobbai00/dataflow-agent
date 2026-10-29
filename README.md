@@ -150,9 +150,9 @@ it as one of its own `dataflow` calls and records it as a user step
 (`messageSource: "action"`). That step's content says what the user did, with
 the call's receipt, at that point in the conversation. A run (Run, or Save &
 run) is answered by the agent in a turn of its own. A plain edit is read at the
-agent's next turn. An edit the planner rejects returns 400 with the reason and records
-nothing. An edit that keeps a doc written for the old definition asks the
-agent to restate the operator with one that fits.
+agent's next turn. An edit the planner rejects returns 400 with the reason and
+records nothing. An edit that keeps a doc written for the old definition asks
+the agent to restate the operator with one that fits.
 
 **Versions.** Every edit is a version of the dataflow, numbered from v0, the
 dataflow the agent started with:
