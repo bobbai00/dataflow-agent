@@ -23,20 +23,11 @@ An answer ends the task. Building blocks and settings: [README.md](README.md).
 
 ## `answer` with `content`
 
-The call holds the answer, so the receipt confirms it without repeating it
-(`answerEcho: false`):
+The call holds the answer, so the receipt confirms it without repeating it:
 
 ```
 ### 1. answer: ok
 Answer recorded.
-```
-
-With `answerEcho: true`, the answer follows on one line:
-
-```
-### 1. answer: ok
-Answer recorded.
-answer: {"fractional_top_five": ["Thailand", "Turkey", "Spain", "Egypt", "Taiwan"]}
 ```
 
 ## `answer` with `from`
@@ -104,12 +95,10 @@ Rules:
   N`, `forked from task N`, `deleted`. A table created and then updated within
   the task is `created`.
 - **Order.** Inputs before consumers; ties keep creation order.
-- **Fields.** The definition is shown here, cut at `definitionChars`, because
+- **Fields.** The definition is shown here, cut at 200 characters, because
   the entry must stand on its own for later tasks. Inputs, result and columns
   as in any operator block. A note marks a top-k, a one-row or an empty table.
 - **Deleted tables** are one header line: `- **selected** (project, deleted)`.
-- **Records.** With `catalogRecords` above 0, each table retrieved during the
-  task adds its first rows as a table block under its operator block.
 - **Nothing changed.** `#### Task 5` then `No tables created, changed or deleted.`
 - **Numbering.** Tasks count from 1, continuing after any tasks whose state was
   loaded at the start of the session.

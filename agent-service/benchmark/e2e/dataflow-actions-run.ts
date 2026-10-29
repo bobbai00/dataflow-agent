@@ -397,8 +397,6 @@ async function retrievalProbes() {
       fullResultCharLimit: 100000,
       maxOperatorResultCharLimit: 2000,
       maxResultRows: 5,
-      dataEvidenceCharLimit: 2000,
-      flowEvidenceCharLimit: 2000,
       flowEvidence: true,
     }),
   });
@@ -453,7 +451,7 @@ async function timestampProbe() {
   await fetch(`${baseUrl}/api/agents/${agentId}/settings`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ retrievalViews: views, maxResultRows: 1, dataEvidenceCharLimit: 2000 }),
+    body: JSON.stringify({ retrievalViews: views, maxResultRows: 1 }),
   });
   await debug(
     agentId,

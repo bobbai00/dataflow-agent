@@ -113,13 +113,9 @@ const call = (method: string, path: string, body?: unknown) =>
   );
 
 /** A native agent whose dataflow has a registered loader and a filter. */
-async function created(respondToCanvasRuns = false): Promise<string> {
+async function created(): Promise<string> {
   prompts.length = 0;
-  const response = await call("POST", "", {
-    modelType: "test",
-    workflowId: 17,
-    settings: { respondToCanvasRuns },
-  });
+  const response = await call("POST", "", { modelType: "test", workflowId: 17 });
   expect(response.status).toBe(200);
   const id = ((await response.json()) as { id: string }).id;
   const args = {
@@ -179,8 +175,9 @@ test("edit and run record user steps; a rejected edit is a 400 and records nothi
   const run = (await (await call("POST", `/${id}/operators/kept/run`)).json()) as Record<string, any>;
   // v3 is the edit; the run and showing its result are v4 and v5.
   expect(run.userAction).toEqual({ kind: "run", operatorId: "kept", status: "ok", rows: 3, version: 5 });
-  expect(run.responding).toBe(false);
+  expect(run.responding).toBe(true);
   expect(run.operatorResults.kept.outputTuples).toBe(3);
+  await settled();
 
   const steps = ((await (await call("GET", `/${id}/react-steps`)).json()) as { steps: any[] }).steps;
   expect(steps.filter(step => step.messageSource === "action").map(step => step.userAction.kind)).toEqual([
@@ -259,6 +256,7 @@ test("the socket streams a canvas action version by version: an edit's change, t
       };
     });
     ws.close();
+    await settled();
     const progress = frames.filter(frame => frame.type === "progress");
     expect(progress.map(frame => [frame.version.kind, frame.version.version, frame.running])).toEqual([
       ["update", 3, undefined],
@@ -290,7 +288,7 @@ async function settled(): Promise<void> {
 }
 
 test("a canvas run is answered by the agent in a turn of its own", async () => {
-  const id = await created(true);
+  const id = await created();
   reply = "All three records pass the filter.";
   const run = (await (await call("POST", `/${id}/operators/kept/run`)).json()) as Record<string, any>;
   expect(run.responding).toBe(true);
@@ -353,6 +351,7 @@ test("the version tree lists each action; a version can be previewed and checked
 test("a restart brings the version tree back as it was: every version with its results, HEAD where it was left", async () => {
   const id = await created();
   expect((await call("POST", `/${id}/operators/kept/run`)).status).toBe(200);
+  await settled();
   const tree = async () =>
     (await (await call("GET", `/${id}/snapshot-tree`)).json()) as { headSnapshotId: string; nodes: any[] };
   const versions = (nodes: any[]) =>
@@ -395,6 +394,7 @@ test("a restart brings the version tree back as it was: every version with its r
   // version numbers the trace never held.
   expect((await call("POST", `/${id}/operators/kept/run`)).status).toBe(404);
   expect((await call("POST", `/${id}/operators/records/run`)).status).toBe(200);
+  await settled();
   const next = versions((await tree()).nodes).filter(node => node.reactStepId !== back.headId);
   const restored = before.nodes.find((node: any) => node.reactStepId === back.headId);
   expect(next.at(-2).version).toBe(5);

@@ -27,7 +27,6 @@ function agent(id: string, workflowId: number | undefined, createdAt: string, bo
     id,
     name: id,
     modelType: "test",
-    isBaselineMode: false,
     createdAt: new Date(createdAt),
     delegate: bound ? { userInfo: USER, workflowId } : undefined,
   };

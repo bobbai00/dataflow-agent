@@ -145,8 +145,6 @@ for (const data of [false, true])
         fullResultCharLimit: 5000,
         maxOperatorResultCharLimit: 2000,
         maxResultRows: 5,
-        dataEvidenceCharLimit: 2000,
-        flowEvidenceCharLimit: 2000,
       };
       const agent = new TexeraAgent({
         agentId: `registered-evidence-${data}-${flow}`,

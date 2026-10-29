@@ -26,6 +26,7 @@ import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
 import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, refuseUnknownSettings, validateNativeSettings } from "./agent/native/settings";
+import { EVIDENCE_CHAR_LIMIT } from "./agent/native/retrieval";
 import { NATIVE_OPERATORS } from "./agent/native/catalog";
 import { nativeRuntimeForClients, workflowNativeRuntime } from "./agent/native/codegen";
 import { describeNativeStatement } from "./agent/native/statement-form";
@@ -57,12 +58,9 @@ import { createLogger } from "./logger";
 import { openTraceStore, storedTreeComplete, type TraceStore } from "./trace/trace-store";
 import { VercelToolUseDriver } from "./agent/llm-drivers/vercel-tool-use-driver";
 import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
-import { LocalReactTextDriver } from "./agent/llm-drivers/local-react-text-driver";
-import type { ContextAssembler, LLMDriver } from "./agent/llm-drivers/types";
+import type { ContextAssembler } from "./agent/llm-drivers/types";
 import { heapStats } from "bun:jsc";
 import { assembleContext } from "./agent/util/context-utils";
-import { assembleLocalReactContext } from "./agent/util/context-utils-local-react";
-import { buildLocalReactSystemPrompt } from "./agent/prompts";
 import { dashboardPlugin } from "./dashboard/static";
 
 const log = createLogger("Server");
@@ -70,33 +68,15 @@ const wsLog = createLogger("WS");
 import type {
   AgentInfo,
   AgentDelegateConfig,
-  AgentDriverKind,
   CreateAgentRequest,
   UpdateAgentSettingsRequest,
   AgentSettingsApi,
   ReActStep,
 } from "./types/agent";
-import { AgentState, OperatorResultSerializationMode } from "./types/agent";
+import { AgentState } from "./types/agent";
 
-/**
- * Pick the driver from an optional explicit choice or fall back to
- * `modelType`. The local LLM served via the dknet gateway uses the
- * text-mode ReAct format with tool definitions baked into its training
- * prompt; every other model speaks the OpenAI-compatible tool-use API.
- */
-function resolveDriverKind(modelType: string, explicit?: AgentDriverKind): AgentDriverKind {
-  if (explicit) return explicit;
-  return modelType === "local-llm" ? "local-react" : "vercel-tool-use";
-}
-
-export function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
-  const sdkContext: ContextAssembler = ({
-    visibleSteps,
-    workflowState,
-    snapshotStorage,
-    settings,
-    turnNumberByMessageId,
-  }) =>
+export function buildContextAssembler(): ContextAssembler {
+  return ({ visibleSteps, workflowState, snapshotStorage, settings, turnNumberByMessageId }) =>
     assembleContext(visibleSteps, workflowState, snapshotStorage, {
       ...observationFormat(settings),
       nativeEvidence: {
@@ -104,8 +84,8 @@ export function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
         data: settings.dataEvidence,
         flow: settings.flowEvidence,
         maxChars: settings.maxOperatorResultCharLimit,
-        dataMaxChars: settings.dataEvidenceCharLimit,
-        flowMaxChars: settings.flowEvidenceCharLimit,
+        dataMaxChars: EVIDENCE_CHAR_LIMIT,
+        flowMaxChars: EVIDENCE_CHAR_LIMIT,
         checks: settings.nativeChecks,
       },
       dataEvidence: settings.dataEvidence,
@@ -125,28 +105,9 @@ export function buildContextAssembler(kind: AgentDriverKind): ContextAssembler {
       catalogSource: settings.catalogSource,
       catalogRecent: settings.catalogRecent,
     });
-
-  if (kind === "local-react") {
-    // The local text-mode driver picks the assembler by tool-call dialect so
-    // each dialect's context matches the format its system prompt describes:
-    //   - qwen-xml  → the SDK context (its prompt, `code-mode.md`, describes
-    //     `# Agent Events`).
-    //   - react-text → the legacy `# Event N` / Thought:/Actions: renderer that
-    //     `prompts/local-react.txt` describes.
-    // Read per-call from settings (toolDialect is mutable), mirroring how the
-    // driver selects its parser and the prompt is rebuilt.
-    return input =>
-      input.settings.toolDialect === "react-text"
-        ? assembleLocalReactContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {})
-        : sdkContext(input);
-  }
-  return sdkContext;
 }
 
 const agentStore = new Map<string, TexeraAgent>();
-/** Tracks which driver each agent was constructed with so `getAgentInfo`
- *  can echo it back to the UI. Populated by `createAgentInstance`. */
-const agentDrivers = new Map<string, AgentDriverKind>();
 /** Every agent's turns, steps, versions, executions and results, as they happen (see trace-store.ts). */
 let traceStore: TraceStore | undefined = openTraceStore(env.AGENT_TRACE_DB);
 let agentCounter = 0;
@@ -179,33 +140,22 @@ function applyInitialSettings(
   agent.updateSettings({
     ...observationFormatPatch(settings),
     maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-    operatorResultSerializationMode: settings.operatorResultSerializationMode
-      ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-      : undefined,
-    toolTimeoutMs: settings.toolTimeoutSeconds ? settings.toolTimeoutSeconds * 1000 : undefined,
     executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
-    disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
     maxSteps: settings.maxSteps,
     nativeProfileCollection: settings.nativeProfileCollection,
     nativeProfileScope: settings.nativeProfileScope,
     dataEvidence: settings.dataEvidence,
     retrievalViews: settings.retrievalViews,
     fullResultCharLimit: settings.fullResultCharLimit,
-    dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
-    flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
     flowEvidence: settings.flowEvidence,
     operatorDoc: settings.operatorDoc,
-    respondToCanvasRuns: settings.respondToCanvasRuns,
     instructions: settings.instructions,
     answerStatement: settings.answerStatement,
     nativeChecks: settings.nativeChecks,
-    parallelToolCalls: settings.parallelToolCalls,
     contextWindowTokens: settings.contextWindowTokens,
     compactionStrategy: settings.compactionStrategy,
     deckSampleRatio: settings.deckSampleRatio,
     maxResultRows: settings.maxResultRows,
-    toolDialect: settings.toolDialect,
-    enableInspectTool: (settings as any).enableInspectTool,
     userTaskPlacement: (settings as any).userTaskPlacement,
     multiRequest: (settings as any).multiRequest,
     catalogSource: (settings as any).catalogSource,
@@ -217,7 +167,6 @@ async function createAgentInstance(
   modelType: string,
   delegateConfig: AgentDelegateConfig,
   customName?: string,
-  explicitDriver?: AgentDriverKind,
   /** The id of an agent being restored from the trace store; it is traced again once rebuilt (see /:id/restore). */
   restoreId?: string
 ): Promise<{ agentId: string; agent: TexeraAgent }> {
@@ -256,27 +205,18 @@ async function createAgentInstance(
 
   // Reasoning effort variants are configured as separate model entries in litellm-config.yaml
   // with extra_body to inject reasoning_effort, bypassing LiteLLM's param validation.
-  const driverKind = resolveDriverKind(modelType, explicitDriver);
-  const model = openai.chat(modelType);
-  const requestLimits = {
+  const driver = new VercelToolUseDriver({
+    model: openai.chat(modelType),
     maxOutputTokens: process.env.MODEL_MAX_OUTPUT_TOKENS ? Number(process.env.MODEL_MAX_OUTPUT_TOKENS) : undefined,
     maxRetries: process.env.MODEL_SDK_RETRIES ? Number(process.env.MODEL_SDK_RETRIES) : undefined,
-  };
-  const driver: LLMDriver =
-    driverKind === "local-react"
-      ? new LocalReactTextDriver({ model })
-      : new VercelToolUseDriver({ model, ...requestLimits });
-  const contextAssembler = buildContextAssembler(driverKind);
+  });
 
   const agent = new TexeraAgent({
     driver,
-    contextAssembler,
+    contextAssembler: buildContextAssembler(),
     modelType,
     agentId,
     agentName: customName || "Bob",
-    // local-react needs the training-time system prompt verbatim on every
-    // wire call; other drivers fall back to the mode-based builders.
-    systemPromptBuilder: driverKind === "local-react" ? buildLocalReactSystemPrompt : undefined,
     trace: restoreId ? undefined : traceStore,
   });
   if (!restoreId)
@@ -284,7 +224,7 @@ async function createAgentInstance(
       id: agentId,
       name: agent.agentName,
       model: modelType,
-      driver: driverKind,
+      driver: "vercel-tool-use",
       workflowId: delegateConfig.workflowId,
       computingUnitId: delegateConfig.computingUnitId,
       user: delegateConfig.userInfo
@@ -301,8 +241,7 @@ async function createAgentInstance(
   await agent.initialize(delegateConfig);
 
   agentStore.set(agentId, agent);
-  agentDrivers.set(agentId, driverKind);
-  log.info({ agentId, modelType, driver: driverKind, delegate: !!delegateConfig }, "created agent");
+  log.info({ agentId, modelType, delegate: !!delegateConfig }, "created agent");
 
   return { agentId, agent };
 }
@@ -313,17 +252,8 @@ async function createAgentInstance(
 const OBSERVATION_SETTINGS_SCHEMA = {
   tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
   ...Object.fromEntries(
-    [
-      "keyValueColumns",
-      "columnsShown",
-      "definitionChars",
-      "cellChars",
-      "topValues",
-      "catalogRecords",
-      "fullPreviewRows",
-    ].map(key => [key, t.Optional(t.Integer({ minimum: 0, maximum: 100000 }))])
+    ["keyValueColumns", "fullPreviewRows"].map(key => [key, t.Optional(t.Integer({ minimum: 0, maximum: 100000 }))])
   ),
-  answerEcho: t.Optional(t.Boolean()),
   optionalPython: t.Optional(t.Boolean()),
   dataHygiene: t.Optional(t.Boolean()),
   pandasRound: t.Optional(t.Boolean()),
@@ -335,10 +265,7 @@ const OBSERVATION_SETTINGS_SCHEMA = {
  * PATCH takes them all but the few fixed when the agent is created. */
 const AGENT_SETTINGS_SCHEMA = t.Object({
   maxOperatorResultCharLimit: t.Optional(t.Number()),
-  operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
-  toolTimeoutSeconds: t.Optional(t.Number()),
   executionTimeoutMinutes: t.Optional(t.Number()),
-  disabledTools: t.Optional(t.Array(t.String())),
   maxSteps: t.Optional(t.Number()),
   ...OBSERVATION_SETTINGS_SCHEMA,
   nativeProfileCollection: t.Optional(t.Boolean()),
@@ -351,22 +278,16 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
     })
   ),
   fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-  dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-  flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
   flowEvidence: t.Optional(t.Boolean()),
   operatorDoc: t.Optional(t.Boolean()),
-  respondToCanvasRuns: t.Optional(t.Boolean()),
   instructions: t.Optional(t.String({ maxLength: 20000 })),
   answerStatement: t.Optional(t.Boolean()),
   nativeChecks: t.Optional(t.Boolean()),
   contextMode: t.Optional(t.Literal("delta")),
-  parallelToolCalls: t.Optional(t.Boolean()),
   contextWindowTokens: t.Optional(t.Number()),
   compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
   deckSampleRatio: t.Optional(t.Number()),
   maxResultRows: t.Optional(t.Number()),
-  toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
-  enableInspectTool: t.Optional(t.Boolean()),
   userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
   multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
   catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
@@ -379,32 +300,23 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   return {
     ...observationFormat(agentSettings),
     maxOperatorResultCharLimit: agentSettings.maxOperatorResultCharLimit,
-    operatorResultSerializationMode: agentSettings.operatorResultSerializationMode,
-    toolTimeoutSeconds: Math.round(agentSettings.toolTimeoutMs / 1000),
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
-    disabledTools: Array.from(agentSettings.disabledTools),
     maxSteps: agentSettings.maxSteps,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
     nativeProfileScope: agentSettings.nativeProfileScope,
     dataEvidence: agentSettings.dataEvidence,
     retrievalViews: agentSettings.retrievalViews,
     fullResultCharLimit: agentSettings.fullResultCharLimit,
-    dataEvidenceCharLimit: agentSettings.dataEvidenceCharLimit,
-    flowEvidenceCharLimit: agentSettings.flowEvidenceCharLimit,
     flowEvidence: agentSettings.flowEvidence,
     operatorDoc: agentSettings.operatorDoc,
-    respondToCanvasRuns: agentSettings.respondToCanvasRuns,
     instructions: agentSettings.instructions,
     answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     contextMode: "delta",
-    parallelToolCalls: agentSettings.parallelToolCalls,
     contextWindowTokens: agentSettings.contextWindowTokens,
     compactionStrategy: agentSettings.compactionStrategy,
     deckSampleRatio: agentSettings.deckSampleRatio,
     maxResultRows: agentSettings.maxResultRows,
-    toolDialect: agentSettings.toolDialect,
-    enableInspectTool: agentSettings.enableInspectTool,
     multiRequest: agentSettings.multiRequest,
     catalogSource: agentSettings.catalogSource,
     catalogRecent: agentSettings.catalogRecent,
@@ -419,7 +331,6 @@ function getAgentInfo(agentId: string, agent: TexeraAgent): AgentInfo {
     id: agentId,
     name: agent.agentName,
     modelType: agent.modelType,
-    driver: agentDrivers.get(agentId) ?? "vercel-tool-use",
     state: agent.getState(),
     createdAt: agent.createdAt,
     delegate: delegateConfig
@@ -472,7 +383,6 @@ async function restoreAgent(id: string, userToken: string, requester: UserInfo):
     String(stored.model),
     delegateConfig,
     typeof stored.name === "string" ? stored.name : undefined,
-    (stored.driver as AgentDriverKind | null) ?? undefined,
     id
   );
   try {
@@ -499,7 +409,6 @@ async function restoreAgent(id: string, userToken: string, requester: UserInfo):
   } catch (error) {
     agent.destroy();
     agentStore.delete(id);
-    agentDrivers.delete(id);
     throw error;
   }
   return agent;
@@ -720,7 +629,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   .post(
     "/",
     async ({ body, headers }) => {
-      const { modelType, name, workflowId, computingUnitId, settings, driver } = body as CreateAgentRequest;
+      const { modelType, name, workflowId, computingUnitId, settings } = body as CreateAgentRequest;
 
       if (!modelType) {
         throw new Error("modelType is required");
@@ -748,7 +657,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         computingUnitId,
       };
 
-      const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name, driver);
+      const { agentId, agent } = await createAgentInstance(modelType, delegateConfig, name);
 
       try {
         if (settings) applyInitialSettings(agentId, agent, settings);
@@ -757,7 +666,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         // initial configuration must not leave a registered, unusable agent.
         agent.destroy();
         agentStore.delete(agentId);
-        agentDrivers.delete(agentId);
         throw error;
       }
 
@@ -770,9 +678,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         name: t.Optional(t.String()),
         workflowId: t.Optional(t.Number()),
         computingUnitId: t.Optional(t.Number()),
-        // Explicit driver override. Must be in the schema or Elysia's
-        // normalize pass strips it from the body before the handler reads it.
-        driver: t.Optional(t.Union([t.Literal("vercel-tool-use"), t.Literal("local-react")])),
         settings: t.Optional(AGENT_SETTINGS_SCHEMA),
       }),
     }
@@ -796,7 +701,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
 
     agent.destroy();
     agentStore.delete(id);
-    agentDrivers.delete(id);
     traceStore?.agentEnded(id, "deleted");
     return { deleted: true };
   })
@@ -1047,23 +951,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     };
   })
 
-  .post(
-    "/:id/steps-by-operators",
-    ({ params: { id }, body }) => {
-      const agent = getAgent(id);
-      const { operatorIds } = body;
-      // Exclude the synthetic init step (it "touched" every operator on load).
-      return {
-        steps: agent.getReActStepsByOperatorIds(operatorIds || []).filter(s => !TexeraAgent.isInitializationStep(s)),
-      };
-    },
-    {
-      body: t.Object({
-        operatorIds: t.Array(t.String()),
-      }),
-    }
-  )
-
   .get("/:id/system-info", ({ params: { id } }) => {
     const agent = getAgent(id);
     return {
@@ -1248,34 +1135,23 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       agent.updateSettings({
         ...observationFormatPatch(settings),
         maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-        operatorResultSerializationMode: settings.operatorResultSerializationMode
-          ? (settings.operatorResultSerializationMode as OperatorResultSerializationMode)
-          : undefined,
-        toolTimeoutMs: settings.toolTimeoutSeconds !== undefined ? settings.toolTimeoutSeconds * 1000 : undefined,
         executionTimeoutMs:
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
-        disabledTools: settings.disabledTools ? new Set(settings.disabledTools) : undefined,
         maxSteps: settings.maxSteps,
         nativeProfileCollection: settings.nativeProfileCollection,
         nativeProfileScope: settings.nativeProfileScope,
         dataEvidence: settings.dataEvidence,
         retrievalViews: settings.retrievalViews,
         fullResultCharLimit: settings.fullResultCharLimit,
-        dataEvidenceCharLimit: settings.dataEvidenceCharLimit,
-        flowEvidenceCharLimit: settings.flowEvidenceCharLimit,
         flowEvidence: settings.flowEvidence,
         operatorDoc: settings.operatorDoc,
-        respondToCanvasRuns: settings.respondToCanvasRuns,
         instructions: settings.instructions,
         answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
-        parallelToolCalls: settings.parallelToolCalls,
         contextWindowTokens: settings.contextWindowTokens,
         compactionStrategy: settings.compactionStrategy,
         deckSampleRatio: settings.deckSampleRatio,
         maxResultRows: settings.maxResultRows,
-        toolDialect: settings.toolDialect,
-        enableInspectTool: (settings as UpdateAgentSettingsRequest).enableInspectTool,
         multiRequest: settings.multiRequest,
         catalogSource: settings.catalogSource,
         catalogRecent: settings.catalogRecent,
@@ -1294,11 +1170,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       transform: ({ body }) => refuseUnknownSettings(body, SETTING_KEYS),
       body: t.Object({
         maxOperatorResultCharLimit: t.Optional(t.Number()),
-        operatorResultSerializationMode: t.Optional(t.Literal("tsv")),
-        toolTimeoutSeconds: t.Optional(t.Number()),
         executionTimeoutMinutes: t.Optional(t.Number()),
         maxSteps: t.Optional(t.Number()),
-        disabledTools: t.Optional(t.Array(t.String())),
         ...OBSERVATION_SETTINGS_SCHEMA,
         nativeProfileCollection: t.Optional(t.Boolean()),
         nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
@@ -1310,22 +1183,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           })
         ),
         fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-        dataEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-        flowEvidenceCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
         flowEvidence: t.Optional(t.Boolean()),
         operatorDoc: t.Optional(t.Boolean()),
-        respondToCanvasRuns: t.Optional(t.Boolean()),
         instructions: t.Optional(t.String({ maxLength: 20000 })),
         answerStatement: t.Optional(t.Boolean()),
         nativeChecks: t.Optional(t.Boolean()),
         contextMode: t.Optional(t.Literal("delta")),
-        parallelToolCalls: t.Optional(t.Boolean()),
         contextWindowTokens: t.Optional(t.Number()),
         compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
         deckSampleRatio: t.Optional(t.Number()),
         maxResultRows: t.Optional(t.Number()),
-        toolDialect: t.Optional(t.Union([t.Literal("qwen-xml"), t.Literal("react-text")])),
-        enableInspectTool: t.Optional(t.Boolean()),
         multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
         catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
         catalogRecent: t.Optional(t.Integer()),
@@ -1794,7 +1661,6 @@ export function buildApp() {
 // Reset module-level state. Used by tests to start each case from a clean store.
 export function _resetAgentStoreForTests(): void {
   agentStore.clear();
-  agentDrivers.clear();
   agentCounter = 0;
   // Agent ids start over, so the trace store starts over too: rows of an earlier test's agent must
   // not come back as a later agent's past.
@@ -1804,7 +1670,6 @@ export function _resetAgentStoreForTests(): void {
 /** Forget a live agent, as a restart does, leaving its trace in the store. */
 export function _dropLiveAgentForTests(agentId: string): void {
   agentStore.delete(agentId);
-  agentDrivers.delete(agentId);
 }
 
 function printStartupMessage(app: ReturnType<typeof buildApp>) {

@@ -57,7 +57,7 @@ test("production context preview is synchronous and current after debug", async 
         throw new Error("No LLM allowed in preview test");
       },
     },
-    contextAssembler: buildContextAssembler("vercel-tool-use"),
+    contextAssembler: buildContextAssembler(),
   });
   await agent.handleDebugInput("PREVIEW_CURRENT_TASK");
   expect(agent.getNextStepContext()).toContain("PREVIEW_CURRENT_TASK");
@@ -146,13 +146,13 @@ describe(`GET ${API}/healthcheck`, () => {
 });
 
 describe(`POST ${API}/agents`, () => {
-  test("the removed text and turn-tool drivers are refused before an agent is created", async () => {
-    for (const body of [{ driver: "text-turn" }, { driver: "turn-tool" }]) {
-      expect((await createAgent(body)).status).toBe(400);
+  test("a create that names a driver is refused, by name, before an agent is created", async () => {
+    for (const driver of ["local-react", "vercel-tool-use"]) {
+      const response = await createAgent({ driver });
+      expect(response.status).toBe(400);
+      expect(JSON.parse((await readJson<any>(response)).error).property).toBe("/driver");
       expect((await readJson<any>(await getJson(`${API}/agents`))).agents).toHaveLength(0);
     }
-    const created = await readJson<any>(await createAgent({ driver: "vercel-tool-use" }));
-    expect(created.driver).toBe("vercel-tool-use");
   });
 
   test("a key that is not a setting is refused by name on create and PATCH, and changes nothing", async () => {
@@ -168,6 +168,21 @@ describe(`POST ${API}/agents`, () => {
       "resultSelection",
       "staticCompaction",
       "summarizeParams",
+      "toolDialect",
+      "enableInspectTool",
+      "disabledTools",
+      "operatorResultSerializationMode",
+      "catalogRecords",
+      "answerEcho",
+      "parallelToolCalls",
+      "toolTimeoutSeconds",
+      "respondToCanvasRuns",
+      "columnsShown",
+      "definitionChars",
+      "cellChars",
+      "topValues",
+      "dataEvidenceCharLimit",
+      "flowEvidenceCharLimit",
       "nativeTransport",
       "columnStats",
       "maxStep",
@@ -200,30 +215,17 @@ describe(`POST ${API}/agents`, () => {
     const created = await readJson<any>(response);
     for (const patch of [
       { maxOperatorResultCharLimit: 20000 },
-      { toolTimeoutSeconds: 120 },
       { executionTimeoutMinutes: 10 },
       { maxSteps: 10 },
-      { parallelToolCalls: false },
       { dataEvidence: true },
       { flowEvidence: false },
       { operatorDoc: true },
-      { respondToCanvasRuns: false },
       { instructions: "Be brief." },
     ]) {
       const patched = await patchJson(`${API}/agents/${created.id}/settings`, patch);
       expect(patched.status).toBe(200);
       expect(await readJson(patched)).toMatchObject(patch);
     }
-  });
-
-  test("provider parallel calls stay off through create and PATCH", async () => {
-    const created = await createAgent({ settings: { parallelToolCalls: true } });
-    expect(created.status).toBe(200);
-    const body = await readJson<{ id: string; settings: { parallelToolCalls: boolean } }>(created);
-    expect(body.settings.parallelToolCalls).toBe(false);
-    const patched = await patchJson(`${API}/agents/${body.id}/settings`, { parallelToolCalls: true });
-    expect(patched.status).toBe(200);
-    expect((await readJson<{ parallelToolCalls: boolean }>(patched)).parallelToolCalls).toBe(false);
   });
 
   test("creates an agent for the delegating user", async () => {
@@ -380,19 +382,19 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
 
     const res = await patchJson(`${API}/agents/${created.id}/settings`, {
       maxSteps: 7,
-      toolTimeoutSeconds: 30,
+      executionTimeoutMinutes: 3,
     });
     expect(res.status).toBe(200);
-    const body = await readJson<{ maxSteps: number; toolTimeoutSeconds: number }>(res);
+    const body = await readJson<{ maxSteps: number; executionTimeoutMinutes: number }>(res);
     expect(body.maxSteps).toBe(7);
-    expect(body.toolTimeoutSeconds).toBe(30);
+    expect(body.executionTimeoutMinutes).toBe(3);
 
     // A follow-up GET reflects the same values.
-    const reread = await readJson<{ maxSteps: number; toolTimeoutSeconds: number }>(
+    const reread = await readJson<{ maxSteps: number; executionTimeoutMinutes: number }>(
       await getJson(`${API}/agents/${created.id}/settings`)
     );
     expect(reread.maxSteps).toBe(7);
-    expect(reread.toolTimeoutSeconds).toBe(30);
+    expect(reread.executionTimeoutMinutes).toBe(3);
   });
 
   test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {
@@ -401,8 +403,6 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
       fullResultCharLimit: 100000,
       maxOperatorResultCharLimit: 1500,
       maxResultRows: 5,
-      dataEvidenceCharLimit: 1000,
-      flowEvidenceCharLimit: 1200,
       flowEvidence: true,
     };
     const created = await readJson<any>(await createAgent({ settings }));

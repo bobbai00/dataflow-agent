@@ -230,8 +230,8 @@ explicitly select `["sample", "full"]` to disable native data statistics.
 bounded flow summaries to retrieval. `fullResultCharLimit` defaults to 5,000; transport
 retains up to 100,000 characters independently of the display cap;
 `maxOperatorResultCharLimit` and `maxResultRows` bound samples. Statistics and
-automatic flow metadata have separate `dataEvidenceCharLimit` and
-`flowEvidenceCharLimit` budgets (2,000 each). Execution retains the large
+automatic flow metadata have separate budgets of 2,000 characters each
+(`EVIDENCE_CHAR_LIMIT`). Execution retains the large
 bounded result for every arm; switching views never executes. See
 [docs/retrieval-views.md](docs/retrieval-views.md).
 

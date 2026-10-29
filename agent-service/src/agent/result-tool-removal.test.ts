@@ -31,27 +31,21 @@ function agent() {
   });
 }
 
-test("inspectResult cannot be enabled by live settings changes", async () => {
+test("the agent has no result-inspection tool, before or after a settings change", async () => {
   const subject = agent();
+  const info = subject.getSystemInfo();
+  expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
+  expect(info.systemPrompt).not.toContain("inspectResult");
+  await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
+    "not found"
+  );
+  expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
+  subject.updateSettings({ maxSteps: 20 });
   expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-  for (const enableInspectTool of [false, true]) {
-    subject.updateSettings({ enableInspectTool });
-    expect(subject.getSettings().enableInspectTool).toBe(false);
-    const info = subject.getSystemInfo();
-    expect(info.tools.map(tool => tool.name)).not.toContain("inspectResult");
-    expect(info.systemPrompt).not.toContain("inspectResult");
-    await expect(subject.executeTool("inspectResult", { operatorId: "source", stats: true })).rejects.toThrow(
-      "not found"
-    );
-    expect(info.tools.some(tool => tool.name === "inspectError")).toBe(false);
-    subject.updateSettings({ maxSteps: 20 });
-    expect(subject.getSystemInfo().tools.map(tool => tool.name)).not.toContain("inspectResult");
-  }
 });
 
 test("initialization and delegate rebuilds cannot restore result inspection", async () => {
   const subject = agent();
-  subject.updateSettings({ enableInspectTool: true });
   const metadata = WorkflowSystemMetadata.getInstance();
   const initialized = spyOn(metadata, "isInitialized").mockReturnValue(true);
   try {
@@ -78,7 +72,6 @@ test("the model driver receives no result-inspection schema", async () => {
       },
     },
   });
-  subject.updateSettings({ enableInspectTool: true });
   await subject.sendMessage("Answer without executing a workflow.");
   expect(dispatchedTools).toBeDefined();
   expect(dispatchedTools).not.toContain("inspectResult");

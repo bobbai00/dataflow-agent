@@ -18,7 +18,7 @@
  */
 
 /**
- * Default LLM driver: hands the loop over to the Vercel AI SDK's
+ * The agent's LLM driver: hands the loop over to the Vercel AI SDK's
  * `generateText({ tools, stopWhen, prepareStep, onStepFinish })`. The
  * provider sees the tool catalog as native tool-calling frames; the SDK
  * parses `tool_calls` blocks back into typed arguments and drives the loop
@@ -80,11 +80,10 @@ export class VercelToolUseDriver implements LLMDriver {
       // reasoning_effort is configured per-model in litellm-config.yaml via
       // extra_body to bypass LiteLLM's param validation — do not pass it here.
       providerOptions: {
-        // Provider-side parallel tool-call gating; native mode asks for one
-        // tool call per turn.
-        openai: { parallelToolCalls: input.parallelToolCalls },
-        anthropic: { disableParallelToolUse: !input.parallelToolCalls },
-        mistral: { parallelToolCalls: input.parallelToolCalls },
+        // Provider-side parallel tool-call gating: one tool call per turn.
+        openai: { parallelToolCalls: false },
+        anthropic: { disableParallelToolUse: true },
+        mistral: { parallelToolCalls: false },
       },
       onStepFinish: async ({ text, reasoningText, toolCalls, toolResults, usage, response }) => {
         // Preserve cache writes from raw provider usage. Gateways expose both

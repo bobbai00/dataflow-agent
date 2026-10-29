@@ -149,9 +149,8 @@ and `/edit`; `GET …/form` splits the statement into fields). The agent applies
 it as one of its own `dataflow` calls and records it as a user step
 (`messageSource: "action"`). That step's content says what the user did, with
 the call's receipt, at that point in the conversation. A run (Run, or Save &
-run) is answered by the agent in a turn of its own (setting
-`respondToCanvasRuns`, on by default). A plain edit is read at the agent's
-next turn. An edit the planner rejects returns 400 with the reason and records
+run) is answered by the agent in a turn of its own. A plain edit is read at the
+agent's next turn. An edit the planner rejects returns 400 with the reason and records
 nothing. An edit that keeps a doc written for the old definition asks the
 agent to restate the operator with one that fits.
 
@@ -201,15 +200,12 @@ An agent created with no `settings` uses
 | `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
 | `operatorDoc` | `false` (agents made in the UI: `true`) | native mode: asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
-| `respondToCanvasRuns` | `true` | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
-| `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own budget, so evidence never displaces rows; a complete small table takes priority |
+| `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own 2,000-character budget (native data statistics, automatic flow evidence), so evidence never displaces rows; a complete small table takes priority |
 | `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
 | `fullResultCharLimit` | `5000` | full-record display cap; native transport independently retains up to 100,000 characters; incomplete views remain labeled |
-| `dataEvidenceCharLimit` / `flowEvidenceCharLimit` | `2000` each | separate budgets for native data statistics and automatic flow evidence |
 | `maxSteps` | `100` | per-turn step budget |
-| `toolTimeoutSeconds` / `executionTimeoutMinutes` | `240` s / `4` min | per tool call / per workflow execution |
-| `parallelToolCalls` | `false` | provider-side parallel calls; always off |
+| `executionTimeoutMinutes` | `4` min | per workflow execution |
 
 Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
 Increasing a retrieval budget does not recover records absent from an earlier

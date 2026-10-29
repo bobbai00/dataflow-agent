@@ -173,11 +173,6 @@ test("a run shows the result to the model and reports the rows", async () => {
     "I ran `kept` on the canvas.\nWhat does this result mean for my request?\n\n"
   );
   expect(outcome.step!.content).toContain("show result kept");
-
-  agent.updateSettings({ respondToCanvasRuns: false });
-  const quiet = await agent.applyUserAction({ kind: "run", operatorId: "kept" });
-  expect(quiet.respond).toBe(false);
-  expect(quiet.step!.content).toStartWith("I ran `kept` on the canvas.\n\n");
 });
 
 test("an edit can run in the same action", async () => {

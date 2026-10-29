@@ -98,7 +98,6 @@ try {
         contextMode: "delta",
         retrievalViews: ["full"],
         executionTimeoutMinutes: 0.5,
-        toolTimeoutSeconds: 35,
       },
     })
   ).id;

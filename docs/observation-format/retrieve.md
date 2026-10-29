@@ -195,8 +195,8 @@ records: sample; 2 of 2 rows, 3 of 3 columns (complete)
 | 2 | "line one\nline two" | "null" |
 ```
 
-A sample's text-cell cut is announced separately from its row and column
-coverage. With `cellChars: 12`, the stored text
+A sample's text-cell cut (160 characters) is announced separately from its row
+and column coverage. With a 12-character cut, for illustration, the stored text
 `Delivered after a delay` is displayed as `Delivered af…`:
 
 ```text

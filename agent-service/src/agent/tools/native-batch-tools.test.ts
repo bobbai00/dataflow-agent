@@ -40,15 +40,15 @@ const step = (
 });
 
 describe("native dataflow tool", () => {
-  test("the agent exposes only dataflow and forces provider parallel calls off", () => {
+  test("the agent exposes only dataflow", () => {
     const agent = new TexeraAgent({
       agentId: "native-tools-test",
       modelType: "test",
       driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
       contextAssembler: () => [],
     });
-    agent.updateSettings({ parallelToolCalls: true });
-    expect(agent.getSettings().parallelToolCalls).toBe(false);
+    // An agent that was not initialized gets its prompt from its first settings update.
+    agent.updateSettings({});
     expect(Object.keys((agent as any).tools).sort()).toEqual(["dataflow"]);
     expect(agent.getSettings().systemPrompt).toContain('aggregate(t, by=[], outputs={"output": reducer(...)})');
     expect(agent.getSettings().systemPrompt).toContain("show result");

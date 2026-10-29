@@ -56,19 +56,10 @@ import { ComputingUnitStatusService } from "../../../common/service/computing-un
 export interface AgentSettingsApi {
   /** Maximum character limit for operator results (uses symmetric truncation) */
   maxOperatorResultCharLimit?: number;
-  /** Serialization mode for operator results */
-  operatorResultSerializationMode?: "tsv";
-  /** Tool execution timeout in seconds */
-  toolTimeoutSeconds?: number;
   /** Workflow execution timeout in minutes */
   executionTimeoutMinutes?: number;
-  /** List of disabled tool names */
-  disabledTools?: string[];
   /** Maximum number of steps per message */
   maxSteps?: number;
-  /** Whether the model may emit multiple tool calls in one assistant turn;
-   *  native mode asks for one. */
-  parallelToolCalls?: boolean;
   /** When true, results the agent observes carry bounded, version-bound
    *  column/table facts (null and distinct counts, ranges, top values).
    *  Wire name matches the agent-service knob (`AgentSettings.dataEvidence`). */
@@ -81,17 +72,9 @@ export interface AgentSettingsApi {
    *  doc saying what it does and why. Wire name matches the agent-service knob
    *  (`AgentSettings.operatorDoc`). */
   operatorDoc?: boolean;
-  /** The agent responds when the user runs an operator from the canvas. */
-  respondToCanvasRuns?: boolean;
   /** Instructions for this session, appended to the system prompt. */
   instructions?: string;
 }
-
-/** LLM driver picked at agent construction. `vercel-tool-use` is the
- *  default (native tool-calling via the Vercel AI SDK); `local-react` is
- *  the text-mode ReAct driver used for the in-house local LLM whose tool
- *  catalog is baked into its training prompt. */
-export type AgentDriverKind = "vercel-tool-use" | "local-react";
 
 /**
  * Agent information for tracking created agents (API version).
@@ -100,8 +83,6 @@ export interface AgentInfo {
   id: string;
   name: string;
   modelType: string;
-  driver?: AgentDriverKind;
-  isBaselineMode: boolean;
   createdAt: Date;
   /** State is fetched from API */
   state?: AgentState;
@@ -227,7 +208,6 @@ interface ApiAgentInfo {
   id: string;
   name: string;
   modelType: string;
-  driver?: AgentDriverKind;
   state: string;
   createdAt: string;
   delegate?: {
@@ -330,18 +310,6 @@ export class AgentService {
 
   /** Cached model types */
   private modelTypes$: Observable<ModelType[]> | null = null;
-
-  // ============================================================================
-  // Canvas annotation state (port shapes, step badges, scroll-to-step)
-  // ============================================================================
-
-  /** Whether to show output port shapes (rows, columns) on operators */
-  private showPortShapesSubject = new BehaviorSubject<boolean>(true);
-  public showPortShapes$ = this.showPortShapesSubject.asObservable();
-
-  /** Subject emitting scroll-to-step requests */
-  private scrollToStepSubject = new Subject<{ agentId: string; messageId: string; stepId: number }>();
-  public scrollToStep$ = this.scrollToStepSubject.asObservable();
 
   constructor(
     private http: HttpClient,
@@ -900,8 +868,6 @@ export class AgentService {
             id: response.id,
             name: response.name,
             modelType: response.modelType,
-            driver: response.driver,
-            isBaselineMode: false,
             createdAt: new Date(response.createdAt),
             state: this.mapStateToAgentState(response.state),
             delegate: response.delegate
@@ -950,8 +916,6 @@ export class AgentService {
             id: response.id,
             name: response.name,
             modelType: response.modelType,
-            driver: response.driver,
-            isBaselineMode: false,
             createdAt: new Date(response.createdAt),
             state: this.mapStateToAgentState(response.state),
             delegate: response.delegate
@@ -986,8 +950,6 @@ export class AgentService {
           id: a.id,
           name: a.name,
           modelType: a.modelType,
-          driver: a.driver,
-          isBaselineMode: false,
           createdAt: new Date(a.createdAt),
           state: this.mapStateToAgentState(a.state),
           delegate: a.delegate
@@ -1386,12 +1348,12 @@ export class AgentService {
    */
   public getSystemInfo(agentId: string): Observable<{
     systemPrompt: string;
-    tools: Array<{ name: string; description: string; inputSchema: any; enabled: boolean }>;
+    tools: Array<{ name: string; description: string; inputSchema: any }>;
   }> {
     return this.http
       .get<{
         systemPrompt: string;
-        tools: Array<{ name: string; description: string; inputSchema: any; enabled: boolean }>;
+        tools: Array<{ name: string; description: string; inputSchema: any }>;
       }>(`${this.AGENT_API_BASE}/agents/${agentId}/system-info`, this.agentHeaders(agentId))
       .pipe(
         catchError(() =>
@@ -1569,9 +1531,7 @@ export class AgentService {
         catchError(() =>
           of({
             maxOperatorResultCharLimit: 20000,
-            toolTimeoutSeconds: 120,
             executionTimeoutMinutes: 10,
-            disabledTools: [],
             maxSteps: 10,
           })
         )
@@ -1608,63 +1568,8 @@ export class AgentService {
   }
 
   // ============================================================================
-  // Context Filtering Methods
-  // ============================================================================
-
-  /**
-   * Get ReActSteps relevant to the specified operator IDs.
-   * Fetches from the backend which filters steps based on which operators they affected.
-   *
-   * @param agentId - The agent ID
-   * @param operatorIds - The operator IDs to filter by
-   * @returns Observable with filtered ReActSteps
-   */
-  public getStepsByOperatorIds(agentId: string, operatorIds: string[]): Observable<{ steps: ReActStep[] }> {
-    return this.http
-      .post<{
-        steps: ReActStep[];
-      }>(`${this.AGENT_API_BASE}/agents/${agentId}/steps-by-operators`, { operatorIds }, this.agentHeaders(agentId))
-      .pipe(
-        map(response => ({
-          steps: response.steps.map((s: any) => this.convertApiReActStep(s)),
-        })),
-        catchError(() =>
-          of({
-            steps: [],
-          })
-        )
-      );
-  }
-
-  // ============================================================================
-  // Canvas annotation toggles
-  // ============================================================================
-
-  /**
-   * Toggle whether output port shapes are shown on operators.
-   */
-  public togglePortShapes(show: boolean): void {
-    this.showPortShapesSubject.next(show);
-  }
-
-  public getShowPortShapes(): boolean {
-    return this.showPortShapesSubject.getValue();
-  }
-
-  /**
-   * Request scrolling to a specific step in the agent chat.
-   */
-  public requestScrollToStep(agentId: string, messageId: string, stepId: number): void {
-    this.scrollToStepSubject.next({ agentId, messageId, stepId });
-  }
-
-  // ============================================================================
   // Operator Result Annotation Methods
   // ============================================================================
-
-  /** Whether operator result annotations are currently visible */
-  private resultAnnotationsVisibleSubject = new BehaviorSubject<boolean>(false);
-  public resultAnnotationsVisible$ = this.resultAnnotationsVisibleSubject.asObservable();
 
   /** Current operator result summaries (operatorId → summary) */
   private operatorResultSummariesSubject = new BehaviorSubject<Map<string, OperatorResultSummary>>(new Map());
@@ -1673,24 +1578,6 @@ export class AgentService {
   /** Operators an agent's run is computing right now. */
   private runningOperatorsSubject = new BehaviorSubject<ReadonlySet<string>>(new Set());
   public runningOperators$ = this.runningOperatorsSubject.asObservable();
-
-  /**
-   * Toggle operator result annotations on/off.
-   * When toggling on, fetches the latest results from the active agent.
-   */
-  public toggleResultAnnotations(agentId?: string): void {
-    const newState = !this.resultAnnotationsVisibleSubject.getValue();
-    if (newState) {
-      const id = agentId ?? this.getActivelyConnectedAgentIds()[0];
-      if (!id) {
-        // No active agent — nothing to fetch
-        return;
-      }
-      this.fetchOperatorResults(id);
-    } else {
-      this.resultAnnotationsVisibleSubject.next(false);
-    }
-  }
 
   /** The current operator result summaries (operatorId → summary). */
   public getOperatorResultSummaries(): Map<string, OperatorResultSummary> {
@@ -1723,16 +1610,6 @@ export class AgentService {
         this.agentHeaders(agentId)
       )
       .pipe(catchError(() => of({ results: {} as Record<string, OperatorResultSummary> })))
-      .subscribe(response => {
-        this.updateOperatorResultSummaries(response.results);
-        this.resultAnnotationsVisibleSubject.next(true);
-      });
-  }
-
-  /**
-   * Get current result annotations visibility.
-   */
-  public getResultAnnotationsVisible(): boolean {
-    return this.resultAnnotationsVisibleSubject.getValue();
+      .subscribe(response => this.updateOperatorResultSummaries(response.results));
   }
 }

@@ -31,7 +31,7 @@ The catalog below is a snapshot of `graphCatalogText()` from the current
 | system prompt | generic signature, defaults and brief contract for each kind | named input/output ports; no instance IDs or implementation code |
 | edit call | complete expression after `create operator <id>:` or `update operator <id>:` | explicit edge commands; named functions indented under their operator |
 | inspect receipt | the stored expression for that operator, shown whole | actual input IDs; attached functions when include_implementation is true |
-| task catalog or earlier-input provenance | the same stored expression, capped by definitionChars | actual input IDs, result shape and columns |
+| task catalog or earlier-input provenance | the same stored expression, capped at 200 characters | actual input IDs, result shape and columns |
 | ordinary edit receipt | definition omitted because the call holds it | changed operator IDs and edge lines; a restore or fork from an earlier task includes the restored definition |
 
 Inputs are supplied through edges. The definition itself has no upstream

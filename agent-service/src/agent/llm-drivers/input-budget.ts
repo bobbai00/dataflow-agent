@@ -57,7 +57,7 @@ export function estimateFullInput(request: { messages?: unknown; tools?: unknown
 
 interface FixedInput {
   systemPrompt: string;
-  tools: Array<{ name: string; description: string; inputSchema: unknown; strict?: boolean; enabled: boolean }>;
+  tools: Array<{ name: string; description: string; inputSchema: unknown; strict?: boolean }>;
 }
 
 /** Projection for the text and function-call frames produced by the native
@@ -113,17 +113,15 @@ export function projectChatInput(messages: ModelMessage[], fixed: FixedInput) {
   }
   return {
     messages: projected,
-    tools: fixed.tools
-      .filter(tool => tool.enabled)
-      .map(tool => ({
-        type: "function",
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema,
-          strict: tool.strict ?? false,
-        },
-      })),
+    tools: fixed.tools.map(tool => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
+        strict: tool.strict ?? false,
+      },
+    })),
   };
 }
 

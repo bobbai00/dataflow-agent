@@ -27,7 +27,7 @@
  * The handful of enum *values* the UI actually needs (`AgentState.GENERATING`,
  * etc.) live in `enums.ts` and are imported as plain JS.
  */
-export type { ReActStep, TokenUsage, AgentInfo, AgentDriverKind, AgentSettingsApi } from "../../types/agent";
+export type { ReActStep, TokenUsage, AgentInfo, AgentSettingsApi } from "../../types/agent";
 export type {
   WorkflowContent,
   OperatorPredicate,

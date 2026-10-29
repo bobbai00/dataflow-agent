@@ -76,7 +76,6 @@ export function AgentList() {
                   <th>Id</th>
                   <th>Name</th>
                   <th>Model</th>
-                  <th>Driver</th>
                   <th>State</th>
                   <th>Created</th>
                   <th></th>
@@ -88,9 +87,6 @@ export function AgentList() {
                     <td className="mono">{a.id}</td>
                     <td>{a.name}</td>
                     <td className="mono dim">{a.modelType}</td>
-                    <td>
-                      <span className="pill driver">{a.driver}</span>
-                    </td>
                     <td>
                       <span className={`pill state-${a.state}`}>{a.state}</span>
                     </td>

@@ -1021,9 +1021,7 @@ describe("AgentService", () => {
 
       expect(settings).toEqual({
         maxOperatorResultCharLimit: 20000,
-        toolTimeoutSeconds: 120,
         executionTimeoutMinutes: 10,
-        disabledTools: [],
         maxSteps: 10,
       });
     });
@@ -1035,10 +1033,10 @@ describe("AgentService", () => {
 
       const req = httpMock.expectOne(r => r.method === "PATCH" && r.url === "/api/agents/agent-1/settings");
       expect(req.request.body).toEqual({ maxSteps: 3 });
-      req.flush({ maxSteps: 3, disabledTools: [] });
+      req.flush({ maxSteps: 3, executionTimeoutMinutes: 10 });
 
-      expect(updated).toEqual({ maxSteps: 3, disabledTools: [] });
-      expect((service as any).agents.get("agent-1").settings).toEqual({ maxSteps: 3, disabledTools: [] });
+      expect(updated).toEqual({ maxSteps: 3, executionTimeoutMinutes: 10 });
+      expect((service as any).agents.get("agent-1").settings).toEqual({ maxSteps: 3, executionTimeoutMinutes: 10 });
     });
 
     it("notifies and rethrows when the settings update fails", () => {
@@ -1055,55 +1053,13 @@ describe("AgentService", () => {
       expect(notification.error).toHaveBeenCalledWith("nope");
     });
 
-    it("posts operator ids and converts the returned steps", () => {
-      service.ensureWorkflowPolling("agent-1", 42);
-      let result: { steps: ReActStep[] } | undefined;
-      service.getStepsByOperatorIds("agent-1", ["op-1"]).subscribe(r => (result = r));
-
-      const req = httpMock.expectOne(r => r.method === "POST" && r.url === "/api/agents/agent-1/steps-by-operators");
-      expect(req.request.body).toEqual({ operatorIds: ["op-1"] });
-      expect(req.request.headers.get("X-Agent-Workflow-Id")).toBe("42");
-      req.flush({ steps: [{ messageId: "m1", timestamp: "2026-06-11T00:00:00.000Z" }] });
-
-      expect(result?.steps.length).toBe(1);
-      expect(result?.steps[0].id).toBe("m1-0");
-    });
-
-    it("falls back for system-info and steps-by-operators failures", () => {
+    it("falls back for a system-info failure", () => {
       let systemInfo: { systemPrompt: string; tools: unknown[] } | undefined;
       service.getSystemInfo("agent-1").subscribe(s => (systemInfo = s));
       httpMock
         .expectOne(r => r.url === "/api/agents/agent-1/system-info")
         .flush("boom", { status: 500, statusText: "Server Error" });
       expect(systemInfo).toEqual({ systemPrompt: "Unable to retrieve system prompt", tools: [] });
-
-      let steps: { steps: ReActStep[] } | undefined;
-      service.getStepsByOperatorIds("agent-1", ["op-1"]).subscribe(s => (steps = s));
-      httpMock
-        .expectOne(r => r.url === "/api/agents/agent-1/steps-by-operators")
-        .flush("boom", { status: 500, statusText: "Server Error" });
-      expect(steps).toEqual({ steps: [] });
-    });
-  });
-
-  describe("canvas annotation toggles", () => {
-    it("togglePortShapes drives showPortShapes$ and the synchronous getter", () => {
-      const seen: boolean[] = [];
-      service.showPortShapes$.subscribe(v => seen.push(v));
-
-      service.togglePortShapes(false);
-
-      expect(seen).toEqual([true, false]);
-      expect(service.getShowPortShapes()).toBe(false);
-    });
-
-    it("requestScrollToStep broadcasts the scroll target", () => {
-      let target: { agentId: string; messageId: string; stepId: number } | undefined;
-      service.scrollToStep$.subscribe(t => (target = t));
-
-      service.requestScrollToStep("agent-1", "m1", 4);
-
-      expect(target).toEqual({ agentId: "agent-1", messageId: "m1", stepId: 4 });
     });
   });
 });

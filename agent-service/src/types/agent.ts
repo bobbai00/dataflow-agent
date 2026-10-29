@@ -26,9 +26,6 @@ export interface RetrievalSettings {
   retrievalViews?: RetrievalView[];
   /** Full-view display ceiling (default 5,000). Native transport independently retains up to 100,000 characters. */
   fullResultCharLimit?: number;
-  /** Separate per-retrieval evidence ceilings; records keep their own budget. */
-  dataEvidenceCharLimit?: number;
-  flowEvidenceCharLimit?: number;
 }
 
 export enum AgentState {
@@ -148,10 +145,6 @@ export interface UserActionInfo {
   error?: string;
 }
 
-export enum OperatorResultSerializationMode {
-  TSV = "tsv",
-}
-
 /**
  * DELTA compaction strategy — how the assembler shrinks the trajectory once the
  * raw delta would exceed `contextWindowTokens`:
@@ -165,10 +158,7 @@ export type CatalogSource = "full" | "docstring";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
-  disabledTools: Set<string>;
   maxOperatorResultCharLimit: number;
-  operatorResultSerializationMode: OperatorResultSerializationMode;
-  toolTimeoutMs: number;
   executionTimeoutMs: number;
   maxSteps: number;
   /** Collect table profiles and operator counters in the engine, independently
@@ -179,9 +169,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  (row, cell and time budgets); "full" profiles every row exactly with
    *  vectorized passes. Compiled into each operator like collection. */
   nativeProfileScope?: "prefix" | "full";
-  /** Whether the provider may emit several tool calls in one assistant turn.
-   *  Native mode asks for one call per turn. */
-  parallelToolCalls: boolean;
   /** DELTA context-window budget, in tokens (estimated chars/4). Bounds the
    *  assembled trajectory user-message — the true model window minus the
    *  ~constant system prompt + response headroom, which the caller folds into
@@ -211,9 +198,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  and why. The prompt asks for it and its examples show it; an edit that
    *  sets an operator without one gets a reminder in the tool result. Off by default. */
   operatorDoc: boolean;
-  /** When the user runs an operator from the canvas (Run, Save & run), the
-   *  agent responds to the result in a turn of its own. On by default. */
-  respondToCanvasRuns: boolean;
   /** Instructions for this session, appended to the system prompt: rules of
    *  engagement beyond the mode's prompt. Empty by default. */
   instructions: string;
@@ -225,19 +209,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  repeated across sources, row effects inside a process function). A
    *  scan's header findings are notes shown in every setting. Off by default. */
   nativeChecks: boolean;
-  /**
-   * Tool-call dialect for the local text-mode driver (`local-react`). Selects
-   * the system prompt, the output parser, AND the context assembler so all
-   * three agree (qwen-xml → `code-mode.md` prompt + SDK context; react-text →
-   * `local-react.txt` + `# Event N` context). Ignored by the `vercel-tool-use`
-   * driver (native tool calling). Default `qwen-xml`. See `LocalToolDialect`.
-   */
-  toolDialect: LocalToolDialect;
-  /**
-   * @deprecated Compatibility field; always false. The result-inspection tool
-   * has been removed. Native batch mode retrieves results with `observe`.
-   */
-  enableInspectTool: boolean;
   /**
    * Where the `# User Task` block goes.
    *
@@ -282,14 +253,9 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   ...DEFAULT_OBSERVATION_FORMAT,
-  disabledTools: new Set(),
   maxOperatorResultCharLimit: 2000,
   fullResultCharLimit: 5000,
   retrievalViews: ["sample_stats", "full"],
-  dataEvidenceCharLimit: 2000,
-  flowEvidenceCharLimit: 2000,
-  operatorResultSerializationMode: OperatorResultSerializationMode.TSV,
-  toolTimeoutMs: 240000,
   executionTimeoutMs: 240000,
   maxSteps: 100,
   // Results are read through a sample with full-table column statistics by
@@ -300,62 +266,20 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   dataEvidence: true,
   flowEvidence: false,
   operatorDoc: false,
-  respondToCanvasRuns: true,
   instructions: "",
   answerStatement: false,
   nativeChecks: false,
-  parallelToolCalls: true,
   contextWindowTokens: 0,
   compactionStrategy: "compress",
   deckSampleRatio: 0.1,
   // Sample rows per `show result`: three keep a pattern or both ends in view
   // at about half the tokens of five (2026-10-11 cost study).
   maxResultRows: 3,
-  toolDialect: "qwen-xml",
-  enableInspectTool: false,
   userTaskPlacement: "top",
   multiRequest: "off",
   catalogSource: "full",
   catalogRecent: 0,
 };
-
-/**
- * Selects how the agent talks to the LLM:
- *  - "vercel-tool-use" — the Vercel AI SDK drives the loop with native
- *    tool-calling frames (default; what every Anthropic / OpenAI-compatible
- *    model uses today).
- *  - "local-react" — text-mode driver for the in-house local LLM served via
- *    the dknet gateway. Tool descriptions live in the model's training prompt,
- *    not on the wire; the model emits tool calls as text that the driver
- *    parses. The exact wire syntax is the `toolDialect` setting (`qwen-xml`
- *    XML tool calls or `react-text` Thought/Action/Action Input) — see
- *    `LocalToolDialect`.
- *
- * Bound at agent construction (the driver and context-renderer pair travel
- * together) and not mutable via UpdateAgentSettings. (The `toolDialect`
- * sub-mode, by contrast, IS mutable.)
- */
-export type AgentDriverKind = "vercel-tool-use" | "local-react";
-
-/**
- * Tool-call dialect for the `local-react` text-mode driver — the wire syntax
- * the local LLM uses for tool calls. Unlike `AgentDriverKind` (which picks the
- * driver class / wire mechanics), this is a sub-mode WITHIN that driver: same
- * loop, no `tools` param. It swaps the three things that must agree for a
- * format — the system prompt, the output parser, and the context assembler:
- *
- *  - "qwen-xml"    — Qwen3-Coder XML: `<tool_call><function=…><parameter=…>…
- *    </function></tool_call>`. Prompt = `code-mode.md` +
- *    `local-qwen-tools.txt`; parser `parseQwenToolCall`; context the SDK
- *    `assembleContext` (`# Agent Events`). Default.
- *  - "react-text"  — DeepSeek-style ReAct text: `Thought:` / `Action:` /
- *    `Action Input:` (Python-dict payloads). Prompt `prompts/local-react.txt`;
- *    parser `parseReActText`; context `assembleLocalReactContext` (`# Event N`).
- *
- * A per-agent setting (default `qwen-xml`); changing it rebuilds the system
- * prompt and switches the parser + assembler on the next turn.
- */
-export type LocalToolDialect = "qwen-xml" | "react-text";
 
 export interface UserInfo {
   uid: number;
@@ -374,10 +298,7 @@ export interface AgentDelegateConfig {
 
 export interface AgentSettingsApi extends RetrievalSettings, Partial<ObservationFormatSettings> {
   maxOperatorResultCharLimit?: number;
-  operatorResultSerializationMode?: "tsv";
-  toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
-  disabledTools?: string[];
   maxSteps?: number;
   /** The only context: each event replayed with the operators it changed. */
   contextMode?: "delta";
@@ -386,18 +307,13 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
-  respondToCanvasRuns?: boolean;
   instructions?: string;
   answerStatement?: boolean;
   nativeChecks?: boolean;
-  parallelToolCalls?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
   maxResultRows?: number;
-  toolDialect?: LocalToolDialect;
-  /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
-  enableInspectTool?: boolean;
   /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
   userTaskPlacement?: "top" | "bottom";
   /** Sessions with several requests (see AgentSettings.multiRequest). */
@@ -412,7 +328,6 @@ export interface AgentInfo {
   id: string;
   name: string;
   modelType: string;
-  driver: AgentDriverKind;
   state: AgentState;
   createdAt: Date;
   delegate?: AgentDelegateConfig;
@@ -425,18 +340,11 @@ export interface CreateAgentRequest {
   workflowId?: number;
   computingUnitId?: number;
   settings?: AgentSettingsApi;
-  /** Optional explicit driver. When omitted, the server derives the driver
-   *  from `modelType` (`local-llm` → `local-react`, everything else →
-   *  `vercel-tool-use`). */
-  driver?: AgentDriverKind;
 }
 
 export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<ObservationFormatSettings> {
   maxOperatorResultCharLimit?: number;
-  operatorResultSerializationMode?: "tsv";
-  toolTimeoutSeconds?: number;
   executionTimeoutMinutes?: number;
-  disabledTools?: string[];
   maxSteps?: number;
   contextMode?: "delta";
   nativeProfileCollection?: boolean;
@@ -444,18 +352,13 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
-  respondToCanvasRuns?: boolean;
   instructions?: string;
   answerStatement?: boolean;
   nativeChecks?: boolean;
-  parallelToolCalls?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
   maxResultRows?: number;
-  toolDialect?: LocalToolDialect;
-  /** @deprecated Ignored; the result-inspection tool cannot be enabled. */
-  enableInspectTool?: boolean;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
   /** Catalog entries' functions (see AgentSettings.catalogSource). */

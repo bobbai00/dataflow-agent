@@ -38,7 +38,6 @@ budget, and physical profile collection setting for all four arms. Example:
 {
   "agentMode": "native",
   "nativeProfileCollection": true,
-  "parallelToolCalls": false,
   "contextMode": "delta",
   "maxOperatorResultCharLimit": 2000,
   "dataEvidence": true,

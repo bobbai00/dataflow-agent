@@ -118,7 +118,7 @@ proxy (`LLM_ENDPOINT=http://localhost:9096`) — the browser and the agent never
 hold a provider key; the proxy injects `LITELLM_MASTER_KEY` server-side.
 
 Models available through the DKNet gateway: `claude-haiku-4.5` (cheap,
-default for e2e), `claude-sonnet-4-6`, `gpt-5.4`, `local-llm`.
+default for e2e), `claude-sonnet-4-6`, `gpt-5.4`.
 
 Files in Texera datasets — addressed `/ownerEmail/datasetName/vN/file`, which is
 also what the agent panel's drag & drop inserts — are readable through native
@@ -136,8 +136,8 @@ with Run, Edit and Feedback; the property editor stays closed for it. Run and
 Edit go through the agent, which applies each as one of its own `dataflow`
 calls. It then records the action as a user step (`messageSource: "action"`):
 the chat shows it as "You edited `kept` and ran it · 1 row". A run is answered
-by the agent in a turn of its own; a plain edit is read at its next turn
-(`respondToCanvasRuns`). Feedback is a message to the agent and starts a turn.
+by the agent in a turn of its own; a plain edit is read at its next turn.
+Feedback is a message to the agent and starts a turn.
 See `agent-service/src/agent/user-actions.ts` and `TexeraAgent.applyUserAction`.
 
 Every edit is a version (v0 is where the agent started): each `set`/`delete`
@@ -198,7 +198,6 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `dataEvidence` | bool (default `true`) | `Data measurement` lines (null/distinct counts, ranges, top values) in observed results |
 | `flowEvidence` | bool (default `false`) | `Flow measurement` / `Flow guarantee` lines (rows kept, keys matched, contracts) in observed results |
 | `operatorDoc` | bool (default `false`; agents made in the UI: `true`) | native mode: the prompt asks for a one-line `doc='...'` on every operator and shows it in its examples; a tool result names operators set without one. The canvas captions each operator with its doc, else its statement; the panel's "Operator Doc" setting |
-| `respondToCanvasRuns` | bool (default `true`) | the agent answers a run the user starts from the canvas (Run, Save & run) in a turn of its own; off, it reads the run at its next turn; the panel's "Canvas Runs" setting |
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `contextMode` | `delta` (the only value) | the full event trajectory as a tool-calling transcript, append-only for the provider cache |
@@ -207,9 +206,7 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `deckSampleRatio` | 0..1 (default 0.10) | fraction of folded operators' rows kept as a peek |
 | `maxResultRows` | int (0 = no cap) | rows rendered per operator result |
 | `maxSteps` | int (default 100) | per-turn step budget |
-| `toolTimeoutSeconds` / `executionTimeoutMinutes` | int | per tool call / per workflow execution |
-| `parallelToolCalls` | bool | provider-side parallel tool calls; always off |
-| `disabledTools` | string[] | hide tools by name |
+| `executionTimeoutMinutes` | int | per workflow execution |
 
 A key that is not a setting is refused with a 400 that names it
 (`<key> is not a setting`) rather than mapped; that includes retired knobs such

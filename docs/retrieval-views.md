@@ -23,7 +23,7 @@ views or column selections.
 | --- | --- | --- |
 | `full` | All retained records that fit `fullResultCharLimit`, without sample cell clipping | None |
 | `sample` | Records within `maxOperatorResultCharLimit` and `maxResultRows` | None |
-| `sample_stats` | The identical sample | Available column/table evidence within `dataEvidenceCharLimit` |
+| `sample_stats` | The identical sample | Available column/table evidence within its own 2,000-character budget |
 
 Every receipt reports the view, returned/total rows and columns, completeness,
 and the producing result version. A capped `full` view is explicitly incomplete.
@@ -63,8 +63,8 @@ Data statistics describe an explicitly requested operator's output table.
 retention and rejections, join matches and unmatched keys, cast failures, scan diagnostics, and aggregate
 denominators. Execution receipts report each newly executed operator's own
 measurements even when its table was not requested. Retrieval adds bounded
-summaries from the requested operator's producing ancestors. Its
-`flowEvidenceCharLimit` is independent of the record and data-statistics budgets.
+summaries from the requested operator's producing ancestors. Its 2,000-character
+budget is independent of the record and data-statistics budgets.
 The measurements describe executed operations; they do not certify that the
 calculation answers the task.
 
@@ -137,9 +137,7 @@ deduplication. Those choices depend on the task and source definitions.
   "fullResultCharLimit": 5000,
   "maxOperatorResultCharLimit": 2000,
   "maxResultRows": 5,
-  "dataEvidenceCharLimit": 2000,
-  "flowEvidence": true,
-  "flowEvidenceCharLimit": 2000
+  "flowEvidence": true
 }
 ```
 

@@ -191,10 +191,6 @@ a:hover {
   background: rgba(148, 163, 184, 0.18);
   color: var(--text-muted);
 }
-.pill.driver {
-  background: rgba(56, 189, 248, 0.15);
-  color: var(--accent);
-}
 
 /* Trace view */
 .trace-toolbar {

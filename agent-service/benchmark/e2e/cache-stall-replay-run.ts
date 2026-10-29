@@ -70,7 +70,6 @@ for (const scenario of cases) {
         settings: {
           contextMode: "delta",
           executionTimeoutMinutes: 0.25,
-          toolTimeoutSeconds: 25,
           retrievalViews: ["full"],
         },
       })

@@ -189,8 +189,6 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
         fullResultCharLimit: 5000,
         maxOperatorResultCharLimit: 2000,
         maxResultRows: 2,
-        dataEvidenceCharLimit: 2000,
-        flowEvidenceCharLimit: 2000,
         maxSteps: 4,
       };
       const wid = await createWorkflow(

@@ -39,7 +39,6 @@ import type {
   AgentDelegateConfig,
   AgentSettings,
   CompactionStrategy,
-  LocalToolDialect,
   ReActStep,
   TokenUsage,
   UserActionInfo,
@@ -48,7 +47,7 @@ import type {
 } from "../types/agent";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
 import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
-import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS, OperatorResultSerializationMode } from "../types/agent";
+import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS } from "../types/agent";
 import { buildRegisteredNativeSystemPrompt, withSessionInstructions } from "./prompts";
 import { TOOL_NAME_CREATE_OR_MODIFY_OPERATOR, TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
@@ -143,14 +142,8 @@ export interface TexeraAgentConfig {
   agentId: string;
   agentName?: string;
   systemPrompt?: string;
-  /** Optional override for `rebuildSystemPrompt`. When provided, the
-   *  agent uses this verbatim instead of the agent-mode-based builders —
-   *  used by the local-react driver to inject the LLM's training-time
-   *  system prompt unchanged. Receives the current tool-call dialect so the
-   *  prompt can match the dialect the parser expects, and whether compaction
-   *  can fire so the described context format matches what the assembler
-   *  renders. */
-  systemPromptBuilder?: (dialect: LocalToolDialect, compactionEnabled: boolean) => string;
+  /** Backoff before retry n of a failed model request is n times this many milliseconds (default 3000). */
+  retryBackoffMs?: number;
   /** Where the agent's turns, steps, versions, executions and results are recorded as they happen. */
   trace?: TraceStore;
 }
@@ -278,7 +271,7 @@ export function computeOperatorAccess(
 /** Retries of a turn whose driver run failed transiently (a timed-out or dropped model request). */
 const MODEL_RETRIES_PER_TURN = Number(process.env.MODEL_RETRIES_PER_TURN ?? 2);
 /** Backoff before retry n is n times this many milliseconds. */
-const MODEL_RETRY_BACKOFF_MS = () => Number(process.env.MODEL_RETRY_BACKOFF_MS ?? 3000);
+const MODEL_RETRY_BACKOFF_MS = 3000;
 
 /** The correction for a text reply when the answer is an answer statement. */
 const ANSWER_STATEMENT_FEEDBACK =
@@ -312,7 +305,7 @@ export class TexeraAgent {
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
   private readonly modelInputBudget = readInputBudget(process.env);
-  private readonly systemPromptBuilder: ((dialect: LocalToolDialect, compactionEnabled: boolean) => string) | undefined;
+  private readonly retryBackoffMs: number;
   private systemPrompt: string;
   private settings: AgentSettings;
 
@@ -371,7 +364,7 @@ export class TexeraAgent {
     this.createdAt = new Date();
     this.driver = config.driver;
     this.contextAssembler = config.contextAssembler;
-    this.systemPromptBuilder = config.systemPromptBuilder;
+    this.retryBackoffMs = config.retryBackoffMs ?? MODEL_RETRY_BACKOFF_MS;
     this.systemPrompt = config.systemPrompt || "";
     this.log = createLogger("TexeraAgent", { agentId: this.agentId });
 
@@ -398,7 +391,6 @@ export class TexeraAgent {
     this.settings = {
       ...DEFAULT_AGENT_SETTINGS,
       systemPrompt: this.systemPrompt,
-      parallelToolCalls: false,
     };
 
     this.tools = this.createTools();
@@ -569,34 +561,20 @@ export class TexeraAgent {
   }
 
   private rebuildSystemPrompt(): void {
-    // The `## History Compaction` section describes the COMPRESS deck specifically,
-    // so inject it only when the window is on AND the strategy is compress. Sliding
-    // produces a self-describing `(… omitted …)` marker, not a deck, so it gets no
-    // section (describing a deck it never renders would be its own drift).
-    const compactionEnabled = this.settings.contextWindowTokens > 0 && this.settings.compactionStrategy === "compress";
-    if (this.systemPromptBuilder) {
-      // Driver-level override (local-react). Bypass the mode-based builders
-      // entirely so the wire prompt always matches the model's training
-      // distribution — and the tool-call dialect the parser expects.
-      this.systemPrompt = this.systemPromptBuilder(this.settings.toolDialect, compactionEnabled);
-    } else {
-      this.systemPrompt = buildRegisteredNativeSystemPrompt({
-        ...observationFormatPatch(this.settings),
-        dataEvidence: this.settings.dataEvidence === true,
-        flowEvidence: this.settings.flowEvidence === true,
-        operatorDoc: this.settings.operatorDoc === true,
-        answerStatement: this.settings.answerStatement === true,
-        retrievalViews: availableRetrievalViews(this.settings),
-        fullResultCharLimit: this.settings.fullResultCharLimit,
-        maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
-        maxResultRows: this.settings.maxResultRows,
-        dataEvidenceCharLimit: this.settings.dataEvidenceCharLimit,
-        flowEvidenceCharLimit: this.settings.flowEvidenceCharLimit,
-        multiRequest: this.settings.multiRequest,
-        catalogSource: this.settings.catalogSource,
-        catalogRecent: this.settings.catalogRecent,
-      });
-    }
+    this.systemPrompt = buildRegisteredNativeSystemPrompt({
+      ...observationFormatPatch(this.settings),
+      dataEvidence: this.settings.dataEvidence === true,
+      flowEvidence: this.settings.flowEvidence === true,
+      operatorDoc: this.settings.operatorDoc === true,
+      answerStatement: this.settings.answerStatement === true,
+      retrievalViews: availableRetrievalViews(this.settings),
+      fullResultCharLimit: this.settings.fullResultCharLimit,
+      maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
+      maxResultRows: this.settings.maxResultRows,
+      multiRequest: this.settings.multiRequest,
+      catalogSource: this.settings.catalogSource,
+      catalogRecent: this.settings.catalogRecent,
+    });
     this.systemPrompt = withSessionInstructions(this.systemPrompt, this.settings.instructions);
     this.settings.systemPrompt = this.systemPrompt;
   }
@@ -874,21 +852,18 @@ export class TexeraAgent {
       description: string;
       inputSchema: any;
       strict?: boolean;
-      enabled: boolean;
     }>;
   } {
     const toolsInfo = Object.entries(this.tools).map(([name, toolDef]) => {
       const description = toolDef.description || "";
       const schema = toolDef.inputSchema ?? toolDef.parameters;
       const inputSchema = schema ? asSchema(schema).jsonSchema : {};
-      const enabled = !this.settings.disabledTools.has(name);
 
       return {
         name,
         description,
         inputSchema,
         ...(toolDef.strict !== undefined ? { strict: toolDef.strict } : {}),
-        enabled,
       };
     });
 
@@ -905,27 +880,20 @@ export class TexeraAgent {
   updateSettings(
     updates: {
       maxOperatorResultCharLimit?: number;
-      operatorResultSerializationMode?: OperatorResultSerializationMode;
-      toolTimeoutMs?: number;
       executionTimeoutMs?: number;
-      disabledTools?: Set<string>;
       maxSteps?: number;
       nativeProfileCollection?: boolean;
       nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
       flowEvidence?: boolean;
       operatorDoc?: boolean;
-      respondToCanvasRuns?: boolean;
       instructions?: string;
       answerStatement?: boolean;
       nativeChecks?: boolean;
-      parallelToolCalls?: boolean;
       contextWindowTokens?: number;
       compactionStrategy?: CompactionStrategy;
       deckSampleRatio?: number;
       maxResultRows?: number;
-      toolDialect?: LocalToolDialect;
-      enableInspectTool?: boolean;
       userTaskPlacement?: "top" | "bottom";
       multiRequest?: AgentSettings["multiRequest"];
       catalogSource?: AgentSettings["catalogSource"];
@@ -977,12 +945,7 @@ export class TexeraAgent {
       Object.assign(this.settings, formatUpdates);
       promptNeedsRebuild = true;
     }
-    for (const key of [
-      "retrievalViews",
-      "fullResultCharLimit",
-      "dataEvidenceCharLimit",
-      "flowEvidenceCharLimit",
-    ] as const) {
+    for (const key of ["retrievalViews", "fullResultCharLimit"] as const) {
       if (updates[key] !== undefined) {
         Object.assign(this.settings, { [key]: structuredClone(updates[key]) });
         promptNeedsRebuild = true;
@@ -1008,7 +971,6 @@ export class TexeraAgent {
       this.settings.nativeChecks = updates.nativeChecks;
       promptNeedsRebuild = true;
     }
-    if (updates.respondToCanvasRuns !== undefined) this.settings.respondToCanvasRuns = updates.respondToCanvasRuns;
     if (updates.instructions !== undefined && updates.instructions !== this.settings.instructions) {
       this.settings.instructions = updates.instructions;
       promptNeedsRebuild = true;
@@ -1022,45 +984,23 @@ export class TexeraAgent {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
       promptNeedsRebuild = true;
     }
-    if (updates.operatorResultSerializationMode !== undefined) {
-      this.settings.operatorResultSerializationMode = updates.operatorResultSerializationMode;
-    }
-    if (updates.toolTimeoutMs !== undefined) {
-      this.settings.toolTimeoutMs = updates.toolTimeoutMs;
-    }
     if (updates.executionTimeoutMs !== undefined) {
       this.settings.executionTimeoutMs = updates.executionTimeoutMs;
-    }
-    if (updates.disabledTools !== undefined) {
-      this.settings.disabledTools = updates.disabledTools;
     }
     if (updates.maxSteps !== undefined) {
       this.settings.maxSteps = updates.maxSteps;
     }
-    // Native mode asks the provider for one tool call per turn.
-    this.settings.parallelToolCalls = false;
     if (updates.maxResultRows !== undefined) {
       this.settings.maxResultRows = updates.maxResultRows;
       promptNeedsRebuild = true;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
     }
     if (updates.contextWindowTokens !== undefined) {
-      // Crossing the 0/>0 boundary flips the DELTA prompt's `## History
-      // Compaction` section on/off, so rebuild the prompt when the enabled-state
-      // changes.
-      if (updates.contextWindowTokens > 0 !== this.settings.contextWindowTokens > 0) {
-        promptNeedsRebuild = true;
-      }
       this.settings.contextWindowTokens = updates.contextWindowTokens;
       // DELTA context-window budget (tokens). 0 ⇒ unbounded lossless delta;
       // >0 ⇒ raw delta until it would overflow, then compaction via compactionStrategy.
     }
     if (updates.compactionStrategy !== undefined) {
-      // Switching to/from compress flips whether the `## History Compaction`
-      // (deck) section is in the prompt, so rebuild when it changes under a window.
-      if (updates.compactionStrategy !== this.settings.compactionStrategy && this.settings.contextWindowTokens > 0) {
-        promptNeedsRebuild = true;
-      }
       this.settings.compactionStrategy = updates.compactionStrategy;
       // How DELTA compacts over budget (sliding | compress).
     }
@@ -1068,21 +1008,9 @@ export class TexeraAgent {
       this.settings.deckSampleRatio = updates.deckSampleRatio;
       // Pure render-time setting — compress-deck row-sample fraction.
     }
-    if (updates.enableInspectTool !== undefined) {
-      // Compatibility input only. Result retrieval is through batch observe;
-      // legacy clients cannot re-enable a removed tool by changing settings.
-      this.settings.enableInspectTool = false;
-    }
     if (updates.userTaskPlacement !== undefined) {
       // Pure render-time: where the `# User Task` block goes.
       this.settings.userTaskPlacement = updates.userTaskPlacement;
-    }
-    if (updates.toolDialect !== undefined && updates.toolDialect !== this.settings.toolDialect) {
-      this.settings.toolDialect = updates.toolDialect;
-      // Local-react only: selects the system prompt AND the output parser for
-      // the next turn. The parser is read from settings at runTurn; the prompt
-      // is rebuilt below (the builder is dialect-aware).
-      promptNeedsRebuild = true;
     }
 
     // An agent that has not been initialized yet has no prompt at all; the
@@ -1300,7 +1228,6 @@ export class TexeraAgent {
           systemPrompt: this.systemPrompt,
           tools: this.tools,
           maxSteps,
-          parallelToolCalls: this.settings.parallelToolCalls,
           requireShownResult: true,
           resultShown: () => this.resultShownFor(messageId),
           ...(this.settings.answerStatement === true
@@ -1310,7 +1237,6 @@ export class TexeraAgent {
                 answerByStatement: !answerCorrected && protocolFeedbackSteps < 2,
               }
             : {}),
-          toolDialect: this.settings.toolDialect,
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
             // Stop before another request, after the failed step is fully saved.
@@ -1633,7 +1559,7 @@ export class TexeraAgent {
               },
               "model request failed transiently; retrying the turn"
             );
-            await new Promise(resolve => setTimeout(resolve, MODEL_RETRY_BACKOFF_MS() * attempt));
+            await new Promise(resolve => setTimeout(resolve, this.retryBackoffMs * attempt));
           }
         }
       };
@@ -2749,8 +2675,8 @@ export class TexeraAgent {
       }
       const call = userActionCall(request);
       const result = prepareDataflowCall(call, availableRetrievalViews(this.settings));
-      // A run is answered by the agent, unless the user switched that off.
-      const respond = this.settings.respondToCanvasRuns !== false && (request.kind === "run" || request.run === true);
+      // A run is answered by the agent.
+      const respond = request.kind === "run" || request.run === true;
       if (result.status === "error") throw new UserActionError(400, result.error ?? "The action was rejected.");
       onRecord?.();
 
@@ -2981,45 +2907,6 @@ export class TexeraAgent {
         `Only \`${action.operatorId}\` can change here; the statement also changes \`${other.operator_id}\`.`
       );
     return !changed.length && !plan.registrations?.length && !plan.changes.some(change => change.change === "edge");
-  }
-
-  private getOperatorIdsFromStep(step: ReActStep): {
-    added: string[];
-    modified: string[];
-  } {
-    // Prefer the access map recorded at step time; derive it for steps that
-    // predate the field (imported archives, older persisted traces).
-    const access = step.operatorAccess ?? computeOperatorAccess(step.toolCalls, step.toolResults);
-    const added: string[] = [];
-    const modified: string[] = [];
-    if (!access) return { added, modified };
-    for (const entry of Object.values(access)) {
-      added.push(...entry.addedOperatorIds);
-      modified.push(...entry.modifiedOperatorIds);
-    }
-    return { added, modified };
-  }
-
-  public getReActStepsByOperatorIds(operatorIds: string[]): ReActStep[] {
-    const allSteps = this.getReActSteps();
-    if (!operatorIds || operatorIds.length === 0) {
-      return allSteps;
-    }
-
-    const operatorIdSet = new Set(operatorIds);
-    const relevantSteps: ReActStep[] = [];
-
-    for (const step of allSteps) {
-      const { added, modified } = this.getOperatorIdsFromStep(step);
-
-      const affectsOperator = [...added, ...modified].some(id => operatorIdSet.has(id));
-
-      if (affectsOperator) {
-        relevantSteps.push(step);
-      }
-    }
-
-    return relevantSteps;
   }
 
   destroy(): void {

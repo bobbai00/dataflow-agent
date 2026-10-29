@@ -25,12 +25,6 @@ import type { FlowReceiptObservation } from "./evidence-compaction";
 export interface ObservationFormatSettings {
   tableFormat: "markdown" | "tsv";
   keyValueColumns: number;
-  columnsShown: number;
-  definitionChars: number;
-  cellChars: number;
-  topValues: number;
-  catalogRecords: number;
-  answerEcho: boolean;
   /** Rows a `full` view shows of a whole table that exceeds its character
    * budget; 0 shows as many rows as fit. Complete tables, tables read from
    * files, source previews and column selections are not capped. */
@@ -57,12 +51,6 @@ export type ObservationFormatOptions = Partial<ObservationFormatSettings>;
 export const DEFAULT_OBSERVATION_FORMAT: ObservationFormatSettings = {
   tableFormat: "markdown",
   keyValueColumns: 12,
-  columnsShown: 40,
-  definitionChars: 200,
-  cellChars: 160,
-  topValues: 4,
-  catalogRecords: 0,
-  answerEcho: false,
   fullPreviewRows: 0,
   optionalPython: false,
   dataHygiene: false,
@@ -85,6 +73,18 @@ export function observationFormatPatch(options: ObservationFormatOptions): Obser
       .map(key => [key, options[key as keyof ObservationFormatSettings]])
   );
 }
+
+/** Column entries an operator block or a records header lists; a numbered run
+ * (`Q6_1..Q6_12`) is one entry. */
+export const COLUMNS_SHOWN = 40;
+/** Characters of a definition in a catalog entry or a provenance block;
+ * `show operator` gives it whole. */
+export const DEFINITION_CHARS = 200;
+/** Characters of a text cell in a sample before it is clipped; a full view is
+ * not clipped. */
+export const CELL_CHARS = 160;
+/** Frequent values a statistics row lists per column. */
+export const TOP_VALUES = 4;
 
 export const formatCount = (value: number | null | undefined) =>
   value !== null && value !== undefined && Number.isSafeInteger(value) && value >= 0
@@ -449,7 +449,7 @@ export function renderRecords(
   const build = (fields: typeof allowed, cellLimit?: number): FrozenRecords => {
     const layout =
       config.keyValueColumns > 0 && fields.length > config.keyValueColumns ? "key-value" : config.tableFormat;
-    const cap = cellLimit ?? (options.view === "full" || (options.preview && rows.length === 1) ? 0 : config.cellChars);
+    const cap = cellLimit ?? (options.view === "full" || (options.preview && rows.length === 1) ? 0 : CELL_CHARS);
     const rendered = ordered.slice(0, rowLimit).map(index => {
       const values = fields.map(field => displayValue(rows[index][field.name], field.type, layout, cap));
       const cells = values.map(value => value.text);
@@ -463,7 +463,7 @@ export function renderRecords(
       return { line, clipped: values.filter(value => value.clipped).length, index };
     });
     const schema = fields.length
-      ? `columns: ${columnEntries(fields, config.columnsShown, true, totalColumns).join(", ")}`
+      ? `columns: ${columnEntries(fields, COLUMNS_SHOWN, true, totalColumns).join(", ")}`
       : "";
     return {
       view: options.view ?? "sample",
@@ -695,12 +695,13 @@ export function describeOperator(
     issues?: string[];
     stale?: boolean;
     definitionLimit?: boolean;
+    /** Column entries listed; 0 lists every column. */
+    columnsShown?: number;
     /** The result is the one an earlier task saved for this copy's original. */
     savedBy?: number;
     namespace?: import("./registered").RegisteredNamespace;
   } = {}
 ): OperatorBlock {
-  const config = observationFormat(options);
   const view = op.nativeOp;
   const ready = info && !info.error && ["Completed", "CompletedFromCache"].includes(info.state);
   const failed = info?.error && (!info.nativeError || info.nativeError.diagnostic.operatorId === op.operatorID);
@@ -730,9 +731,8 @@ export function describeOperator(
     ...(names.length > 1 || !id ? { port: names[i] } : {}),
   }));
   let definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
-  if (definition && options.definitionLimit && config.definitionChars > 0 && definition.length > config.definitionChars)
-    definition =
-      definition.slice(0, config.definitionChars) + "… (definition clipped; show operator gives the full text)";
+  if (definition && options.definitionLimit && definition.length > DEFINITION_CHARS)
+    definition = definition.slice(0, DEFINITION_CHARS) + "… (definition clipped; show operator gives the full text)";
   const predicate =
     view?.type === "Filter" ? (view.properties.registered as { entry?: unknown } | undefined)?.entry : undefined;
   const registeredName = view?.registeredName ?? (typeof predicate === "string" ? predicate : undefined);
@@ -771,7 +771,7 @@ export function describeOperator(
         : state === "failed"
           ? "failed"
           : "not run",
-    columns: columnEntries(schema, config.columnsShown),
+    columns: columnEntries(schema, options.columnsShown ?? COLUMNS_SHOWN),
     ...(options.usedBy ? { usedBy: options.usedBy } : {}),
     ...(options.scope?.length ? { scope: [...options.scope] } : {}),
     ...(options.issues ? { issues: options.issues } : {}),

@@ -147,7 +147,6 @@ try {
         retrievalViews: ["full"],
         nativeProfileCollection: false,
         executionTimeoutMinutes: 1,
-        toolTimeoutSeconds: 90,
       },
     })
   ).id;

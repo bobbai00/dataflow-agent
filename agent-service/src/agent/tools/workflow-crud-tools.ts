@@ -28,7 +28,6 @@ export interface ToolContext {
   metadataStore?: WorkflowSystemMetadata;
   settings?: {
     maxOperatorResultCharLimit?: number;
-    toolTimeoutMs?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
     nativeProfileScope?: "prefix" | "full";

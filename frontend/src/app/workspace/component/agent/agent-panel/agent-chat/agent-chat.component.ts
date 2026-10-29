@@ -329,14 +329,11 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
   // System info modal state
   public settingsMaxCharLimit = 20000; // Default max characters for operator results
-  public settingsToolTimeoutSeconds = 120; // 2 minutes default
   public settingsExecutionTimeoutMinutes = 10; // 10 minutes default
   public settingsMaxSteps = 10; // Default max steps per message
-  public settingsParallelToolCalls: "enabled" | "disabled" = "enabled"; // Provider-side parallel tool calls
   public settingsDataEvidence: "enabled" | "disabled" = "enabled"; // Column/table facts on observed results
   public settingsFlowEvidence: "enabled" | "disabled" = "disabled"; // Input/output facts on observed results
   public settingsOperatorDoc: "enabled" | "disabled" = "disabled"; // A one-line doc on every operator
-  public settingsRespondToRuns: "respond" | "wait" = "respond"; // The agent answers canvas runs
   public settingsInstructions = ""; // Instructions for this session, appended to the system prompt
 
   // Track if we disabled auto-persist so we can re-enable it on destroy
@@ -487,13 +484,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     if (this.isActive) {
       this.startWorkflowSubscription();
     }
-
-    // Subscribe to scroll-to-step requests
-    this.agentService.scrollToStep$.pipe(untilDestroyed(this)).subscribe(({ agentId, messageId, stepId }) => {
-      if (agentId === this.agentInfo.id) {
-        this.scrollToStep(messageId, stepId);
-      }
-    });
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -786,23 +776,17 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe(settings => {
         this.settingsMaxCharLimit = settings.maxOperatorResultCharLimit ?? 20000;
-        this.settingsToolTimeoutSeconds = settings.toolTimeoutSeconds ?? 120;
         this.settingsExecutionTimeoutMinutes = settings.executionTimeoutMinutes ?? 10;
         this.settingsMaxSteps = settings.maxSteps ?? 10;
-        // Backend default for `parallelToolCalls` is true (DEFAULT_AGENT_SETTINGS),
-        // so a missing value here means "enabled" — not "disabled".
-        this.settingsParallelToolCalls = settings.parallelToolCalls === false ? "disabled" : "enabled";
         // Backend defaults (DEFAULT_AGENT_SETTINGS): dataEvidence true, flowEvidence and operatorDoc false.
         this.settingsDataEvidence = settings.dataEvidence === false ? "disabled" : "enabled";
         this.settingsFlowEvidence = settings.flowEvidence === true ? "enabled" : "disabled";
         this.settingsOperatorDoc = settings.operatorDoc === true ? "enabled" : "disabled";
-        this.settingsRespondToRuns = settings.respondToCanvasRuns === false ? "wait" : "respond";
         this.settingsInstructions = settings.instructions ?? "";
         // Keep the parent's @Input snapshot in sync so the rest of the UI
         // (System Prompt tab, registration display, etc.) sees the latest
         // values rather than the stale ones captured at agent creation.
         if (this.agentInfo.settings) {
-          this.agentInfo.settings.parallelToolCalls = settings.parallelToolCalls;
           this.agentInfo.settings.dataEvidence = settings.dataEvidence;
           this.agentInfo.settings.flowEvidence = settings.flowEvidence;
           this.agentInfo.settings.operatorDoc = settings.operatorDoc;
@@ -1920,21 +1904,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
   }
 
   /**
-   * Save the tool execution timeout.
-   */
-  public saveToolTimeout(): void {
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        toolTimeoutSeconds: this.settingsToolTimeoutSeconds,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => this.notificationService.success("Tool timeout saved"),
-        error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
    * Save the workflow execution timeout.
    */
   public saveExecutionTimeout(): void {
@@ -1960,28 +1929,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       .pipe(untilDestroyed(this))
       .subscribe({
         next: () => this.notificationService.success("Max steps saved"),
-        error: () => {}, // Error already handled by service
-      });
-  }
-
-  /**
-   * Save the parallel-tool-calls setting: whether the model may emit multiple
-   * tool calls in one assistant turn. The choice does not change the system
-   * prompt — `refreshSystemInfo()` is still called to keep the Parameters tab
-   * values in sync after the round-trip.
-   */
-  public saveParallelToolCalls(): void {
-    const enabled = this.settingsParallelToolCalls === "enabled";
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, {
-        parallelToolCalls: enabled,
-      })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => {
-          this.notificationService.success(`Parallel tool calls ${enabled ? "enabled" : "disabled"}`);
-          this.refreshSystemInfo();
-        },
         error: () => {}, // Error already handled by service
       });
   }
@@ -2050,18 +1997,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
       });
   }
 
-  /** Save whether the agent responds when the user runs an operator from the canvas. */
-  public saveRespondToRuns(): void {
-    const respond = this.settingsRespondToRuns === "respond";
-    this.agentService
-      .updateAgentSettings(this.agentInfo.id, { respondToCanvasRuns: respond })
-      .pipe(untilDestroyed(this))
-      .subscribe({
-        next: () => this.notificationService.success(respond ? "The agent responds to runs" : "The agent waits"),
-        error: () => {}, // Error already handled by service
-      });
-  }
-
   /** Save the session's instructions; the agent's system prompt carries them from its next request. */
   public saveInstructions(): void {
     const instructions = this.settingsInstructions.trim();
@@ -2072,19 +2007,5 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         next: () => this.notificationService.success(instructions ? "Instructions saved" : "Instructions cleared"),
         error: () => {}, // Error already handled by service
       });
-  }
-
-  /**
-   * Scroll to a specific step in the chat by messageId and stepId.
-   */
-  private scrollToStep(messageId: string, stepId: number): void {
-    // Find the step in visibleSteps
-    const stepIndex = this.visibleSteps.findIndex(step => step.messageId === messageId && step.stepId === stepId);
-
-    if (stepIndex >= 0) {
-      // Highlight the message briefly, then scroll its rendered row into view.
-      this.setHoveredMessage(stepIndex);
-      this.scrollToStepId(this.visibleSteps[stepIndex].id);
-    }
   }
 }

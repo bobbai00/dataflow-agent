@@ -73,7 +73,7 @@ test("budget configuration rejects invalid values and defaults to disabled", () 
 
 const fixed = () => ({
   systemPrompt: "Constant role and rules",
-  tools: [{ name: "dataflow", description: "Actions", inputSchema: { type: "object" }, strict: false, enabled: true }],
+  tools: [{ name: "dataflow", description: "Actions", inputSchema: { type: "object" }, strict: false }],
 });
 const input = () => ({ settings: { ...DEFAULT_AGENT_SETTINGS } }) as ContextAssemblerInput;
 

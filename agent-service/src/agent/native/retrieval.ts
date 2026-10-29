@@ -26,6 +26,7 @@ export const FULL_RESULT_CHAR_LIMIT = 5000;
 export const RESULT_TRANSPORT_CHAR_LIMIT = 100_000;
 /** The engine truncates each transported cell to this many characters. */
 export const RESULT_TRANSPORT_CELL_CHAR_LIMIT = 20_000;
+/** Characters of data statistics, and separately of flow facts, a retrieval shows. */
 export const EVIDENCE_CHAR_LIMIT = 2000;
 
 export function availableRetrievalViews(
@@ -55,8 +56,8 @@ export function retrievalOptions(settings: Partial<AgentSettings>, view: Retriev
         ? (settings.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT)
         : (settings.maxOperatorResultCharLimit ?? 2000),
     maxRows: view === "full" ? 0 : settings.maxResultRows,
-    dataMaxChars: settings.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
-    flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+    dataMaxChars: EVIDENCE_CHAR_LIMIT,
+    flowMaxChars: EVIDENCE_CHAR_LIMIT,
   };
 }
 
@@ -72,7 +73,7 @@ export function flowObservationOptions(settings: Partial<AgentSettings>): Native
     maxChars: settings.maxOperatorResultCharLimit ?? 2000,
     maxRows: settings.maxResultRows,
     dataMaxChars: 0,
-    flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+    flowMaxChars: EVIDENCE_CHAR_LIMIT,
     upstream: false,
   };
 }

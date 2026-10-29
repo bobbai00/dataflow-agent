@@ -136,7 +136,7 @@ Fields, in this order:
 | inputs | names; ports only where there are several: `left`/`right`, `in[0]`/`in[1]` | operators with inputs |
 | origin | `task N` (the task that last defined it) or `loaded` (unchanged since loaded state) | operators defined before the current task |
 | result | shape, `shape (saved by task N)` for a copy not yet executed, or the state when there is no current result: `stale (execute to recompute)`, `not run`, `failed` | always after an edit has been executed once |
-| columns | `name type` pairs, capped by `columnsShown` | completed results |
+| columns | `name type` pairs, at most 40 entries | completed results |
 | used by | the operators that read it | `inspect` and provenance |
 | issues | issue lines | when any |
 
@@ -234,7 +234,7 @@ says so in the caption: `statistics: first 2,000 of 10,012 rows`.
 | integer, float | exact, as stored; no thousands separators inside records |
 | bool | `true`, `false` |
 | datetime | ISO 8601 in UTC: `2019-12-31T00:00:00Z` |
-| long text | sample views cut at `cellChars` with `…` and announce the clipped cells; full preserves retained cell contents |
+| long text | sample views cut at 160 characters with `…` and announce the clipped cells; full preserves retained cell contents |
 
 Quotes preserve a text value's type; separators also need the layout's
 escaping. Markdown cells escape a literal pipe as `\|`; JSON escapes preserve
@@ -272,20 +272,19 @@ model's text.
 |---|---|---|
 | `tableFormat` | syntax of every table: records, statistics, operator index | `"markdown"`; `"tsv"` |
 | `keyValueColumns` | widest table printed as a table; wider records print as key-value lines (0 never switches) | 12 |
-| `columnsShown` | column entries in a block or index row; numbered runs compressed (`Q6_1..Q6_12`) | 16 |
-| `definitionChars` | definition length in catalog entries and provenance blocks (`inspect` shows it whole) | 200 |
-| `cellChars` | longest sample text cell before `…`; full does not apply sample clipping | 160 |
 | `maxResultRows`, `maxOperatorResultCharLimit`, `fullResultCharLimit` | records per view (existing settings) | 50 rows; 2,000 and 5,000 characters |
-| `dataEvidenceCharLimit`, `topValues` | statistics budget and top values per column | 2,000; 4 |
-| `flowEvidenceCharLimit` | flow lines per retrieve (existing setting) | 2,000 |
-| `catalogRecords` | rows of each table retrieved in a task, repeated in its catalog entry (0 = off) | 0 |
-| `answerEcho` | repeat an answer's `content` in its receipt | false |
 | `multiTask` | include the separate session section from the first request; also enabled by history/catalog capabilities or subsequent requests | false |
 
-For format limits, 0 means unlimited, except `catalogRecords: 0`, which
-disables catalog records, and `keyValueColumns: 0`, which keeps records in
-tables. Format settings can be patched atomically; earlier receipts and
-catalog entries retain their original representation.
+For format limits, 0 means unlimited, except `keyValueColumns: 0`, which keeps
+records in tables. Format settings can be patched atomically; earlier receipts
+and catalog entries retain their original representation.
+
+Fixed limits: a block or index row lists at most 40 column entries, with
+numbered runs compressed (`Q6_1..Q6_12`); catalog entries and provenance blocks
+cut a definition at 200 characters (`inspect` shows it whole); a sample cuts a
+text cell at 160 characters (full does not); statistics list the top 4 values
+per column; statistics and flow lines each have a 2,000-character budget per
+retrieve.
 
 ## Decisions
 

@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { strict as assert } from "node:assert";
 import { selectNativeObservation } from "../../agent-service/src/agent/native/evidence";
+import { EVIDENCE_CHAR_LIMIT } from "../../agent-service/src/agent/native/retrieval";
 import type { OperatorInfo } from "../../agent-service/src/types/execution";
 import type { WorkflowContent } from "../../agent-service/src/types/workflow";
 
@@ -81,8 +82,9 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
         resolveInput: (id: string) => results.get(id),
         maxChars: settings.maxOperatorResultCharLimit,
         maxRows: settings.maxResultRows,
-        dataMaxChars: settings.dataEvidenceCharLimit,
-        flowMaxChars: settings.flowEvidenceCharLimit,
+        // Older runs' settings record the evidence budgets.
+        dataMaxChars: settings.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
+        flowMaxChars: settings.flowEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT,
       };
       const sample = selectNativeObservation({
         ...context,

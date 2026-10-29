@@ -28,7 +28,7 @@ import { executeDataflowActionBatch } from "../tools/dataflow-action-runtime";
 import { prepareActions, renderDataflowActionsResult } from "../tools/dataflow-actions";
 import { prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
-import { columnEntries, describeOperator, operatorBlock } from "./observation-format";
+import { columnEntries, DEFINITION_CHARS, describeOperator, operatorBlock } from "./observation-format";
 import { buildNativeFrames } from "../context/summarize/native-frames";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
@@ -281,24 +281,21 @@ test("format settings validate atomically, rebuild the prompt and preserve zero 
     contextAssembler: () => [],
     driver: { runTurn: async () => ({ text: "", messages: [], usage: {} }) },
   });
-  for (const patch of [{ tableFormat: "csv" }, { cellChars: -1 }, { columnsShown: 1.5 }, { answerEcho: "true" }]) {
+  for (const patch of [
+    { tableFormat: "csv" },
+    { keyValueColumns: -1 },
+    { fullPreviewRows: 1.5 },
+    { dataHygiene: "true" },
+  ]) {
     const before = structuredClone(agent.getSettings());
     expect(() => agent.updateSettings({ maxSteps: 3, ...patch } as any)).toThrow();
     expect(agent.getSettings()).toEqual(before);
   }
-  agent.updateSettings({
-    tableFormat: "tsv",
-    keyValueColumns: 0,
-    columnsShown: 0,
-    definitionChars: 0,
-    cellChars: 0,
-    topValues: 0,
-    catalogRecords: 0,
-    answerEcho: false,
-  });
+  agent.updateSettings({ tableFormat: "tsv", keyValueColumns: 0, fullPreviewRows: 0 });
   const settings = agent.getSettings();
   expect(settings.tableFormat).toBe("tsv");
   expect(settings.keyValueColumns).toBe(0);
+  expect(settings.fullPreviewRows).toBe(0);
   // The example receipts in the rebuilt prompt use the new table syntax.
   expect(settings.systemPrompt).toContain("group\tvalue");
   expect(settings.systemPrompt).not.toContain("| group | value |");
@@ -325,7 +322,10 @@ test("column runs retain type boundaries, leading zeros and physical omitted cou
 });
 
 test("operator blocks clip long definitions and never show revisions", () => {
-  const block = operatorBlock(describeOperator(sourceOp(), info(), { definitionChars: 5, definitionLimit: true }));
+  const op = sourceOp();
+  const source = `set source: scan(files='data/${"t".repeat(DEFINITION_CHARS)}.csv')`;
+  const long = { ...op, nativeOp: { ...op.nativeOp!, source } };
+  const block = operatorBlock(describeOperator(long, info(), { definitionLimit: true }));
   expect(block).toContain("definition clipped; show operator gives the full text");
   expect(block).not.toContain("revision");
 });

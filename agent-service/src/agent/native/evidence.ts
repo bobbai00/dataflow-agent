@@ -24,6 +24,7 @@ import {
   displayValue,
   observationFormat,
   formatCount,
+  TOP_VALUES,
   type FrozenRecords,
   type ObservationFormatOptions,
 } from "./observation-format";
@@ -1114,7 +1115,7 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
           let values = ranged ? `${display(column.min!)} to ${display(column.max!)}` : "";
           const frequencies = column.frequencies;
           if (frequencies?.values.length) {
-            const shown = format.topValues > 0 ? frequencies.values.slice(0, format.topValues) : frequencies.values;
+            const shown = frequencies.values.slice(0, TOP_VALUES);
             const exhaustive =
               !frequencies.truncated && frequencies.otherCount === 0 && shown.length === frequencies.values.length;
             values =

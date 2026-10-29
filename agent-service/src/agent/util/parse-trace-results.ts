@@ -23,9 +23,8 @@
  * each rebuilt snapshot's `results` map so an imported trace exposes the
  * same `Map<operatorId, OperatorInfo>` as a live agent run would.
  *
- * The agent service's context assemblers (`context-utils.ts` and
- * `context-utils-local-react.ts`) already serialize every action-bearing
- * snapshot into a markdown block of the shape
+ * The agent service's context assembler (`context-utils.ts`) serializes
+ * every action-bearing snapshot into a markdown block of the shape
  *
  *     ### Operator `<id>` (<Type>)
  *     Summary: <customDisplayName>
@@ -40,8 +39,8 @@
  *         <col>: <stat>                       (older Kramabench trace format)
  *
  * Failures render as `Result:\n  [ERROR] <message>`. The renderer's
- * heading depth varies with context mode (`### Operator` in local-react,
- * `##### Operator` deep inside FULL/DELTA contexts), so we accept any
+ * heading depth varies with context mode (`### Operator` in local-react
+ * traces, `##### Operator` deep inside FULL/DELTA contexts), so we accept any
  * leading `#` count, or none at all.
  */
 

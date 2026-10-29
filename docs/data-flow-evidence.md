@@ -74,7 +74,6 @@ collection policy, layout, and budget, changing only these two booleans:
 ```json
 {
   "nativeProfileCollection": true,
-  "parallelToolCalls": false,
   "contextMode": "delta",
   "maxOperatorResultCharLimit": 2000,
   "dataEvidence": true,

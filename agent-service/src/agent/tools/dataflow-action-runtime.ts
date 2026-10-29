@@ -32,7 +32,13 @@ import { FLOW_OMITTED_NOTICE, selectNativeObservation, type NativeObservation } 
 import { resultScope } from "../native/result-scope";
 import { nativeAssignmentText } from "../native/catalog";
 import { flowObservationOptions, retrievalOptions } from "../native/retrieval";
-import { observationFormat, describeOperator, topologicalOperators, columnEntries } from "../native/observation-format";
+import {
+  observationFormat,
+  describeOperator,
+  topologicalOperators,
+  columnEntries,
+  COLUMNS_SHOWN,
+} from "../native/observation-format";
 import { constantColumnLines, hygieneLines, nativeAdjustmentLines, nativeCheckLines } from "../native/checks";
 import { edgeEnds, editVersions, planRegisteredGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { inspectRegisteredNamespace, inspectRegisteredSchema, registeredInspectionName } from "./registered-inspection";
@@ -407,7 +413,7 @@ export async function executeDataflowActionBatch(
         const unknown = columns.filter(name => known.size && !known.has(name));
         if (unknown.length)
           throw new Error(
-            `UNKNOWN_COLUMN: \`${operatorId}\` has no column ${unknown.map(n => JSON.stringify(n)).join(", ")}. Its columns: ${columnEntries(info.resultSchema ?? [], observationFormat(result.format).columnsShown, false).join(", ")}. \`show schema ${operatorId}\` lists the exact names.`
+            `UNKNOWN_COLUMN: \`${operatorId}\` has no column ${unknown.map(n => JSON.stringify(n)).join(", ")}. Its columns: ${columnEntries(info.resultSchema ?? [], COLUMNS_SHOWN, false).join(", ")}. \`show schema ${operatorId}\` lists the exact names.`
           );
       }
       const observation = selectNativeObservation({

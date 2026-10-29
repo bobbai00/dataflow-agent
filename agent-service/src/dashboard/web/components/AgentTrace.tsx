@@ -209,7 +209,6 @@ export function AgentTrace({ agentId }: { agentId: string }) {
           <span>/</span>
           <span>{agent?.name ?? agentId}</span>
           {agent && <span className={`pill state-${agent.state}`}>{agent.state}</span>}
-          {agent && <span className="pill driver">{agent.driver}</span>}
           {agent && <span className="muted mono">{agent.modelType}</span>}
         </div>
         <div className="actions">

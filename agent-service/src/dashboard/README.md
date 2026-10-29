@@ -36,7 +36,7 @@ types the agent service already defines, so the wire format is whatever
 `JSON.stringify` produces from these:
 
 - **`src/types/agent.ts` → `ReActStep`** — each row in the timeline; carries `usage` for token charts.
-- **`src/types/agent.ts` → `AgentInfo`, `AgentState`, `AgentDriverKind`** — agent-list rendering + status badges.
+- **`src/types/agent.ts` → `AgentInfo`, `AgentState`** — agent-list rendering + status badges.
 - **`src/types/agent.ts` → `TokenUsage`** — token-analytics panel.
 - **`src/types/agent.ts` → `AgentSettingsApi`** — read-only settings inspector on the trace view.
 - **`src/agent/workflow-snapshot-storage.ts` → `SnapshotData`, `ResolvedSnapshotEntry<T>`** — snapshot-tree viewer + "what did the workflow look like at step N" replay.
@@ -97,9 +97,8 @@ Token usage lives on each `ReActStep.usage` (`inputTokens`, `outputTokens`,
 
 ### Agent list (landing page)
 
-- Table of every agent currently in `agentStore`, with id, name, model, driver
-  (`vercel-tool-use` / `local-react`), state, created-at, and a quick
-  step-count badge.
+- Table of every agent currently in `agentStore`, with id, name, model, state,
+  created-at, and a quick step-count badge.
 - Clicking an agent opens its trace view.
 - Auto-refresh by polling `GET /api/agents` every few seconds — agents come
   and go as users create / delete them.

@@ -47,8 +47,6 @@ class MockAgentService {
   public stepsSubject = new BehaviorSubject<ReActStep[]>([]);
   public headIdSubject = new BehaviorSubject<string | null>(null);
   public workflowSubject = new BehaviorSubject<Workflow | null>(null);
-  public scrollToStepSubject = new Subject<{ agentId: string; messageId: string; stepId: number }>();
-  public scrollToStep$ = this.scrollToStepSubject.asObservable();
 
   public ensureWorkflowPolling = vi.fn();
   public checkoutStep = vi.fn((): Observable<unknown> => of({ status: "checked out" }));
@@ -79,7 +77,7 @@ class MockAgentService {
   public getSystemInfo = vi.fn(
     (): Observable<{
       systemPrompt: string;
-      tools: Array<{ name: string; description: string; inputSchema: any; enabled: boolean }>;
+      tools: Array<{ name: string; description: string; inputSchema: any }>;
     }> => of({ systemPrompt: "", tools: [] })
   );
   public getAgentSettings = vi.fn((): Observable<AgentSettingsApi> => of({}));
@@ -94,7 +92,6 @@ function makeAgentInfo(overrides: Partial<AgentInfo> = {}): AgentInfo {
     id: AGENT_ID,
     name: "Test Agent",
     modelType: "gpt-test",
-    isBaselineMode: false,
     createdAt: new Date("2026-01-01T00:00:00Z"),
     ...overrides,
   };
@@ -130,7 +127,6 @@ describe("AgentChatComponent", () => {
   let uploadSubject: Subject<AgentFileUpload>;
   let createObjectURL: ReturnType<typeof vi.fn>;
   let revokeObjectURL: ReturnType<typeof vi.fn>;
-  let scrollIntoViewMock: ReturnType<typeof vi.fn>;
   // Originals of the globals we overwrite below, captured so afterEach can restore them
   // (direct assignment is not undone by vi.restoreAllMocks, so they would leak across spec files).
   let origScrollIntoView: typeof Element.prototype.scrollIntoView;
@@ -144,8 +140,7 @@ describe("AgentChatComponent", () => {
     origScrollIntoView = Element.prototype.scrollIntoView;
     origCreateObjectURL = URL.createObjectURL;
     origRevokeObjectURL = URL.revokeObjectURL;
-    scrollIntoViewMock = vi.fn();
-    (Element.prototype as any).scrollIntoView = scrollIntoViewMock;
+    (Element.prototype as any).scrollIntoView = vi.fn();
     createObjectURL = vi.fn(() => "blob:mock-url");
     revokeObjectURL = vi.fn();
     (URL as any).createObjectURL = createObjectURL;
@@ -615,7 +610,7 @@ describe("AgentChatComponent", () => {
   describe("showSystemInfo / refreshSystemInfo", () => {
     it("populates prompt and tools and applies default settings", () => {
       createComponent();
-      const tool = { name: "dataflow", description: "Builds the dataflow", inputSchema: {}, enabled: true };
+      const tool = { name: "dataflow", description: "Builds the dataflow", inputSchema: {} };
       agentService.getSystemInfo.mockReturnValue(of({ systemPrompt: "SYSTEM PROMPT TEXT", tools: [tool] }));
       agentService.getAgentSettings.mockReturnValue(of({}));
 
@@ -626,7 +621,6 @@ describe("AgentChatComponent", () => {
       expect(component.availableTools).toEqual([tool]);
       // ?? defaults for a settings payload with no fields set:
       expect(component.settingsMaxCharLimit).toBe(20000);
-      expect(component.settingsToolTimeoutSeconds).toBe(120);
       expect(component.settingsExecutionTimeoutMinutes).toBe(10);
       expect(component.settingsMaxSteps).toBe(10);
       // agent-service defaults: dataEvidence on, flowEvidence and operatorDoc off
@@ -640,7 +634,6 @@ describe("AgentChatComponent", () => {
       agentService.getAgentSettings.mockReturnValue(
         of({
           maxOperatorResultCharLimit: 111,
-          toolTimeoutSeconds: 33,
           executionTimeoutMinutes: 4,
           maxSteps: 5,
           dataEvidence: false,
@@ -652,7 +645,6 @@ describe("AgentChatComponent", () => {
       component.showSystemInfo();
 
       expect(component.settingsMaxCharLimit).toBe(111);
-      expect(component.settingsToolTimeoutSeconds).toBe(33);
       expect(component.settingsExecutionTimeoutMinutes).toBe(4);
       expect(component.settingsMaxSteps).toBe(5);
       expect(component.settingsDataEvidence).toBe("disabled");
@@ -676,13 +668,6 @@ describe("AgentChatComponent", () => {
         key: "maxOperatorResultCharLimit",
         value: 31000,
         toast: "Max character limit saved",
-      },
-      {
-        method: "saveToolTimeout",
-        prop: "settingsToolTimeoutSeconds",
-        key: "toolTimeoutSeconds",
-        value: 90,
-        toast: "Tool timeout saved",
       },
       {
         method: "saveExecutionTimeout",
@@ -987,33 +972,6 @@ describe("AgentChatComponent", () => {
     });
   });
 
-  describe("scroll-to-step requests", () => {
-    it("scrolls to and highlights the requested step of this agent", () => {
-      createComponent();
-      const s0 = makeStep({ messageId: "m1", stepId: 0 });
-      const s1 = makeStep({ messageId: "m1", stepId: 1 });
-      agentService.stepsSubject.next([s0, s1]);
-      fixture.detectChanges();
-      agentService.setHoveredMessage.mockClear();
-
-      agentService.scrollToStepSubject.next({ agentId: AGENT_ID, messageId: "m1", stepId: 0 });
-
-      expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
-      expect(component.hoveredMessageIndex).toBe(0);
-      expect(agentService.setHoveredMessage).toHaveBeenCalledWith(AGENT_ID, s0);
-    });
-
-    it("ignores scroll requests addressed to other agents", () => {
-      createComponent();
-      agentService.stepsSubject.next([makeStep()]);
-      fixture.detectChanges();
-
-      agentService.scrollToStepSubject.next({ agentId: "someone-else", messageId: "m1", stepId: 0 });
-
-      expect(scrollIntoViewMock).not.toHaveBeenCalled();
-    });
-  });
-
   describe("template rendering", () => {
     it("renders user and agent message bubbles with roles, content and tool summary", async () => {
       createComponent();
@@ -1158,7 +1116,7 @@ describe("AgentChatComponent", () => {
         agentService.getSystemInfo.mockReturnValue(
           of({
             systemPrompt: "SYSTEM PROMPT TEXT",
-            tools: [{ name: "createOperator", description: "Creates an operator", inputSchema: {}, enabled: true }],
+            tools: [{ name: "createOperator", description: "Creates an operator", inputSchema: {} }],
           })
         );
       });
@@ -1191,12 +1149,14 @@ describe("AgentChatComponent", () => {
         expect(document.body.textContent).toContain("Creates an operator");
 
         clickTab("Parameters");
-        expect(document.querySelectorAll("nz-input-number").length).toBe(4);
+        expect(document.querySelectorAll("nz-input-number").length).toBe(3);
         const paramsText = document.body.textContent ?? "";
         expect(paramsText).toContain("Max Operator Result Character Limit");
         expect(paramsText).not.toContain("Max Cell Character Limit");
         expect(paramsText).not.toContain("Agent Mode");
-        expect(paramsText).toContain("Tool Execution Timeout (seconds)");
+        expect(paramsText).not.toContain("Parallel Tool Calls");
+        expect(paramsText).not.toContain("Canvas Runs");
+        expect(paramsText).not.toContain("Tool Execution Timeout");
         expect(paramsText).toContain("Workflow Execution Timeout (minutes)");
         expect(paramsText).toContain("Max Steps per Message");
       });
@@ -1611,13 +1571,6 @@ describe("AgentChatComponent", () => {
         ["You edited `kept`", "v3"],
         ["You restored v1", undefined],
       ]);
-    });
-
-    it("saves whether the agent responds to canvas runs", () => {
-      createComponent();
-      component.settingsRespondToRuns = "wait";
-      component.saveRespondToRuns();
-      expect(agentService.updateAgentSettings).toHaveBeenLastCalledWith(AGENT_ID, { respondToCanvasRuns: false });
     });
 
     it("saves the session's instructions trimmed, and says when they were cleared", () => {

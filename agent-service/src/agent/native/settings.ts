@@ -44,28 +44,17 @@ export function validateNativeSettings(settings: object = {}): void {
         "retrievalViews must be a nonempty list of unique full, sample, or sample_stats views"
       );
   }
-  for (const key of ["fullResultCharLimit", "dataEvidenceCharLimit", "flowEvidenceCharLimit"]) {
-    const value = supplied[key];
-    if (value !== undefined && (!Number.isInteger(value) || Number(value) < 128 || Number(value) > 100000))
-      throw new NativeCatalogSettingsError(`${key} must be an integer between 128 and 100000`);
-  }
+  const limit = supplied.fullResultCharLimit;
+  if (limit !== undefined && (!Number.isInteger(limit) || Number(limit) < 128 || Number(limit) > 100000))
+    throw new NativeCatalogSettingsError("fullResultCharLimit must be an integer between 128 and 100000");
   if (supplied.tableFormat !== undefined && !["markdown", "tsv"].includes(String(supplied.tableFormat)))
     throw new NativeCatalogSettingsError("tableFormat must be markdown or tsv");
-  for (const key of [
-    "keyValueColumns",
-    "columnsShown",
-    "definitionChars",
-    "cellChars",
-    "topValues",
-    "catalogRecords",
-    "fullPreviewRows",
-  ]) {
+  for (const key of ["keyValueColumns", "fullPreviewRows"]) {
     const value = supplied[key];
     if (value !== undefined && (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 100000))
       throw new NativeCatalogSettingsError(`${key} must be an integer between 0 and 100000`);
   }
   for (const key of [
-    "answerEcho",
     "optionalPython",
     "dataHygiene",
     "pandasRound",
@@ -74,7 +63,6 @@ export function validateNativeSettings(settings: object = {}): void {
     "dataEvidence",
     "flowEvidence",
     "operatorDoc",
-    "respondToCanvasRuns",
     "answerStatement",
     "nativeProfileCollection",
     "nativeChecks",

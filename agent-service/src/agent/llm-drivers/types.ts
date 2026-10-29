@@ -18,16 +18,12 @@
  */
 
 import type { ModelMessage } from "ai";
-import type { ReActStep, TokenUsage, AgentSettings, LocalToolDialect } from "../../types/agent";
+import type { ReActStep, TokenUsage, AgentSettings } from "../../types/agent";
 import type { WorkflowState } from "../workflow-state";
 import type { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 
-/**
- * Bag of agent state a context assembler reads from when rendering the
- * next prepareStep message. Each assembler ignores fields it doesn't need
- * — the SDK-driver assembler uses every field; the local-react assembler
- * uses only `visibleSteps`, `workflowState`, and `snapshotStorage`.
- */
+/** Bag of agent state a context assembler reads from when rendering the
+ * next prepareStep message. */
 export interface ContextAssemblerInput {
   visibleSteps: ReActStep[];
   workflowState: WorkflowState;
@@ -54,10 +50,8 @@ export type ContextAssembler = (input: ContextAssemblerInput) => ModelMessage[] 
  * the closure inside `TexeraAgent.sendMessage` is driver-agnostic — it
  * records the step, snapshots HEAD, fires post-step execution, etc.
  *
- * For both drivers the contract is the same: one call per emitted
- * assistant turn. A turn with zero tool calls is still a step (the model's
- * final text-only reply for the SDK driver, or the terminal "no actions"
- * step for the local-react driver).
+ * The contract: one call per emitted assistant turn. A turn with zero tool
+ * calls (the model's final text-only reply) is still a step.
  */
 export interface DriverStepFinish {
   text: string;
@@ -74,8 +68,7 @@ export interface DriverStepFinish {
  * request so the agent can re-render context against the latest workflow
  * state. Returns the messages array the driver should send on the wire.
  *
- * Mirrors the Vercel AI SDK's `prepareStep` signature so the same closure
- * works for both drivers.
+ * Mirrors the Vercel AI SDK's `prepareStep` signature.
  */
 export type DriverPrepareStep = (args: {
   stepNumber: number;
@@ -92,19 +85,12 @@ export interface DriverRunTurnInput {
   /** Initial messages — typically `[{ role: "user", content: userMessage }]`.
    *  Passed through to `prepareStep` on the first iteration. */
   initialMessages: ModelMessage[];
-  /** System prompt. Drivers that don't want a system message (e.g.
-   *  local-react, whose prompt is baked into the model weights) ignore this. */
   systemPrompt: string | undefined;
-  /** Executable tool registry, keyed by toolName. The local-react driver
-   *  uses this directly to execute parsed actions; the SDK driver passes it
+  /** Executable tool registry, keyed by toolName; the SDK driver passes it
    *  to `generateText({ tools })`. */
   tools: Record<string, any>;
   /** Hard cap on the number of model turns per `sendMessage` invocation. */
   maxSteps: number;
-  /** When true, the SDK driver asks the provider to allow multiple tool
-   *  calls per turn. The local-react driver always supports multiple Action
-   *  pairs in a single turn — this flag is effectively a no-op there. */
-  parallelToolCalls: boolean;
   /** Native mode: the final answer is a reply without a tool call, accepted
    *  once a result of this task has been shown. Before that, such a reply is a
    *  lapse the agent corrects. */
@@ -117,23 +103,15 @@ export interface DriverRunTurnInput {
   /** A reply without the tool is sent back once with the answer-statement
    *  correction, instead of being taken as the answer. */
   answerByStatement?: boolean;
-  /** Tool-call dialect for the local text-mode driver — selects which parser
-   *  it applies to the model's completion (`qwen-xml` → `parseQwenToolCall`,
-   *  `react-text` → `parseReActText`). The SDK driver ignores it (native tool
-   *  calls). Defaults to `qwen-xml` when unset. */
-  toolDialect?: LocalToolDialect;
   abortSignal?: AbortSignal;
   prepareStep: DriverPrepareStep;
   onStepFinish: (args: DriverStepFinish) => Promise<void>;
 }
 
 export interface DriverRunTurnResult {
-  /** Final text the driver produces. For the SDK driver this is
-   *  `result.text` from `generateText`. For the local-react driver it's the
-   *  last turn's parsed thought (or the empty string if none). */
+  /** Final text the driver produces: `result.text` from `generateText`. */
   text: string;
-  /** Final transcript. The SDK driver returns `result.response.messages`;
-   *  the local-react driver returns the messages array it last sent. */
+  /** Final transcript: `result.response.messages`. */
   messages: ModelMessage[];
   usage: TokenUsage;
 }
@@ -168,10 +146,10 @@ export class ProviderRefusalError extends Error {
 }
 
 /**
- * Strategy interface that hides the LLM call style from `TexeraAgent`.
- * Both implementations preserve the agent's bookkeeping invariants — they
- * call `prepareStep` before every model request and `onStepFinish` after
- * every emitted assistant turn.
+ * Strategy interface that hides the LLM call style from `TexeraAgent`. An
+ * implementation preserves the agent's bookkeeping invariants: it calls
+ * `prepareStep` before every model request and `onStepFinish` after every
+ * emitted assistant turn.
  */
 export interface LLMDriver {
   runTurn(input: DriverRunTurnInput): Promise<DriverRunTurnResult>;

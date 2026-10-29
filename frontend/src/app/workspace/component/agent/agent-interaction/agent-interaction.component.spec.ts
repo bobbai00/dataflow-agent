@@ -33,7 +33,7 @@ import { NativeOperatorEditorComponent } from "../native-operator-editor/native-
 import { NativeStatementForm } from "../../../service/agent/native-operator";
 
 function makeAgent(id: string, name: string = id): AgentInfo {
-  return { id, name, modelType: "gpt-test", isBaselineMode: false, createdAt: new Date("2026-01-01T00:00:00Z") };
+  return { id, name, modelType: "gpt-test", createdAt: new Date("2026-01-01T00:00:00Z") };
 }
 
 /** The texera graph the component reads: these operators and links, and no change events. */

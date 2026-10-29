@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { TexeraAgent } from "../texera-agent";
 import { isTransientModelError, LLM_DEADLINE_HEADER, withRequestTimeout } from "./request-timeout";
 import { ProviderRefusalError } from "./types";
@@ -27,16 +27,6 @@ const neverAnswers = ((_input: unknown, init?: RequestInit) =>
   new Promise<Response>((_, reject) => {
     init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
   })) as typeof fetch;
-
-let backoff: string | undefined;
-beforeAll(() => {
-  backoff = process.env.MODEL_RETRY_BACKOFF_MS;
-  process.env.MODEL_RETRY_BACKOFF_MS = "1";
-});
-afterAll(() => {
-  if (backoff === undefined) delete process.env.MODEL_RETRY_BACKOFF_MS;
-  else process.env.MODEL_RETRY_BACKOFF_MS = backoff;
-});
 
 test("a model request that never answers is abandoned at its deadline", async () => {
   const started = Date.now();
@@ -117,6 +107,8 @@ function agentWith(runTurn: (input: any) => Promise<any>) {
     modelType: "test",
     contextAssembler: () => [],
     driver: { runTurn },
+    // Retries wait a millisecond, not the agent's three seconds.
+    retryBackoffMs: 1,
   });
   agent.updateSettings({ maxSteps: 25 });
   return agent;

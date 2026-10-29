@@ -22,6 +22,7 @@ import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
 import { issueText, renderTurnReceipt } from "./turn-receipt";
 import {
+  CELL_CHARS,
   displayValue,
   describeOperator,
   renderRecords,
@@ -118,7 +119,7 @@ describe("record views", () => {
       row(null, null, null, null),
       row("Source: Consumer Sentinel Network Data Book 2024, Federal Trade Commission", null, null, null),
     ];
-    const sample = renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 5, cellChars: 200 });
+    const sample = renderRecords(info(rows), { view: "sample", maxChars: 2000, maxRows: 5 });
     expect(sample.returnedRows).toBe(5);
     for (const text of ["Florida", "District of Columbia", "are not ranked", "Reports per 100K Population"])
       expect(sample.text).toContain(text);
@@ -181,22 +182,13 @@ describe("record views", () => {
       expect(unknown.text).toContain("1 of unknown rows");
     });
     test(`${tableFormat}: cell clipping prevents a completeness claim`, () => {
-      const result = renderRecords(info([{ text: "Delivered after a delay" }]), {
-        tableFormat,
-        view: "sample",
-        maxChars: 2000,
-        cellChars: 12,
-      });
-      expect(result.text).toContain("Delivered af…");
+      const text = Array(8).fill("Delivered after a delay").join(", ");
+      const result = renderRecords(info([{ text }]), { tableFormat, view: "sample", maxChars: 2000 });
+      expect(result.text).toContain(`${text.slice(0, CELL_CHARS)}…`);
       expect(result.text).toContain("1 clipped cell");
       expect(result.complete).toBe(false);
-      const full = renderRecords(info([{ text: "Delivered after a delay" }]), {
-        tableFormat,
-        view: "full",
-        maxChars: 2000,
-        cellChars: 12,
-      });
-      expect(full.text).toContain("Delivered after a delay");
+      const full = renderRecords(info([{ text }]), { tableFormat, view: "full", maxChars: 2000 });
+      expect(full.text).toContain(text);
       expect(full.complete).toBe(true);
     });
     test(`${tableFormat}: a wide view uses named fields and counts omitted columns`, () => {

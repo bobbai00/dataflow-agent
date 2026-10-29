@@ -18,6 +18,8 @@
  */
 
 import { expect, test } from "bun:test";
+import { createOpenAI } from "@ai-sdk/openai";
+import { jsonSchema, tool } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { VercelToolUseDriver } from "./vercel-tool-use-driver";
 import { ProviderRefusalError, type DriverStepFinish } from "./types";
@@ -43,7 +45,6 @@ for (const field of ["cache_write_tokens", "cache_creation_tokens"]) {
       systemPrompt: undefined,
       tools: {},
       maxSteps: 1,
-      parallelToolCalls: false,
       prepareStep: async ({ messages }) => ({ messages }),
       onStepFinish: async step => {
         steps.push(step);
@@ -74,7 +75,6 @@ test("an empty reply ended by the provider's content filter is a provider refusa
       systemPrompt: undefined,
       tools: {},
       maxSteps: 1,
-      parallelToolCalls: false,
       requireShownResult: true,
       resultShown: () => true,
       prepareStep: async ({ messages }) => ({ messages }),
@@ -83,4 +83,32 @@ test("an empty reply ended by the provider's content filter is a provider refusa
     .catch(e => e);
   expect(error).toBeInstanceOf(ProviderRefusalError);
   expect(isTransientModelError(error)).toBe(true);
+});
+
+test("every model request asks the provider for one tool call per turn", async () => {
+  const bodies: any[] = [];
+  const provider = createOpenAI({
+    apiKey: "test",
+    fetch: (async (_url, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        id: "test",
+        object: "chat.completion",
+        created: 0,
+        model: "test",
+        choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "done" } }],
+        usage: { prompt_tokens: 20, completion_tokens: 1, total_tokens: 21 },
+      });
+    }) as typeof fetch,
+  });
+  await new VercelToolUseDriver({ model: provider.chat("test") }).runTurn({
+    initialMessages: [{ role: "user", content: "Hello" }],
+    systemPrompt: "System",
+    tools: { dataflow: tool({ description: "Actions", inputSchema: jsonSchema({ type: "object" }) }) },
+    maxSteps: 1,
+    prepareStep: async ({ messages }) => ({ messages }),
+    onStepFinish: async () => {},
+  });
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0].parallel_tool_calls).toBe(false);
 });

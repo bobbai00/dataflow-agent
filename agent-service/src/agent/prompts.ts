@@ -18,18 +18,15 @@
  */
 
 /**
- * System prompts for the Texera agent:
- *
- * - `buildRegisteredNativeSystemPrompt` — the model edits, runs and reads the
- *   Dataflow through the `dataflow(python, statements)` tool (template
- *   `prompts/native-registered.md`; worked examples rendered by the production
- *   receipt renderer in `prompts/registered-examples.ts`).
- * - `buildLocalReactSystemPrompt` — the local text-mode driver's prompt, one per
- *   tool-call dialect.
+ * The Texera agent's system prompt, `buildRegisteredNativeSystemPrompt`: the
+ * model edits, runs and reads the Dataflow through the
+ * `dataflow(python, statements)` tool (template `prompts/native-registered.md`;
+ * worked examples rendered by the production receipt renderer in
+ * `prompts/registered-examples.ts`).
  */
 
 import { readFileSync } from "node:fs";
-import type { CatalogSource, LocalToolDialect, MultiRequestMode, RetrievalSettings } from "../types/agent";
+import type { CatalogSource, MultiRequestMode, RetrievalSettings } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
@@ -102,7 +99,7 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
   const full = `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`;
   const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
-  const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${options.dataEvidenceCharLimit ?? EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
+  const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
   const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
   const fullLimit = options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT;
   const previewRows = observationFormat(options).fullPreviewRows;
@@ -187,49 +184,4 @@ export function buildRegisteredNativeSystemPrompt(options: NativePromptLayoutOpt
  * `show function` instead of duplicated as documentation. */
 export function registeredReferenceText(request: { topic: "operators"; operator_names: string[] }): string {
   return registeredCatalogText(request.operator_names, "full");
-}
-
-// ---------------------------------------------------------------------------
-// Local-react (in-house local LLM) system prompts — one per tool-call dialect.
-//
-// The local LLM's tool catalog + output-format instructions are baked into its
-// system prompt (no `tools` on the wire; the driver parses the model's text).
-// The two dialects pair a prompt with the context renderer that prompt
-// describes, so the model's stated input format matches what it actually sees:
-//   - "qwen-xml"  — the template in `code-mode.md`, where every operator is
-//     one Python function written through `createOrModifyOperator`, plus the
-//     `<tools>`/`<tool_call>` appendix (`local-qwen-tools.txt`), composed
-//     below. It describes the `# Agent Events` context → paired with the SDK
-//     assembler `assembleContext` (server.ts).
-//   - "react-text" — the standalone `local-react.txt` (plain-text tool list +
-//     `Thought / Action / Action Input / Observation`, down to `Begin!`). It
-//     describes the `# Event N` context → paired with `assembleLocalReactContext`.
-//
-// The model uses the ChatML chat template: the gateway wraps this text as
-// `<|im_start|>system\n…<|im_end|>` and the per-turn context as
-// `<|im_start|>user\n…<|im_end|>` automatically when the driver sends
-// role-tagged messages — so NO framing/BOS tokens belong in these files.
-// ---------------------------------------------------------------------------
-const QWEN_XML_TEMPLATE: string = readFileSync(new URL("./prompts/code-mode.md", import.meta.url), "utf8");
-// The template's context format and worked example describe the `# Agent
-// Events` trajectory the agent receives, and the `# Dataflow (compacted)` deck
-// only when compaction can fire.
-const QWEN_XML_FORMAT: string = rd("context-format.delta.md");
-const QWEN_XML_EXAMPLE: string = rd("example.delta.md");
-const QWEN_XML_COMPACTION: string = rd("compaction.delta.md");
-const QWEN_TOOL_APPENDIX: string = readFileSync(new URL("./prompts/local-qwen-tools.txt", import.meta.url), "utf8");
-const REACT_TEXT_SYSTEM_PROMPT: string = readFileSync(new URL("./prompts/local-react.txt", import.meta.url), "utf8");
-/**
- * Returns the local driver's system prompt for the given tool-call dialect.
- * `react-text` is standalone; `qwen-xml` is the `code-mode.md` template (it
- * describes the SDK context assembler's render) plus the XML tool-call
- * appendix.
- */
-export function buildLocalReactSystemPrompt(dialect: LocalToolDialect, compactionEnabled = false): string {
-  if (dialect === "react-text") return REACT_TEXT_SYSTEM_PROMPT;
-  const prompt = QWEN_XML_TEMPLATE.replace("{{CONTEXT_FORMAT}}", QWEN_XML_FORMAT)
-    .replace("{{COMPACTION}}", compactionEnabled ? `\n${QWEN_XML_COMPACTION}\n` : "")
-    .replace("{{EXAMPLE}}", QWEN_XML_EXAMPLE)
-    .replace(/\n{3,}/g, "\n\n");
-  return `${prompt.trimEnd()}\n\n${QWEN_TOOL_APPENDIX}`;
 }

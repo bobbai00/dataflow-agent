@@ -77,7 +77,7 @@ export function userActionVersion(result: DataflowActionsResult): number | undef
 
 /** What the model reads: what the user did, then the receipt the call produced
  * (absent while the call is still running). `respond`: the agent responds to
- * the result in a turn of its own (AgentSettings.respondToCanvasRuns). */
+ * the result in a turn of its own. */
 export function userActionContent(
   action: UserActionRequest,
   previous: string | undefined,
