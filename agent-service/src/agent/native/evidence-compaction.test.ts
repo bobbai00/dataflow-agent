@@ -19,7 +19,7 @@
 
 import { expect, test } from "bun:test";
 import { compactNativeObservation, shareNativeObservation, type NativeColumnCount } from "./evidence-compaction";
-import { restrictNativeObservation, type NativeEvidenceFact, type NativeObservation } from "./evidence";
+import type { NativeEvidenceFact, NativeObservation } from "./evidence";
 
 const metric: NativeColumnCount = {
   column: "x",
@@ -129,7 +129,7 @@ test("shared references require an actually displayed same-version same-text pro
 test("a clipped or omitted first observation cannot become a shared-reference target", () => {
   const original = frame([upstream]);
   const seen = new Map<string, string>();
-  const short = restrictNativeObservation(original, { maxChars: 40 });
+  const short = original.text.slice(0, 40);
   expect(shareNativeObservation(short, original, "first", seen)).toBe(short);
   expect(seen.size).toBe(0);
   expect(shareNativeObservation(original.text, original, "second", seen)).toBe(original.text);

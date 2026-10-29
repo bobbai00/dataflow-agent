@@ -361,7 +361,7 @@ export function renderContextCore(
  * whole context — independent of the underlying ReAct step IDs (which restart
  * per messageId and are 0-based).
  */
-export interface PathNode {
+interface PathNode {
   step: ReActStep;
   snapshot: SnapshotData | undefined;
   eventIndex: number;
@@ -383,7 +383,7 @@ function isInitStep(step: ReActStep): boolean {
   return step.toolCalls[0].toolName === "initialize";
 }
 
-export interface BuiltPath {
+interface BuiltPath {
   /** Visible events in chronological order. The init step (Event 0) is
    *  filtered out here, so `eventIndex` numbers start at 1. */
   path: PathNode[];
@@ -420,7 +420,7 @@ export const __forTesting = {
   findLatestUserStepInPath,
 };
 
-export function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
+function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
   let initSnapshot: SnapshotData | undefined;
   const remaining: ReActStep[] = [];
   for (const step of visibleSteps) {
@@ -527,7 +527,7 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
 }
 
 /* ============================================================================
- *  Rendering: interleaved events + trailing snapshot
+ *  Rendering: interleaved events and their compaction
  * ========================================================================= */
 
 /**
@@ -1254,7 +1254,7 @@ function renderRawResult(
   overrides: Partial<FormatOperatorResultOptions> = {}
 ): string {
   const raw = formatOperatorResult(operatorId, info, workflowState, {
-    ...legacyFormatOptions(options, operatorId, workflowState),
+    ...resultFormatOptions(options),
     resolveInputColumns,
     ...overrides,
   });
@@ -1273,7 +1273,7 @@ function stringifyOutput(output: unknown): string {
 }
 
 /* ============================================================================
- *  Snapshot rendering (Full and Delta variants of the per-snapshot DAG)
+ *  Snapshot rendering (the compacted deck and the per-event delta)
  * ========================================================================= */
 
 /**
@@ -1396,11 +1396,7 @@ function nativeEvidenceAtSnapshot(
   };
 }
 
-function legacyFormatOptions(
-  options: AssembleContextOptions,
-  operatorId?: string,
-  workflowState?: WorkflowState
-): FormatOperatorResultOptions {
+function resultFormatOptions(options: AssembleContextOptions): FormatOperatorResultOptions {
   return {
     schemaInResult: options.schemaInResult,
     maxResultRows: options.maxResultRows,
@@ -1492,7 +1488,7 @@ function serializeOperatorFull(
   }
   const execText = info
     ? formatOperatorResult(op.operatorID, info, workflowState, {
-        ...legacyFormatOptions(options, op.operatorID, workflowState),
+        ...resultFormatOptions(options),
         // The operator block renders a single consolidated `Inputs:` (with counts)
         // via formatOperatorAdjacency, so skip the in-Result one.
         inputsInResult: false,

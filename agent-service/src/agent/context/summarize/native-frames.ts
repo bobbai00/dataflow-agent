@@ -24,13 +24,6 @@ import type { ReActStep } from "../../../types/agent";
 
 /** `## Agent Event N` at line start — the boundary the renderer emits. */
 const EVENT_RE = /^## Agent Event (\d+)\s*$/gm;
-/**
- * The sections the renderer places after the last event (renderContextCore).
- * In a native transcript only these headings end an event: any other `# ` line
- * there is the model's reply or a result, such as a Python comment.
- */
-const AGENT_SECTION_RE =
-  /^# (?:Current Dataflow|Inspections|Agent Turns|Reasoning|Operators needing attention)\b[^\n]*$/m;
 
 export interface NativeFramesResult {
   messages: ModelMessage[];
@@ -80,17 +73,6 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
       return at < 0 ? -1 : bodyAt + at;
     };
 
-    // Split off a trailing top-level section: it is CURRENT state, re-rendered
-    // every step, so it must sit last or it would break the append-only prefix.
-    let trailing = "";
-    if (i === marks.length - 1) {
-      const t = after(AGENT_SECTION_RE);
-      if (t >= 0) {
-        trailing = chunk.slice(t).trimEnd();
-        chunk = chunk.slice(0, t);
-      }
-    }
-
     // An earlier user turn (`## User Event N`) is rendered between agent events;
     // it belongs to the user, not to the previous tool result.
     let userTurn = "";
@@ -127,7 +109,6 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
       if (body) messages.push({ role: "assistant", content: body });
       if (observation) messages.push({ role: "user", content: observation });
       if (userTurn) messages.push({ role: "user", content: userTurn });
-      if (trailing) messages.push({ role: "user", content: trailing });
       continue;
     }
 
@@ -164,7 +145,6 @@ export function buildNativeFrames(text: string, stepByEvent: Map<number, ReActSt
     converted++;
 
     if (userTurn) messages.push({ role: "user", content: userTurn });
-    if (trailing) messages.push({ role: "user", content: trailing });
   }
 
   // A transcript must not end on an assistant turn (a thought-only event), so

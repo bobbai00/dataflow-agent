@@ -174,8 +174,8 @@ function render(
   return renderText({ steps, workflowState, storage }, options);
 }
 
-/** The compress compaction's deck, which renders each operator as a block: one
- *  more event on the last event's dataflow, and a window nothing fits, fold
+/** The compress compaction's deck, which renders each operator as a block. An
+ *  extra event on the last event's dataflow and a window nothing fits fold
  *  every event into it. */
 function renderDeck(scenario: Scenario): string {
   const last = scenario.steps[scenario.steps.length - 1];

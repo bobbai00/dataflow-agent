@@ -53,9 +53,6 @@ const CTX = [
   "Observation:",
   "- operator join_b added",
   "  Lineage: 12 rows in → 3 rows out (25.0%)",
-  "",
-  "# Operators needing attention",
-  "- join_b lost 9 rows",
 ].join("\n");
 
 function step(id: string, calls: Array<[string, string]>, outputs: Record<string, string> = {}): ReActStep {
@@ -90,7 +87,7 @@ describe("buildNativeFrames", () => {
   test("emits a real tool-calling transcript", () => {
     const { messages, events } = buildNativeFrames(CTX, MAP);
     expect(events).toBe(2);
-    expect(messages.map(m => m.role)).toEqual(["user", "assistant", "tool", "assistant", "tool", "user"]);
+    expect(messages.map(m => m.role)).toEqual(["user", "assistant", "tool", "assistant", "tool"]);
   });
 
   test("assistant turns carry actual tool-call parts, NOT prose actions", () => {
@@ -220,13 +217,6 @@ describe("buildNativeFrames", () => {
     expect(results).toHaveLength(2);
     expect(results[0].output.value).not.toContain("Schema (2 cols)");
     expect(results[1].output.value).toContain("Schema (2 cols)");
-  });
-
-  test("trailing current-state section stays last so the prefix stays stable", () => {
-    const { messages } = buildNativeFrames(CTX, MAP);
-    const last = messages[messages.length - 1];
-    expect(last.role).toBe("user");
-    expect(last.content).toContain("# Operators needing attention");
   });
 
   // The model's own reply is rendered verbatim as `Thought: <reply>`, so the

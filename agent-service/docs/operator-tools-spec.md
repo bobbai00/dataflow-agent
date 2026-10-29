@@ -1,7 +1,7 @@
 # Operators as tools: specification
 
 The contract between the model and the agent-service in native mode.
-Design and rationale: [typed-operators-design.md](typed-operators-design.md).
+Design and rationale (archived): [typed-operators-design.md](../../docs/archived/typed-operators-design.md).
 Source of truth for names, schemas and signatures: `NATIVE_OPERATORS` in
 `src/agent/native/catalog.ts`; the tools, the validator and the prompt catalog
 are all generated from it.
@@ -325,8 +325,3 @@ principles carried over from code mode minus the pandas-specific ones.
 |---|---|---|
 | `contextMode` | `delta` | `delta` |
 | `execution_timeout_minutes` (harness) | idle timeout of one execution | 4; native arms use 10 (one Python hop over 320k rows ≈ 120 s) |
-
-Harness arms (`benchmark/Kramabench/systems/dataflow_system.py`):
-`DataflowSystemLunaNativeTools{Rule,All}Rep1` (LATEST) and
-`DataflowSystemLunaNativeToolsRuleDeltaRep1` (DELTA). Multi-turn
-(`benchmark/longds/arms.py`): `luna-native-rule-delta`, `luna-native-rule-latest`.

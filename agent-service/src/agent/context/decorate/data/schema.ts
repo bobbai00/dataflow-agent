@@ -21,11 +21,11 @@ import type { OperatorInfo } from "../../../../types/execution";
 import { RESERVED_STATS_KEYS } from "./reserved-keys";
 
 /**
- * Wide-table cap for the schema line. A `shape`-detail render of a very wide
- * table (e.g. biomedical clinical = 179 cols) still emits a full column
- * inventory — ~3k chars re-rendered every step (docs/context-param-case-studies
- * Case 3). Cap the enumerated columns; the count still reports the true total,
- * so nothing is silently lost. Matches the TSV/stats renderers' 50-col cap.
+ * Wide-table cap for the schema line. A very wide table (e.g. biomedical
+ * clinical = 179 cols) would emit a full column inventory — ~3k chars
+ * re-rendered every step (docs/archived/context-param-case-studies.md, Case 3).
+ * Cap the enumerated columns; the count still reports the true total, so
+ * nothing is silently lost. Matches the TSV/stats renderers' 50-col cap.
  */
 const MAX_SCHEMA_COLUMNS = 50;
 
@@ -38,7 +38,7 @@ const MAX_SCHEMA_COLUMNS = 50;
  * a `(showing N of M cols)` header so the total is never hidden. Returns
  * undefined when no columns are known.
  */
-export function formatSchemaLine(opInfo: OperatorInfo, includeTypes = true): string | undefined {
+export function formatSchemaLine(opInfo: OperatorInfo): string | undefined {
   const stats = opInfo.columnStats ?? {};
   const statCols = Object.keys(stats).filter(k => !RESERVED_STATS_KEYS.has(k));
   let cols: string[];
@@ -55,7 +55,6 @@ export function formatSchemaLine(opInfo: OperatorInfo, includeTypes = true): str
   if (total === 0) return undefined;
 
   const render = (name: string): string => {
-    if (!includeTypes) return name;
     const s = stats[name];
     const m = typeof s === "string" ? /^\(([^)]+)\)/.exec(s.trim()) : null;
     return m ? `${name} (${m[1]})` : name;

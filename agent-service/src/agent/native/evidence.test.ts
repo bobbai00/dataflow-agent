@@ -1418,11 +1418,10 @@ test("missing evidence is not an execution error and never triggers hidden work"
   expect(observe(f).omitted.some(x => x.id === "profile_unavailable")).toBe(true);
 });
 
-test("shape-only and tighter row limits cannot imply complete visibility", () => {
+test("a tighter row limit cannot imply complete visibility", () => {
   const f = fixture();
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
-  expect(observe(f, { detail: "shape" }).text).not.toContain("(complete)");
   expect(observe(f, { maxRows: 1 }).text).not.toContain("(complete)");
 });
 
@@ -1431,17 +1430,10 @@ test("compaction only shortens recorded evidence and never adds new facts", () =
   f.info.result = [{ x: 10 }, { x: 20 }, { x: 30 }];
   f.info.truncated = false;
   const recorded = observe(f);
-  const shape = restrictNativeObservation(recorded, { detail: "shape" });
-  expect(shape).not.toContain("(complete)");
-  expect(shape).not.toContain("10\n20\n30");
-  expect(shape).toContain("kept=3/5");
-  expect(shape).not.toContain("statistics:");
   const sample = restrictNativeObservation(recorded, { maxRows: 1 });
   expect(sample).not.toContain("(complete)");
   expect(sample).toContain("10");
   expect(sample).not.toContain("20\n30");
-  for (const maxChars of [1, 40, 150, 1000])
-    expect(restrictNativeObservation(recorded, { maxChars }).length).toBeLessThanOrEqual(maxChars);
   expect(restrictNativeObservation(recorded, {})).toBe(recorded.text);
 });
 

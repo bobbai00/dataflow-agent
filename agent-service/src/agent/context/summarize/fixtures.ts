@@ -495,12 +495,6 @@ export function buildRichScenario(): Scenario {
   return sc;
 }
 
-export function contentOf(messages: Array<{ content: unknown }>): string {
-  const first = messages[0];
-  if (!first) return "";
-  return typeof first.content === "string" ? first.content : JSON.stringify(first.content);
-}
-
 /** What the renderer produces for `options`, before the transcript frames it. */
 export function renderText(scenario: Scenario, options: AssembleContextOptions = {}): string {
   const { steps, storage, workflowState } = scenario;

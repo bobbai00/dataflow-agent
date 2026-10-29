@@ -236,16 +236,12 @@ export interface RenderedRecords {
   complete: boolean;
 }
 
-function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], shapeOnly = false, cutAt?: number): string {
+function recordCaption(view: FrozenRecords, rows: FrozenRecords["rows"], cutAt?: number): string {
   const clipped = rows.reduce((sum, row) => sum + row.clipped, 0);
   const complete =
-    !shapeOnly &&
-    view.sourceComplete &&
-    rows.length === view.totalRows &&
-    view.fields.length === view.totalColumns &&
-    !clipped;
+    view.sourceComplete && rows.length === view.totalRows && view.fields.length === view.totalColumns && !clipped;
   // Every row is shown, but some columns or cell contents are not.
-  const allRows = !shapeOnly && view.sourceComplete && rows.length === view.totalRows;
+  const allRows = view.sourceComplete && rows.length === view.totalRows;
   const gaps = rows.length > 1 && rows.some(row => row.index !== undefined) && !isContiguous(rows);
   const annotations = [
     ...(complete
@@ -327,11 +323,11 @@ function displayLines(rows: FrozenRecords["rows"], layout: Layout, width: number
 /** Restrict only frozen display lines. No fresh rows, profiles or graph are read. */
 export function restrictRecords(
   frozen: FrozenRecords,
-  limits: { maxChars: number; maxRows?: number; detail?: "shape"; previewRows?: number }
+  limits: { maxChars: number; maxRows?: number; previewRows?: number }
 ): RenderedRecords {
   const budget = Math.max(0, Math.floor(limits.maxChars));
   const rowLimit = limits.maxRows && limits.maxRows > 0 ? Math.floor(limits.maxRows) : frozen.rows.length;
-  let rows = limits.detail === "shape" ? [] : frozen.rows.slice(0, rowLimit);
+  let rows = frozen.rows.slice(0, rowLimit);
   const header =
     frozen.layout === "key-value" || !frozen.fields.length
       ? ""
@@ -345,7 +341,7 @@ export function restrictRecords(
   const render = () =>
     [
       frozen.schema,
-      recordCaption(shown, rows, limits.detail === "shape", cutAt),
+      recordCaption(shown, rows, cutAt),
       header,
       ...displayLines(rows, frozen.layout, frozen.fields.length),
     ]
@@ -393,7 +389,6 @@ export function restrictRecords(
     fields.length === frozen.totalColumns &&
     frozen.sourceComplete &&
     rows.length === frozen.totalRows &&
-    limits.detail !== "shape" &&
     !clippedCells &&
     text.includes("(complete");
   return {
@@ -430,7 +425,6 @@ export function renderRecords(
     maxChars: number;
     maxRows?: number;
     columns?: readonly string[];
-    detail?: "shape" | "sample";
     preview?: boolean;
     /** The table was read from files (a scan or a loader): its first look shows as many rows as fit. */
     source?: boolean;
@@ -498,7 +492,6 @@ export function renderRecords(
   const limits = {
     maxChars: Math.max(0, options.maxChars - (options.view === "sample" ? "sample_stats".length - "sample".length : 0)),
     maxRows: options.view === "full" ? 0 : options.maxRows,
-    detail: options.detail === "shape" ? ("shape" as const) : undefined,
     previewRows: options.view === "full" && !options.source ? config.fullPreviewRows : 0,
   };
   let frozen = build(allowed);

@@ -29,17 +29,17 @@ function infoWithCols(n: number): OperatorInfo {
 
 describe("formatSchemaLine — wide-table cap (Phase 1)", () => {
   test("narrow tables are unchanged (byte-identical to pre-cap)", () => {
-    expect(formatSchemaLine(infoWithCols(4), false)).toBe("Schema (4 cols): c0, c1, c2, c3");
+    expect(formatSchemaLine(infoWithCols(4))).toBe("Schema (4 cols): c0, c1, c2, c3");
   });
 
   test("exactly 50 cols is not capped", () => {
-    const line = formatSchemaLine(infoWithCols(50), false)!;
+    const line = formatSchemaLine(infoWithCols(50))!;
     expect(line.startsWith("Schema (50 cols):")).toBe(true);
     expect(line).not.toContain("showing");
   });
 
   test("179 cols → capped to 50 with a truthful total + both ends shown", () => {
-    const line = formatSchemaLine(infoWithCols(179), false)!;
+    const line = formatSchemaLine(infoWithCols(179))!;
     expect(line.startsWith("Schema (showing 50 of 179 cols):")).toBe(true);
     expect(line).toContain("c0"); // first end
     expect(line).toContain("c178"); // last end

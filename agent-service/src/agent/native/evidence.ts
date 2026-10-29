@@ -65,7 +65,6 @@ export interface NativeObservationOptions extends ObservationFormatOptions {
   flow: boolean;
   maxChars: number;
   maxRows?: number;
-  detail?: "shape" | "sample";
   columns?: readonly string[];
   view?: RetrievalView;
   dataMaxChars?: number;
@@ -1011,7 +1010,6 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
     view: context.view,
     maxRows: context.view === "full" ? 0 : context.maxRows,
     columns: context.columns,
-    detail: context.detail,
     preview: op.nativeOp?.type === "Scan" && Number(op.nativeOp.properties.preview ?? 0) > 0,
     // A table read from files keeps its first look whole up to the budget: a
     // value written differently from the first rows (a "Sept" among "Aug"
@@ -1030,7 +1028,6 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
       flow,
       maxChars,
       maxRows: context.maxRows,
-      detail: context.detail,
       columns: context.columns ? [...context.columns] : undefined,
       view: context.view,
       dataMaxChars: context.dataMaxChars,
@@ -1242,22 +1239,15 @@ function columnTypeName(type: string): string {
 
 /** Historical compaction is subtractive: it may drop rows or tail chunks,
  * never extract fresh profiles or use a later DAG to choose new evidence. */
-export function restrictNativeObservation(
-  observation: NativeObservation,
-  limits: { maxChars?: number; maxRows?: number; detail?: "sample" | "shape" }
-): string {
+export function restrictNativeObservation(observation: NativeObservation, limits: { maxRows?: number }): string {
   if (observation.version === 2 && observation.records) {
-    const budget =
-      limits.maxChars && limits.maxChars > 0
-        ? Math.min(observation.text.length, limits.maxChars)
-        : observation.text.length;
-    if (budget >= observation.text.length && !limits.maxRows && limits.detail !== "shape") return observation.text;
+    if (!limits.maxRows) return observation.text;
+    const budget = observation.text.length;
     const evidence = observation.chunks.filter(c => !c.id.startsWith("table."));
     const render = (cap: number) => {
       const records = restrictRecords(observation.records!, {
         maxChars: Math.min(cap, observation.options.maxChars),
         maxRows: limits.maxRows,
-        detail: limits.detail === "shape" ? "shape" : undefined,
       });
       const chunks = [records.text];
       let retained = 0;
@@ -1281,20 +1271,18 @@ export function restrictNativeObservation(
     return rendered.text;
   }
   // A combined data+flow observation may legitimately exceed `options.maxChars`
-  // (each family has its own budget); without an explicit limit it is kept whole.
-  const recorded = Math.max(observation.options.maxChars, observation.text.length);
-  const budget = limits.maxChars !== undefined && limits.maxChars > 0 ? Math.min(recorded, limits.maxChars) : recorded;
+  // (each family has its own budget), so its whole text always fits.
+  const budget = Math.max(observation.options.maxChars, observation.text.length);
   const rowLimit = limits.maxRows && limits.maxRows > 0 ? Math.floor(limits.maxRows) : Infinity;
-  if (budget >= observation.text.length && rowLimit === Infinity && limits.detail !== "shape") return observation.text;
+  if (rowLimit === Infinity) return observation.text;
   const chunks: string[] = [];
   let sampleRows = 0;
   for (const chunk of observation.chunks) {
-    if (/^(sample|record)\./.test(chunk.id) && (limits.detail === "shape" || sampleRows++ >= rowLimit)) continue;
+    if (/^(sample|record)\./.test(chunk.id) && sampleRows++ >= rowLimit) continue;
     let text = chunk.text;
     if (chunk.id === "table.complete") {
       const [schema, , ...rows] = text.split("\n");
-      if (limits.detail === "shape") text = schema;
-      else if (rowLimit < rows.length)
+      if (rowLimit < rows.length)
         text = [
           schema,
           `Sample from recorded table (${rowLimit}/${rows.length} rows):`,

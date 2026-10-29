@@ -69,7 +69,7 @@ export interface OperatorPredicate {
    * NATIVE mode: the typed view of an operator the service compiled from
    * parameters (`type`, `properties`, ordered `inputs`). The engine only ever
    * sees the generated `code` in `operatorProperties`; this field is for the
-   * renderer and result selection, and is never forwarded in execution payloads.
+   * renderer, and is never forwarded in execution payloads.
    */
   readonly nativeOp?: {
     type: string;
