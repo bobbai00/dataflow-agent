@@ -210,11 +210,10 @@ Freeze task selection before viewing results, retain every outcome, and inspect
 traces to distinguish information effects from errors or changes in strategy.
 Report cache-aware model costs separately from evaluator and engine overhead.
 
-Summarize a completed run and export its chart:
+Summarize a completed run:
 
 ```bash
 benchmark/Kramabench/.venv/bin/python benchmark/retrieval/analyze.py .claude/artifacts/retrieval-pilot-20261001
-benchmark/Kramabench/.venv/bin/python benchmark/retrieval/plot.py .claude/artifacts/retrieval-pilot-20261001
 ```
 
 The [2026-10-01 pilot report](../benchmark/retrieval/results/20261001.txt)

@@ -12,7 +12,7 @@
 # limitations under the License.
 """Audit retrieval exposure and stored profile invariants; never judge answers."""
 import argparse
-from collections import Counter, defaultdict
+from collections import Counter
 import json
 from pathlib import Path
 
@@ -70,24 +70,8 @@ def audit(directory):
                             "partial_scope_data": "column counts (partial prefix=" in text or "statistics: partial" in text,
                             "coverage_notice": "Data statistics:" in text or "statistics:" in text,
                             "source_preview_label": "source preview" in text})
-    groups = defaultdict(list)
-    for read in reads:
-        if read["arm"].startswith("adaptive"):
-            groups[read["model"]].append(read)
-    choices = {}
-    for model, items in groups.items():
-        full = [r for r in items if r["view"] == "full"]
-        stats = [r for r in items if r["view"] == "sample_stats"]
-        choices[model] = {"reads": len(items), "views": dict(Counter(r["view"] for r in items)),
-            "full_at_most_2000_chars": sum(r["chars"] <= 2000 for r in full),
-            "full_over_10000_chars": sum(r["chars"] > 10000 for r in full),
-            "full_incomplete": sum(not (r["table"] or {}).get("complete") for r in full),
-            "stats_reads": len(stats), "stats_with_data": sum(r["data_facts"] > 0 for r in stats),
-            "stats_with_partial_coverage": sum(r["partial_scope_data"] for r in stats)}
-    return {"profile_checks": dict(profiles), "violations": violations, "adaptive_choices": choices,
-            "large_adaptive_full_reads": sorted([r for r in reads if r["arm"].startswith("adaptive")
-                and r["view"] == "full" and r["chars"] > 2000], key=lambda r: -r["chars"]), "reads": reads,
-            "interpretation": "Size thresholds identify cases for manual review, not improper choices. Snapshot checks cover retained final results, not every historical result."}
+    return {"profile_checks": dict(profiles), "violations": violations, "reads": reads,
+            "interpretation": "Snapshot checks cover retained final results, not every historical result."}
 
 
 def main():
@@ -96,7 +80,7 @@ def main():
     args = parser.parse_args()
     result = audit(args.directory)
     (args.directory / "retrieval-audit.json").write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({k: result[k] for k in ["profile_checks", "violations", "adaptive_choices"]}, indent=2))
+    print(json.dumps({k: result[k] for k in ["profile_checks", "violations"]}, indent=2))
 
 
 if __name__ == "__main__":

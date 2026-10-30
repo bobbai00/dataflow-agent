@@ -228,5 +228,5 @@ Inspection with implementation returns:
 ````
 
 The result is a table retrieved with the same record formats as any native
-operator. See [retrieve.md](retrieve.md#sample) for complete sample receipts
+operator. See [retrieve.md](retrieve.md#sample-records) for complete sample receipts
 and [inspect.md](inspect.md) for stale, failed and historical definitions.

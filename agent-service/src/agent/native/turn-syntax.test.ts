@@ -81,7 +81,7 @@ test("an edit written after a request still applies first", () => {
   ]);
 });
 
-test("show takes a resource; result defaults to the sample view and accepts columns", () => {
+test("show takes a resource; result defaults to sample_stats and accepts columns", () => {
   const parsed = parse(`show result wide[Beach Name, "Sample Date", Enterococcus]
 show result a, b
 show schema omni from 200

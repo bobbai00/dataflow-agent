@@ -25,9 +25,8 @@ results; returns status, not tables. Building blocks and settings:
 
 The summary line counts the operators in scope by state. Only operators with
 something to report get a block: a failure, an empty result (`note: empty
-table.`, under every setting), a note, a check or (with `flowEvidence`) a flow
-line. Operators that did not run are grouped by cause on
-`not run` lines.
+table.`, under every setting), a note or (with `flowEvidence`) a flow line.
+Operators that did not run are grouped by cause on `not run` lines.
 
 ## Everything ran
 

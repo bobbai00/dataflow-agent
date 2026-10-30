@@ -232,7 +232,7 @@ class MetricsTests(unittest.TestCase):
             task = root / "system_scratch/SUT/task"
             task.mkdir(parents=True)
             (root / "analysis.json").write_text(json.dumps({"rows": [{"sut": "SUT", "task": "task",
-                "model": "test", "arm": "adaptive", "rep": 1}]}))
+                "model": "test", "arm": "evidence_data1_flow0", "rep": 1}]}))
             (task / "react_steps.json").write_text(json.dumps([{"toolResults": [{"output": {"actions": [{
                 "action": {"type": "retrieve", "operator_ids": ["a", "b"], "view": "full"},
                 "status": "error", "output": {"results": [

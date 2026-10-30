@@ -199,7 +199,7 @@ is an ordinary value unless an explicit parsing/transformation step changed it.
 | Null count               | `Z = count(missing(c))`                                      | Exact over the processed prefix                                               |
 | Non-null count           | `Q = P - Z`                                                  | Exact over the same prefix                                                    |
 | Null ratio               | `Z / P`                                                      | Stored as `null` when `P = 0`; rendered counts use `Z/P`                      |
-| Distinct non-null values | `D = size(exact typed-value dictionary)`                     | Unknown if the bounded dictionary is abandoned; null is excluded              |
+| Distinct non-null values | `D = count(distinct typed values)`                           | Exact for a single yield; with several, unknown if the dictionary overflows   |
 | Uniqueness ratio         | `D / Q`                                                      | Stored only when `D` is available and `Q > 0`; not a separate fact line today |
 | Range                    | Minimum/maximum non-null value                               | Numeric and datetime domains; not a string min/max summary                    |
 | Value frequencies        | Exact count per dictionary value, sorted by descending count | Retained only while the exact dictionary is available                         |
@@ -216,9 +216,10 @@ all its distinct values fit in the list.
 
 The implementation uses **bounded exact dictionaries, not approximate
 distinct-count sketches or a streaming heavy-hitter estimate**. If a column
-exceeds the distinct-value limit, distinct count and frequency information
-become unavailable instead of pretending the retained entries are exhaustive.
-Null counts and supported ranges can remain available independently.
+exceeds the distinct-value limit, its frequency information becomes
+unavailable instead of pretending the retained entries are exhaustive; a
+worker that yielded one frame still reports its exact distinct count. Null
+counts and supported ranges can remain available independently.
 
 Typed scalar encoding preserves `int64` values as decimal strings in metadata,
 avoiding JavaScript-number rounding. The renderer prints those decimals
@@ -598,9 +599,10 @@ length(selected flow evidence) <= E
 ```
 
 An observation can therefore exceed `B` by up to `E` per enabled family.
-A recorded observation is replayed whole. Before 2026-09-23 the data facts outranked the rows that
-overflowed the reserve, so enabling data evidence showed about 29% fewer rows
-(Luna traces: 9.0 against 12.7 rows per incomplete table).
+A recorded observation is replayed whole. Before 2026-09-23 the data facts
+outranked the rows that overflowed the reserve, so enabling data evidence
+showed about 29% fewer rows (Luna traces: 9.0 against 12.7 rows per
+incomplete table).
 
 It is a **per-successful-result body** limit. Tool receipts, operator headers,
 properties/code, DAG links, errors, the system prompt, and previous events are
@@ -925,10 +927,6 @@ Each successful observation captures its exact text, evidence choices, input
 bindings, and event DAG once. Later settings, added consumers, failures, or DAG
 edits do not rewrite earlier DELTA evidence. Imported older events without a
 recorded evidence frame are not retroactively enriched with newly enabled facts.
-
-Compaction is subtractive: it may remove sample rows or truncate the sequence
-of recorded chunks, but does not compute fresh facts, refill an old observation
-from today's profile, or choose evidence using a later DAG.
 
 ### 8.2 Explicit observation, batching, and changed ancestors
 

@@ -88,7 +88,7 @@ for (const path of new Bun.Glob("system_scratch/*/*/snapshot.json").scanSync({
       };
       const sample = selectNativeObservation({
         ...context,
-        view: "sample",
+        view: "sample_stats",
         data: false,
         flow: false,
       });

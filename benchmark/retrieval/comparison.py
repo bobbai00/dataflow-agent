@@ -21,10 +21,7 @@ def evidence_matrix_contrasts(rows, models):
     Repetitions are averaged within each task before tasks receive equal weight.
     A small diagnostic matrix does not support population significance claims.
     """
-    pairs = [("data", f"evidence_data1_flow{flow}", f"evidence_data0_flow{flow}")
-             for flow in [0, 1]]
-    pairs += [("flow", f"evidence_data{data}_flow1", f"evidence_data{data}_flow0")
-              for data in [0, 1]]
+    pairs = [("flow", "evidence_data1_flow1", "evidence_data1_flow0")]
     metrics = {"score": "score_delta", "cost_usd": "cost_delta_usd",
                "model_calls": "model_calls_delta", "input_tokens": "input_tokens_delta",
                "output_tokens": "output_tokens_delta", "cached_tokens": "cached_tokens_delta",

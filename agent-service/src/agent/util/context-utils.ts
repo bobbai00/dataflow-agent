@@ -56,8 +56,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
    *  the message builder can emit that step's REAL tool calls (true
    *  toolCallIds) instead of inferring them from the rendered text. */
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
-  /** Event-owned requests from dataflow batches, reconstructed from receipts. */
-  batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -561,10 +559,8 @@ function serializeTaskBody(
  *  Turn rendering (shared)
  * ========================================================================= */
 
-/** Inline render of an older user-role step inside `# Agent Events`.
- *  Emits H2 `## User Event N` to nest under the H1 wrapper. The latest
- *  user step is never rendered here — it lives in the top-level
- *  `# User Task` block. */
+/** Inline render of a user-role step inside `# Agent Events`, at its position
+ *  among the events. Emits H2 `## User Event N` to nest under the H1 wrapper. */
 function serializeUserEventInline(node: PathNode): string {
   const lines: string[] = [];
   lines.push(`## User Event ${node.eventIndex}`);

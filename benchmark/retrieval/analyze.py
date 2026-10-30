@@ -199,11 +199,8 @@ def main():
         cost = f"${item['provider_reported_cost_usd']:.6f}" if item["provider_reported_cost_usd"] is not None else "unknown"
         lines.append(f"{item['model']} | {item['tool_errors']} | {item['envelope_errors']} | {item['action_errors']} | {cost} | {', '.join(item['response_providers']) or 'not reported'}")
     contrasts = []
-    pairs = [("sample_stats_flow0", "full_flow0"), ("sample_stats_flow0", "sample_flow0")]
-    pairs += [(f"{view}_flow1", f"{view}_flow0") for view in ["full", "sample", "sample_stats", "adaptive"]]
-    pairs += [("adaptive_flow0", "sample_stats_flow0"), ("adaptive_flow1", "sample_stats_flow1")]
-    if manifest.get("script_settings"):
-        pairs.append(("adaptive_flow1", "guided_script"))
+    # run_comparison.py's Dataflow arm against its guided script.
+    pairs = [("evidence_data1_flow1", "guided_script")] if manifest.get("script_settings") else []
     for model in manifest["models"]:
         lookup = {(r["arm"], r["task"], r["rep"]): r for r in rows if r["model"] == model}
         for treatment, control in pairs:

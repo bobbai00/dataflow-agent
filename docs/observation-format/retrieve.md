@@ -101,19 +101,19 @@ statistics: first 2,000 of 1,048,575 rows (partial prefix; values describe these
 statistics: unavailable for this result
 ```
 
-## `sample`
+## Sample records
 
-Records only, within the sample budget (`maxOperatorResultCharLimit`,
-`maxResultRows`). `sample` must be one of the session's offered
-`retrievalViews`. The examples below print every record counted in their
-captions; they are complete examples of a partial view.
+The records of a `sample_stats` receipt, within the sample budget
+(`maxOperatorResultCharLimit`, `maxResultRows`); the statistics block that
+follows them is left out here. The examples below print every record counted
+in their captions; they are complete examples of a partial view.
 
 ### Sample records in Markdown
 
 With `tableFormat: "markdown"` and `maxResultRows: 4`, the call is:
 
 ```json
-{"type": "retrieve", "operator_id": "country_long", "view": "sample"}
+{"type": "retrieve", "operator_id": "country_long", "view": "sample_stats"}
 ```
 
 Its receipt is:
@@ -122,7 +122,7 @@ Its receipt is:
 ### 1. retrieve country_long: ok
 - **country_long** (scan, loaded)
   - result: 10,012 rows × 5 columns
-records: sample; 4 of 10,012 rows (retained records, not a random sample), 5 of 5 columns
+records: sample_stats; 4 of 10,012 rows (retained records, not a random sample), 5 of 5 columns
 | show_id | country | country_position | country_count | country_credit_equal |
 |---|---|---|---|---|
 | s1 | United States | 1 | 1 | 1 |
@@ -146,7 +146,7 @@ literal tab characters:
 ### 1. retrieve country_long: ok
 - **country_long** (scan, loaded)
   - result: 10,012 rows × 5 columns
-records: sample; 4 of 10,012 rows (retained records, not a random sample), 5 of 5 columns
+records: sample_stats; 4 of 10,012 rows (retained records, not a random sample), 5 of 5 columns
 show_id	country	country_position	country_count	country_credit_equal
 s1	United States	1	1	1
 s8807	India	1	1	1
@@ -162,14 +162,14 @@ example shows all 13 columns with `keyValueColumns: 12` and
 `maxResultRows: 2`:
 
 ```json
-{"type": "retrieve", "operator_id": "orders_work", "view": "sample"}
+{"type": "retrieve", "operator_id": "orders_work", "view": "sample_stats"}
 ```
 
 ```text
 ### 1. retrieve orders_work: ok
 - **orders_work** (map, executed)
   - result: 1,200 rows × 13 columns
-records: sample; 2 of 1,200 rows (retained records, not a random sample), 13 of 13 columns
+records: sample_stats; 2 of 1,200 rows (retained records, not a random sample), 13 of 13 columns
 - order_key: 1477147, customer_key: 337525, restaurant: Hangawi | Korean, cost: 30.75, region: east, country: United States, status: delivered, ordered_at: 2026-01-03T18:30:00Z, delivery_minutes: 28, weekend: true, unit: A1, category: dinner, reviewed: true
 - order_key: 1477148, customer_key: 337526, restaurant: Sunrise, cost: 18.5, region: west, country: Canada, status: pending, ordered_at: 2026-01-04T12:00:00Z, delivery_minutes: null, weekend: true, unit: B2, category: lunch, reviewed: false
 ```
@@ -188,7 +188,7 @@ Inside a Markdown cell, a literal pipe is escaped as `\|`, including when
 the text is JSON-quoted. For example:
 
 ```text
-records: sample; 2 of 2 rows, 3 of 3 columns (complete)
+records: sample_stats; 2 of 2 rows, 3 of 3 columns (complete)
 | id | comment | code |
 |---|---|---|
 | 9007199254740993 | "east\|west" | "12" |
@@ -200,7 +200,7 @@ and column coverage. With a 12-character cut, for illustration, the stored text
 `Delivered after a delay` is displayed as `Delivered af…`:
 
 ```text
-records: sample; 2 of 2 rows, 2 of 2 columns (incomplete; 1 text cell clipped at 12 characters)
+records: sample_stats; 2 of 2 rows, 2 of 2 columns (incomplete; 1 text cell clipped at 12 characters)
 | id | comment |
 |---|---|
 | 1 | Delivered af… |
@@ -213,11 +213,10 @@ cell clipping; backend truncation is still announced.
 
 ### Adding statistics
 
-`sample_stats` uses the same records and layout as `sample`, then appends
-the statistics block shown above within its own budget. Its caption starts
-`records: sample_stats;`. Adding statistics does not change which records
-are selected or displace them. With full coverage of all rows, columns and
-cell contents, a small complete table omits redundant statistics.
+The statistics block shown above follows these records within its own
+budget. It does not change which records are selected or displace them. With
+full coverage of all rows, columns and cell contents, a small complete table
+omits redundant statistics.
 
 ## Narrowed to columns
 

@@ -23,30 +23,28 @@ from script_agent_child import save_full_memory
 
 
 class ComparisonTests(unittest.TestCase):
-    def test_four_contrasts_change_one_factor_and_are_descriptive(self):
-        rows = [{"model": "Luna", "arm": f"evidence_data{data}_flow{flow}",
-                 "task": "a", "rep": 1, "score": data * 0.4 + flow * 0.1,
-                 "cost_usd": data * 0.02 + flow * 0.01, "model_calls": 8 - data - flow}
-                for data in [0, 1] for flow in [0, 1]]
-        contrasts = evidence_matrix_contrasts(rows, ["Luna"])
-        self.assertEqual(len(contrasts), 4)
-        for contrast in contrasts:
-            self.assertTrue(contrast["descriptive_only"])
-            self.assertIsNone(contrast["score_delta_ci95"])
-            self.assertIsNone(contrast["cost_delta_ci95"])
-            self.assertEqual(contrast["tasks"], 1)
-            self.assertEqual(contrast["matched_attempts"], 1)
-            self.assertAlmostEqual(contrast["score_delta"],
-                                   0.4 if contrast["factor"] == "data" else 0.1)
-            self.assertEqual(contrast["model_calls_delta"], -1)
+    def test_the_flow_contrast_changes_one_factor_and_is_descriptive(self):
+        rows = [{"model": "Luna", "arm": f"evidence_data1_flow{flow}",
+                 "task": "a", "rep": 1, "score": 0.4 + flow * 0.1,
+                 "cost_usd": 0.02 + flow * 0.01, "model_calls": 7 - flow}
+                for flow in [0, 1]]
+        contrast, = evidence_matrix_contrasts(rows, ["Luna"])
+        self.assertEqual(contrast["factor"], "flow")
+        self.assertTrue(contrast["descriptive_only"])
+        self.assertIsNone(contrast["score_delta_ci95"])
+        self.assertIsNone(contrast["cost_delta_ci95"])
+        self.assertEqual(contrast["tasks"], 1)
+        self.assertEqual(contrast["matched_attempts"], 1)
+        self.assertAlmostEqual(contrast["score_delta"], 0.1)
+        self.assertEqual(contrast["model_calls_delta"], -1)
 
     def test_missing_cost_does_not_drop_score_and_unmatched_tasks_are_excluded(self):
         rows = [
-            {"model": "Luna", "arm": "evidence_data1_flow0", "task": "a", "rep": 1,
+            {"model": "Luna", "arm": "evidence_data1_flow1", "task": "a", "rep": 1,
              "score": 1.0, "cost_usd": None},
-            {"model": "Luna", "arm": "evidence_data0_flow0", "task": "a", "rep": 1,
+            {"model": "Luna", "arm": "evidence_data1_flow0", "task": "a", "rep": 1,
              "score": 0.0, "cost_usd": 0.1},
-            {"model": "Luna", "arm": "evidence_data1_flow0", "task": "b", "rep": 1,
+            {"model": "Luna", "arm": "evidence_data1_flow1", "task": "b", "rep": 1,
              "score": 0.0, "cost_usd": 3.0},
         ]
         contrast, = evidence_matrix_contrasts(rows, ["Luna"])
@@ -60,9 +58,9 @@ class ComparisonTests(unittest.TestCase):
         rows = []
         for task, repetitions, delta in [("a", [1, 2], 1.0), ("b", [1], 0.0)]:
             for rep in repetitions:
-                for data in [0, 1]:
-                    rows.append({"model": "Luna", "arm": f"evidence_data{data}_flow0",
-                                 "task": task, "rep": rep, "score": data * delta})
+                for flow in [0, 1]:
+                    rows.append({"model": "Luna", "arm": f"evidence_data1_flow{flow}",
+                                 "task": task, "rep": rep, "score": flow * delta})
         contrast, = evidence_matrix_contrasts(rows, ["Luna"])
         self.assertEqual(contrast["matched_attempts"], 3)
         self.assertEqual(contrast["tasks"], 2)

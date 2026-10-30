@@ -83,7 +83,7 @@ def main():
     parser.add_argument("--full-result-char-limit", type=full_result_char_limit, default=5000,
                         help="Full retrieval display cap, 128..100000 characters (service default: 5000; the 2026-10-08 pilots used 100000)")
     parser.add_argument("--sample-char-limit", type=int, default=1000,
-                        help="Record budget per retrieved sample/sample_stats result, characters (service default: 2000)")
+                        help="Record budget per retrieved sample_stats result, characters (service default: 2000)")
     parser.add_argument("--selection", default="Diagnostic pilot selected before runs for large tables, parsing, joins and known sampling mistakes; not a representative full-benchmark estimate.")
     parser.add_argument("--source-manifest", type=Path, help="Frozen input inventory and task-selection rationale")
     parser.add_argument("--tasks", nargs="+", default=["archeology-easy-6", "astronomy-easy-1",

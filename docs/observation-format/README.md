@@ -39,7 +39,7 @@ prompt's `orders`/`totals` example otherwise.
 
 To see the format directly:
 
-- [Sample records](retrieve.md#sample): complete Markdown, TSV and wide
+- [Sample records](retrieve.md#sample-records): complete Markdown, TSV and wide
   key-value receipts, plus quoted values and an announced text-cell cut.
 - [System prompt](system-prompt.md): the complete shared prompt, with data
   and flow statistics enabled for review, four examples of using them, and a
@@ -112,7 +112,7 @@ and compact arrow lines in the ledger (`name 10,012×23 join ← a, b · …`).
 | change, in an edit or a catalog entry | `created`, `updated`, `deleted`, `reconnected` (edges only), `recomputed` (new result only), `stale` (result invalidated, not recomputed; catalog only), `restored from task N`, `forked from task N` |
 | change, in a versions list | `created`, `updated`, `inputs changed`, `recomputed`, `restored from task N`, `deleted` |
 | state, outside an edit | `executed`, `cached`, `stale`, `failed`, `not run`, `saved` (a copy showing an earlier task's result), `saved by task N` (an operator as an earlier task saved it) |
-| issue kind | `error <CODE>`, `check`, `note`, `flow`, `not run` |
+| issue kind | `error <CODE>`, `note`, `flow`, `not run` |
 
 ## Building blocks
 
@@ -198,7 +198,7 @@ A table wider than `keyValueColumns` (12) prints one key-value line per record
 in either format, so no cell has to be matched to its header by position:
 
 ```
-records: sample; 2 of 15 rows (retained records, not a random sample), 25 of 25 columns
+records: sample_stats; 2 of 15 rows (retained records, not a random sample), 25 of 25 columns
 - country: Thailand, content_credit: 61.25, rank: 1, opportunity_score: 56.75779857397504, …
 - country: Turkey, content_credit: 48.5, rank: 2, opportunity_score: 53.29955947136563, …
 ```
@@ -251,14 +251,14 @@ for complete examples.
   - fix: read an existing column, or bring `added_year` in upstream.
 - note: input `fractional_top_five` is a top-5 table; its unlimited parent `fractional_ranked` has 15 rows.
 - flow: inner join of 10,012 left and 8,807 right rows produced 10,012 rows; all left rows matched.
-- check: the header of `orders.csv` reads as data ("2019", "4.5"); skip_lines=1 gives the header region, amount.
+- note: the header of `orders.csv` reads as data ("2019", "4.5"); skip_lines=1 gives the header region, amount.
 - not run: fractional_country_genres, fractional_genre_counts (upstream `fractional_genre_period` failed)
 ```
 
 | kind | source | previous format |
 |---|---|---|
 | `error <CODE>` | a failed operator or action; `at` and `fix` follow when known | `[ERROR] … [CODE; stage; revision] …` plus `Hint:`, `Field:`, `Diagnostic:` lines |
-| `note` | what the system observed about the state: empty or top-k inputs, current pools, retyped literals, a replaced column, a renamed join column, booleans reduced as 1/0 | `note:` lines, ledger only, plus the adjustment lines |
+| `note` | what the system observed about the state: empty or top-k inputs, current pools, retyped literals, a replaced column, a renamed join column, booleans reduced as 1/0, a header that reads as data | `note:` lines, ledger only, plus the adjustment lines |
 | `flow` | measurements of how the result was produced: join matching, filter retention, cast failures, reducer denominators, window boundaries, scan sources | `Flow measurement:` and `Flow guarantee:` lines, `flowEvidence` only |
 | `not run` | operators that did not run, grouped by cause | one `[ERROR] … not executed` line per operator |
 

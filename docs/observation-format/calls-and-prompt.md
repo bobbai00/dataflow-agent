@@ -26,7 +26,7 @@ shared core, its full operator catalog, examples using enabled data and flow
 statistics, and a separate multi-task extension. The
 [operator-definition reference](operator-definitions.md) also shows every
 catalog entry and how an authored definition appears in a receipt. Complete
-sample layouts are in [retrieve.md](retrieve.md#sample).
+sample layouts are in [retrieve.md](retrieve.md#sample-records).
 
 ## A whole call
 
