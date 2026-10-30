@@ -22,7 +22,6 @@ import { observationFormatPatch, type ObservationFormatOptions } from "./native/
 import { renderTaskCatalog, sessionRequests } from "./task-catalog";
 
 import { asSchema, type ModelMessage } from "ai";
-import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
 import { Subscription } from "rxjs";
 import { debounceTime } from "rxjs/operators";
 import { WorkflowState } from "./workflow-state";
@@ -37,7 +36,6 @@ import {
 import type {
   AgentDelegateConfig,
   AgentSettings,
-  CompactionStrategy,
   ReActStep,
   TokenUsage,
   UserActionInfo,
@@ -295,7 +293,6 @@ export class TexeraAgent {
 
   private readonly driver: LLMDriver;
   private readonly contextAssembler: ContextAssembler;
-  private readonly modelInputBudget = readInputBudget(process.env);
   private readonly retryBackoffMs: number;
   private systemPrompt: string;
   private settings: AgentSettings;
@@ -311,9 +308,8 @@ export class TexeraAgent {
    */
   private contextBlockByMessage = new Map<string, string>();
 
-  /** Content string last produced by the (possibly-async) context assembler on
-   *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
-   *  return a value even when the assembler is async (an input budget). */
+  /** Content string last produced by the context assembler on the prepareStep
+   *  path; its size is logged and traced with the model call. */
   private lastRenderedContext: string | undefined = undefined;
 
   private delegateConfig?: {
@@ -856,15 +852,10 @@ export class TexeraAgent {
       executionTimeoutMs?: number;
       maxSteps?: number;
       nativeProfileCollection?: boolean;
-      nativeProfileScope?: "prefix" | "full";
       dataEvidence?: boolean;
       flowEvidence?: boolean;
       operatorDoc?: boolean;
       instructions?: string;
-      nativeChecks?: boolean;
-      contextWindowTokens?: number;
-      compactionStrategy?: CompactionStrategy;
-      deckSampleRatio?: number;
       maxResultRows?: number;
       multiRequest?: AgentSettings["multiRequest"];
     } & RetrievalSettings &
@@ -880,14 +871,12 @@ export class TexeraAgent {
         `optionalPython needs a Claude model: strict tool schemas for ${this.modelType} must require every field.`
       );
     const collection = updates.nativeProfileCollection ?? this.settings.nativeProfileCollection ?? false;
-    const scope = updates.nativeProfileScope ?? this.settings.nativeProfileScope ?? "prefix";
     if (
-      (collection !== (this.settings.nativeProfileCollection ?? false) ||
-        scope !== (this.settings.nativeProfileScope ?? "prefix")) &&
+      collection !== (this.settings.nativeProfileCollection ?? false) &&
       (this.state !== AgentStateEnum.AVAILABLE || this.workflowState.getAllOperators().length > 0)
     ) {
       throw new NativeCatalogSettingsError(
-        "Changing profile collection or scope requires a fresh agent and workflow; existing operators retain their compiled setting"
+        "Changing profile collection requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
     // The system prompt depends on it, so it is decided before the first
@@ -915,7 +904,6 @@ export class TexeraAgent {
       }
     }
     this.settings.nativeProfileCollection = collection;
-    this.settings.nativeProfileScope = scope;
     // The native prompt documents exactly the evidence kinds that are on.
     if (updates.dataEvidence !== undefined && updates.dataEvidence !== this.settings.dataEvidence) {
       this.settings.dataEvidence = updates.dataEvidence;
@@ -928,10 +916,6 @@ export class TexeraAgent {
     // The native prompt asks for operator docs and shows them in its examples.
     if (updates.operatorDoc !== undefined && updates.operatorDoc !== this.settings.operatorDoc) {
       this.settings.operatorDoc = updates.operatorDoc;
-      promptNeedsRebuild = true;
-    }
-    if (updates.nativeChecks !== undefined && updates.nativeChecks !== this.settings.nativeChecks) {
-      this.settings.nativeChecks = updates.nativeChecks;
       promptNeedsRebuild = true;
     }
     if (updates.instructions !== undefined && updates.instructions !== this.settings.instructions) {
@@ -953,19 +937,6 @@ export class TexeraAgent {
       this.settings.maxResultRows = updates.maxResultRows;
       promptNeedsRebuild = true;
       // Pure render-time setting — caps the per-operator TSV sample rows (W1).
-    }
-    if (updates.contextWindowTokens !== undefined) {
-      this.settings.contextWindowTokens = updates.contextWindowTokens;
-      // DELTA context-window budget (tokens). 0 ⇒ unbounded lossless delta;
-      // >0 ⇒ raw delta until it would overflow, then compaction via compactionStrategy.
-    }
-    if (updates.compactionStrategy !== undefined) {
-      this.settings.compactionStrategy = updates.compactionStrategy;
-      // How DELTA compacts over budget (sliding | compress).
-    }
-    if (updates.deckSampleRatio !== undefined) {
-      this.settings.deckSampleRatio = updates.deckSampleRatio;
-      // Pure render-time setting — compress-deck row-sample fraction.
     }
 
     // An agent that has not been initialized yet has no prompt at all; the
@@ -1211,16 +1182,7 @@ export class TexeraAgent {
               budgetFeedbackSteps++;
             }
             const visibleSteps = this.contextSteps();
-            // The assembler may be async (an input budget re-renders until the
-            // request fits). Await it here on the prepareStep path; cache the
-            // rendered content for the sync preview.
-            const processed = await budgetContextAssembler(
-              this.contextAssembler,
-              () => this.getSystemInfo(),
-              this.modelInputBudget,
-              value =>
-                this.log.info({ messageId, inputBudget: this.modelInputBudget, ...value }, "full model input budget")
-            )({
+            const processed = this.contextAssembler({
               visibleSteps,
               workflowState: this.workflowState,
               snapshotStorage: this.snapshotStorage,
@@ -1579,10 +1541,9 @@ export class TexeraAgent {
   /**
    * Public preview of the next-step user-message content as a single string.
    *
-   * Same `assembleContext` code path that `prepareStep` uses, but synchronous.
+   * Same `assembleContext` code path that `prepareStep` uses.
    */
   getNextStepContext(): string {
-    if (this.modelInputBudget.tokens > 0 && this.lastRenderedContext !== undefined) return this.lastRenderedContext;
     const visibleSteps = this.contextSteps();
     const processed = this.contextAssembler({
       visibleSteps,
@@ -1590,9 +1551,6 @@ export class TexeraAgent {
       snapshotStorage: this.snapshotStorage,
       settings: this.settings,
     });
-    // An async assembler can't be awaited in this sync preview — return the
-    // content last rendered on the prepareStep path.
-    if (processed instanceof Promise) return this.lastRenderedContext ?? "";
     return processed
       .map(message => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
       .join("\n\n");

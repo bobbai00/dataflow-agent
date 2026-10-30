@@ -21,11 +21,7 @@ import { expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import type { ProfileColumn } from "./profiles";
-import {
-  collectNativeEvidence,
-  restrictNativeObservation,
-  selectNativeObservation,
-} from "./evidence";
+import { collectNativeEvidence, selectNativeObservation } from "./evidence";
 import { downstreamRelevantColumns } from "./evidence-lineage";
 
 function column(rows = 5, nulls = 1): ProfileColumn {
@@ -157,9 +153,9 @@ test("full retrieval preserves long cells and reports a bounded incomplete table
   expect(full.text).toContain("retained records, not a random sample");
 });
 
-test("sample_stats preserves the sample and has its own statistics budget", () => {
+test("sample_stats statistics have their own budget and leave the sample unchanged", () => {
   const f = fixture();
-  const sample = observe(f, { view: "sample", data: false, flow: false, maxChars: 200, dataMaxChars: 800 });
+  const sample = observe(f, { view: "sample_stats", data: false, flow: false, maxChars: 200, dataMaxChars: 800 });
   const stats = observe(f, { view: "sample_stats", data: true, flow: false, maxChars: 200, dataMaxChars: 800 });
   const records = (o: typeof sample) => ({ rows: o.records?.rows, fields: o.records?.fields });
   expect(records(stats)).toEqual(records(sample));
@@ -211,7 +207,7 @@ test("preview completeness never implies that the full source was read", () => {
   const f = fixture("Scan", { files: "large.csv", preview: 3 });
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
-  for (const view of ["full", "sample", "sample_stats"] as const) {
+  for (const view of ["full", "sample_stats"] as const) {
     const result = observe(f, { view, data: view === "sample_stats", flow: false });
     expect(result.table?.complete).toBe(true);
     expect(result.text).toContain("source preview only");
@@ -231,7 +227,7 @@ test("sample statistics disclose partial coverage without changing the sample", 
     rowsProcessed: 3,
   };
   f.info.tableProfile!.status = "partial";
-  const sample = observe(f, { view: "sample", data: false, flow: false });
+  const sample = observe(f, { view: "sample_stats", data: false, flow: false });
   const stats = observe(f, { view: "sample_stats", data: true, flow: false, dataMaxChars: 700 });
   expect(stats.text).toContain("statistics: partial profile, 3 of 100,000 rows");
   expect(stats.text).toContain("1 of 1 columns");
@@ -1018,8 +1014,6 @@ test("evidence is additive: every arm shows the same table, and each family appe
         expect(o.chunks.length, name).toBe(ordered.length);
         for (const k of ["data", "flow"] as const) expect(texts(o, k).join("\n").length).toBeLessThanOrEqual(maxChars);
         expect([...texts(o, "table"), ...texts(o, "notice")].join("\n").length).toBeLessThanOrEqual(maxChars);
-        // A frozen observation is never shortened without an explicit limit.
-        expect(restrictNativeObservation(o, {})).toBe(o.text);
       }
     }
 });
@@ -1424,18 +1418,6 @@ test("a tighter row limit cannot imply complete visibility", () => {
   f.info.result = [{ x: 1 }, { x: 2 }, { x: 3 }];
   f.info.truncated = false;
   expect(observe(f, { maxRows: 1 }).text).not.toContain("(complete)");
-});
-
-test("compaction only shortens recorded evidence and never adds new facts", () => {
-  const f = fixture();
-  f.info.result = [{ x: 10 }, { x: 20 }, { x: 30 }];
-  f.info.truncated = false;
-  const recorded = observe(f);
-  const sample = restrictNativeObservation(recorded, { maxRows: 1 });
-  expect(sample).not.toContain("(complete)");
-  expect(sample).toContain("10");
-  expect(sample).not.toContain("20\n30");
-  expect(restrictNativeObservation(recorded, {})).toBe(recorded.text);
 });
 
 test("an empty grouped aggregate reports nothing beyond its empty table", () => {

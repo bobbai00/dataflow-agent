@@ -30,10 +30,7 @@ export interface ToolContext {
     maxOperatorResultCharLimit?: number;
     executionTimeoutMs?: number;
     nativeProfileCollection?: boolean;
-    nativeProfileScope?: "prefix" | "full";
-    /** Native operators carry the lineage their engine-side checks need. */
-    nativeChecks?: boolean;
-    /** Flow evidence reads the same lineage (records listed by several source files). */
+    /** Native operators carry the lineage flow evidence reads (records listed by several source files). */
     flowEvidence?: boolean;
     /** Key and null notes on executed operators (`dataHygiene`). */
     dataHygiene?: boolean;

@@ -77,7 +77,7 @@ function session(multiRequest: MultiRequestMode, replies: Reply[]) {
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
     contextAssembler: input => assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {}),
   });
-  agent.updateSettings({ maxSteps: 25, retrievalViews: ["sample", "full"], multiRequest });
+  agent.updateSettings({ maxSteps: 25, retrievalViews: ["full"], multiRequest });
   (agent as any).executePostStepChanges = async () => {
     for (const op of agent.getWorkflowState().getAllOperators()) {
       const table = TABLES[op.operatorID] ?? { columns: ["value"], rows: 1 };

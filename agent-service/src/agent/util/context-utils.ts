@@ -22,26 +22,17 @@
 // of calling tools via the native protocol.
 
 import type { ModelMessage } from "ai";
-import { isDeepStrictEqual } from "node:util";
 import type { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
-import type { CompactionStrategy, ReActStep } from "../../types/agent";
+import type { ReActStep } from "../../types/agent";
 import type { SnapshotData, WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
-import type { OperatorInfo } from "../../types/execution";
 import { retiredPreviews } from "../native/selection";
 import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "../tools/native-batch-tools";
 import { asDataflowActionsResult, renderDataflowActionsResult } from "../tools/dataflow-actions";
 import { formatOperatorResult } from "../tools/result-formatting";
-import {
-  observationFormat,
-  describeOperator,
-  operatorBlock,
-  type ObservationFormatOptions,
-} from "../native/observation-format";
+import { observationFormat, type ObservationFormatOptions } from "../native/observation-format";
 import { buildNativeFrames } from "../context/summarize/native-frames";
 import type { FormatOperatorResultOptions } from "../tools/result-formatting";
-import { nativeCheckLines } from "../native/checks";
-import { resultScope } from "../native/result-scope";
 import { createLogger } from "../../logger";
 
 /** The operator a tool call wrote: `operatorId` (the operator tools of older
@@ -61,42 +52,12 @@ const log = createLogger("ContextAssembler");
 export interface AssembleContextOptions extends ObservationFormatOptions {
   dataEvidence?: boolean;
   flowEvidence?: boolean;
-  /** Native `check:` lines under executed operators (see native/checks.ts). */
-  nativeChecks?: boolean;
   /** Called once per rendered agent event with the step that produced it, so
    *  the message builder can emit that step's REAL tool calls (true
    *  toolCallIds) instead of inferring them from the rendered text. */
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
   /** Event-owned requests from dataflow batches, reconstructed from receipts. */
   batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
-  /** DELTA context-window budget, in *tokens* (estimated via `estimateTokens`).
-   *  Bounds the assembled trajectory user-message — the true model window minus
-   *  the ~constant system prompt + response headroom, which the caller folds
-   *  into this number. Unset / ≤ 0 ⇒ unbounded (lossless raw delta — legacy).
-   *  When > 0, the assembler renders the "original" raw delta (schema-only, no
-   *  stats) while it fits, then COMPACTS via `compactionStrategy` once it would
-   *  overflow. */
-  contextWindowTokens?: number;
-  /** How to compact once the raw delta exceeds `contextWindowTokens`:
-   *   - "sliding": drop the OLDEST whole agent events until it fits (an
-   *     `(… N earlier events omitted …)` marker stands in their place).
-   *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck
-   *     — the boundary snapshot rendered per-operator as Column Schema and stats
-   *     + a `deckSampleRatio` row peek — then resume raw delta for the fresh
-   *     suffix (rolling compaction). Default "compress". */
-  compactionStrategy?: CompactionStrategy;
-  /** compress-deck row sampling: fraction of each folded operator's output rows
-   *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
-   *  Undefined ⇒ 0.10. */
-  deckSampleRatio?: number;
-  /** Internal (computed by the truncation/compaction pass): keep only agent events whose
-   *  `eventIndex >= keepFromEventIndex`; earlier events are dropped. Undefined ⇒
-   *  keep all (lossless). */
-  keepFromEventIndex?: number;
-  /** Internal: how many oldest events were dropped (drives the omitted marker). */
-  omittedEventsCount?: number;
-  /** Context layout and result sampling are independent of data/flow evidence. */
-  schemaInResult?: boolean;
   /** W1: cap the per-operator TSV sample to first+last N rows (true row count).
    *  0/undefined = no cap. */
   maxResultRows?: number;
@@ -109,39 +70,9 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
     data: boolean;
     flow: boolean;
     maxChars: number;
-    checks?: boolean;
     dataMaxChars?: number;
     flowMaxChars?: number;
   } & ObservationFormatOptions;
-  /** Internal compact-deck marker: shorten recorded V2 frames, never enrich. */
-  nativeObservationCompaction?: boolean;
-}
-
-/**
- * Python code operators whose `operatorProperties` (chiefly the `code` blob)
- * are always stripped from the assembled context: their source is large and
- * already surfaced inline on error, so echoing it in every snapshot is pure
- * token cost. All other operator types render their properties.
- */
-const CODE_OPERATOR_TYPES = new Set(["PythonUDFV2", "DataLoading", "DataProcessing"]);
-
-/**
- * Chars-per-token divisor for the context-window budget. Matches the agent's own
- * input-token estimate (`Math.ceil(userMessage.length / 4)` in texera-agent.ts)
- * so the window the caller sets in tokens lines up with the usage the agent
- * reports.
- */
-const CHARS_PER_TOKEN = 4;
-
-/**
- * Estimate the token count of a rendered context string. The single seam every
- * budget decision routes through — a real tokenizer (e.g. gpt-tokenizer) drops
- * in here later without touching any caller. Today: the deterministic chars/4
- * heuristic (±10–15% on English + code), which needs no dependency and never
- * disagrees with the agent's own input-token accounting.
- */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
 /**
@@ -155,12 +86,6 @@ export function estimateTokens(text: string): number {
  * Action rendering: the tool calls of an event render in tool-call form (see
  * serializeTurn), and the transcript replaces that text with the assistant
  * turn's tool-call parts (buildNativeFrames).
- *
- * Snapshot trimming (paper §4.3): the Python code operators'
- * (`CODE_OPERATOR_TYPES`) computation function (`code`) is always dropped —
- * the user's `OperatorInfo` result already carries the source code on error,
- * so dropping it doesn't hide what's needed to debug. All other operators
- * render their `operatorProperties` as a `Properties:` line.
  */
 export function assembleContext(
   visibleSteps: ReActStep[],
@@ -180,8 +105,8 @@ export function assembleContext(
 
 /**
  * The context as markdown, before the transcript frames it: every event of the
- * path as Thought / Action / Observation, compacted once it outgrows
- * `contextWindowTokens`. Renders from its own copy of the options it reads.
+ * path as Thought / Action / Observation. Renders from its own copy of the
+ * options it reads.
  */
 export function renderContextCore(
   visibleSteps: ReActStep[],
@@ -195,56 +120,16 @@ export function renderContextCore(
       data: given.dataEvidence === true,
       flow: given.flowEvidence === true,
       maxChars: given.maxOperatorResultCharLimit ?? 2000,
-      ...(given.nativeChecks === true ? { checks: true } : {}),
     },
-    contextWindowTokens: given.contextWindowTokens,
-    compactionStrategy: given.compactionStrategy ?? "compress",
-    deckSampleRatio: given.deckSampleRatio ?? 0.1,
-    schemaInResult: given.schemaInResult === true,
     maxResultRows: given.maxResultRows ?? 0,
     eventStepSink: given.eventStepSink,
   };
   const { path, initSnapshot } = buildPath(visibleSteps, snapshotStorage);
-  const batchObservations = new Map<string, ReadonlySet<string>>();
-  // Read-only steps inherit the last batch's display selection in the compacted
-  // deck; every event still resolves its own immutable request independently.
-  let lastObserved: ReadonlySet<string> | undefined;
-  for (const node of path) {
-    lastObserved = batchObservedIds(node.step) ?? lastObserved;
-    if (lastObserved && node.snapshot?.reactStepId) batchObservations.set(node.snapshot.reactStepId, lastObserved);
-  }
-  options.batchObservationsByStep = batchObservations;
-
-  // A compacted render heads with the latest user message as its `# User Task`
-  // block. Its step id lets renderers skip rendering the same user event
-  // inline in the events list. Older user messages (multi-task continuation)
-  // still render inline as `## User Event N`.
-  const latestUserStep = findLatestUserStepInPath(path);
-  const latestUserContent = latestUserStep?.step.content;
-  const latestUserStepId = latestUserStep?.step.id;
-
   const tasks = groupIntoTasks(path);
 
   // Per-step create-vs-modify flags, from one linear walk over the path.
   const createFlagsByStep = buildCreateFlagsByStep(path);
-  const windowTokens =
-    options.contextWindowTokens && options.contextWindowTokens > 0 ? options.contextWindowTokens : undefined;
-  // Unbounded window (0/unset) ⇒ lossless delta. A positive window switches to
-  // the budgeted path: "original" raw delta (schema-only) while it fits, then
-  // compaction (sliding | compress) once it would overflow.
-  const content =
-    windowTokens === undefined
-      ? renderInterleaved(tasks, workflowState, options, initSnapshot, createFlagsByStep)
-      : assembleBudgetedContext(
-          tasks,
-          workflowState,
-          options,
-          initSnapshot,
-          latestUserContent,
-          latestUserStepId,
-          createFlagsByStep,
-          windowTokens
-        );
+  const content = renderInterleaved(tasks, workflowState, options, initSnapshot, createFlagsByStep);
 
   log.debug(
     {
@@ -283,8 +168,7 @@ interface PathNode {
  * The synthetic `initialize` step (Event 0) is the baseline workflow load,
  * not a user-visible action. We strip it from the rendered path so the LLM
  * doesn't see the init event, but we preserve its snapshot separately so
- * the first real action can still diff against it (Delta) and so the
- * compacted deck can tell what a task changed.
+ * the first real action can still diff against it (Delta).
  *
  * Identified by the synthetic `initialize` tool call; matches what
  * `recordInitializationStep` emits in texera-agent.ts.
@@ -300,37 +184,9 @@ interface BuiltPath {
    *  filtered out here, so `eventIndex` numbers start at 1. */
   path: PathNode[];
   /** Snapshot captured at the init step, if it was on the input path. Used
-   *  to seed delta diffing and as the compacted deck's baseline. */
+   *  to seed delta diffing. */
   initSnapshot: SnapshotData | undefined;
 }
-
-/** Pick the latest external user request from a full path. Used to hoist the
- *  latest user message into the `# User Task` block at the top of a
- *  compacted context, and to skip rendering the same node inline within
- *  its `# Agent Events` (older user messages still render inline as
- *  `## User Event N`). */
-function findLatestUserStepInPath(path: PathNode[]): PathNode | undefined {
-  for (let i = path.length - 1; i >= 0; i--) {
-    const n = path[i];
-    // Runtime feedback belongs at its chronological position. Hoisting it
-    // replaces the task and rewrites the cacheable prefix during a repair.
-    // A canvas action likewise reports what the user did; it is not a request.
-    if (
-      n.step.role === "user" &&
-      n.step.messageSource !== "feedback" &&
-      n.step.messageSource !== "correction" &&
-      n.step.messageSource !== "action" &&
-      n.step.content
-    )
-      return n;
-  }
-  return undefined;
-}
-
-/** Exposed for unit tests. */
-export const __forTesting = {
-  findLatestUserStepInPath,
-};
 
 function buildPath(visibleSteps: ReActStep[], storage: WorkflowSnapshotStorage): BuiltPath {
   let initSnapshot: SnapshotData | undefined;
@@ -432,269 +288,26 @@ function buildCreateFlagsByStep(fullPath: PathNode[]): Map<string, Map<string, b
 }
 
 /* ============================================================================
- *  Rendering: interleaved events and their compaction
+ *  Rendering: interleaved events
  * ========================================================================= */
 
 /**
- * The budgeted DELTA orchestrator (contextWindowTokens > 0). Renders the
- * "original" raw delta — full trajectory, each observation showing raw records +
- * a `Schema:` line ONLY (stats are the compression currency, reserved for the
- * deck) — and, once that would overflow the window, COMPACTS via the chosen
- * strategy:
- *
- *   - "sliding":  drop the OLDEST whole agent events until it fits, leaving an
- *                 `(… N earlier events omitted …)` marker (renderDeltaTruncated).
- *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck —
- *                 the boundary snapshot rendered per-operator as stats + a
- *                 ratio-sampled row peek — then resume raw delta for the fresh
- *                 suffix (renderCompressed). This is the rolling compaction: as
- *                 the suffix regrows past the window, the boundary advances and
- *                 the deck re-renders from a newer snapshot.
- *
- * The budget is measured (via estimateTokens) against this function's output —
- * the assembled trajectory user-message. The compaction is recomputed each turn
- * from the current window; because a linear trajectory only grows, the chosen
- * boundary advances monotonically without any persisted state.
- */
-function assembleBudgetedContext(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  windowTokens: number
-): string {
-  // Phase-A "original" profile: raw records + schema line only. The data-stats
-  // family (column stats / structural hints / value-format / coercion) is off in
-  // the suffix — those are what the compress deck spends its budget on.
-  const suffixOptions: AssembleContextOptions = {
-    ...options,
-    schemaInResult: true,
-    keepFromEventIndex: undefined,
-    omittedEventsCount: 0,
-  };
-
-  // Phase A: lossless raw delta. If it fits the window, send it untouched (the
-  // append-only prefix keeps the prompt cache warm).
-  const lossless = renderInterleaved(tasks, workflowState, suffixOptions, initSnapshot, createFlagsByStep);
-  if (estimateTokens(lossless) <= windowTokens) return lossless;
-
-  // Snapshot-bearing agent events, oldest→newest — the fold/evict candidates.
-  const evs: { idx: number; snap: SnapshotData }[] = [];
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
-    }
-  }
-  if (evs.length <= 1) return lossless; // nothing meaningful to fold/evict
-
-  if ((options.compactionStrategy ?? "compress") === "sliding") {
-    return renderDeltaTruncated(tasks, workflowState, suffixOptions, initSnapshot, createFlagsByStep, windowTokens);
-  }
-
-  // compress: fold the oldest d events into a stats deck (the boundary snapshot),
-  // keep the rest as raw-delta suffix. Advance the fold forward until it fits;
-  // larger folds shrink the raw suffix faster than the stats deck grows. When
-  // d === evs.length everything folds into the deck (empty suffix = the deck alone).
-  let best = lossless;
-  let bestTokens = estimateTokens(lossless);
-  let folded = 0;
-  for (let d = 1; d <= evs.length; d++) {
-    const boundarySnap = evs[d - 1].snap;
-    const keepFrom = d < evs.length ? evs[d].idx : evs[d - 1].idx + 1; // suffix start (past-end ⇒ empty)
-    best = renderCompressed(
-      tasks,
-      workflowState,
-      options,
-      suffixOptions,
-      boundarySnap,
-      keepFrom,
-      latestUserContent,
-      latestUserStepId,
-      createFlagsByStep,
-      initSnapshot
-    );
-    bestTokens = estimateTokens(best);
-    folded = d;
-    if (bestTokens <= windowTokens) break;
-  }
-  log[bestTokens > windowTokens ? "warn" : "debug"](
-    { windowTokens, folded, kept: evs.length - folded, tokens: bestTokens },
-    bestTokens > windowTokens
-      ? "context over window even after folding every event into the compacted deck"
-      : "compress compaction"
-  );
-  return best;
-}
-
-/**
- * compress render: `# User Task` + a `# Dataflow (compacted)` deck of the
- * boundary snapshot (per-operator stats + a ratio-sampled row peek) + the fresh
- * `# Agent Events` suffix (raw delta for events at/after `keepFrom`, diffed
- * against the boundary snapshot) + the leaf FLOW section. The deck REPLACES the
- * dropped events' raw trajectory: their tables collapse to a few stat lines.
- */
-function renderCompressed(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  suffixOptions: AssembleContextOptions,
-  boundarySnap: SnapshotData,
-  keepFrom: number,
-  latestUserContent: string | undefined,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  initSnapshot?: SnapshotData
-): string {
-  const sections: string[] = [];
-
-  if (latestUserContent) {
-    sections.push("# User Task");
-    sections.push("");
-    sections.push(latestUserContent);
-    sections.push("");
-  }
-
-  // Deck: the folded prefix, as statistics + sampled rows (deckOptions turns the
-  // stats family ON — the inverse of the schema-only suffix).
-  const deckOptions: AssembleContextOptions = {
-    ...options,
-    schemaInResult: true,
-  };
-  // A single current task can inherit a large historical workflow. Checkpoint
-  // only its changed definitions and explicitly observed live operators; the
-  // task index and retrieval tools retain access to earlier work. References
-  // to unchanged inputs stay in the definitions without expanding upstreams.
-  let checkpoint = boundarySnap;
-  if (tasks.length === 1 && initSnapshot) {
-    const baseline = new Map(initSnapshot.workflow.operators.map(op => [op.operatorID, op]));
-    const observed = new Set<string>();
-    for (const node of tasks[0].nodes) {
-      if (node.eventIndex < keepFrom)
-        for (const id of Object.keys(node.snapshot?.nativeObservations ?? {})) observed.add(id);
-    }
-    const operators = boundarySnap.workflow.operators.filter(
-      op => observed.has(op.operatorID) || !isDeepStrictEqual(baseline.get(op.operatorID), op)
-    );
-    const ids = new Set(operators.map(op => op.operatorID));
-    checkpoint = {
-      ...boundarySnap,
-      workflow: {
-        ...boundarySnap.workflow,
-        operators,
-        links: boundarySnap.workflow.links.filter(
-          link => ids.has(link.source.operatorID) && ids.has(link.target.operatorID)
-        ),
-      },
-    };
-  }
-  const deck = serializeSnapshotCompact(checkpoint, workflowState, deckOptions, /*sectionLevel=*/ 2);
-  if (deck) {
-    sections.push(
-      "# Dataflow (compacted — earlier events folded into this snapshot; results shown as statistics + sampled rows)"
-    );
-    sections.push(deck);
-    sections.push("");
-  }
-
-  // Suffix: raw-delta agent events at/after the boundary. Reseed the rolling
-  // prev-snapshot to the boundary so the first surviving event diffs against the
-  // deck (not the empty init). No omitted-marker — the deck stands in its place.
-  const suffix: AssembleContextOptions = { ...suffixOptions, keepFromEventIndex: keepFrom, omittedEventsCount: 0 };
-  const events = renderAgentEvents(tasks, workflowState, suffix, boundarySnap, latestUserStepId, createFlagsByStep);
-  if (events && events !== "(no agent actions yet)") {
-    sections.push("# Agent Events (since the compacted snapshot above)");
-    sections.push("");
-    sections.push(events);
-    sections.push("");
-  }
-
-  return sections.join("\n").trimEnd();
-}
-
-/**
- * DELTA sliding-window compaction (compactionStrategy="sliding"). Lossless raw
- * delta is sent untouched while it fits the window; once it exceeds, the OLDEST
- * whole agent events are dropped (entire Thought/Action/Observation turns) until
- * it fits. The prev-snapshot is RESEEDED to the state just before the first
- * surviving event, so the survivors' per-turn deltas stay correct (otherwise the
- * first survivor would diff against the empty init and re-render every operator
- * as "added"). An `(… N earlier events omitted …)` marker stands in their place.
- *
- * This is the naive eviction baseline: it drops the early operators' structure +
- * results wholesale, whereas compress keeps them as a compact stats deck — the
- * contrast the experiments measure.
- */
-function renderDeltaTruncated(
-  tasks: TaskGroup[],
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  initSnapshot: SnapshotData | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  windowTokens: number
-): string {
-  const renderKeeping = (cutoff: number | undefined, reseed: SnapshotData | undefined, omitted: number): string => {
-    options.keepFromEventIndex = cutoff;
-    options.omittedEventsCount = omitted;
-    return renderInterleaved(tasks, workflowState, options, reseed, createFlagsByStep);
-  };
-
-  // Lossless first (keep every event) — preserves the cache-stable prefix while
-  // it fits the window.
-  const lossless = renderKeeping(undefined, initSnapshot, 0);
-  if (estimateTokens(lossless) <= windowTokens) return lossless;
-
-  // Snapshot-bearing agent events, oldest→newest.
-  const evs: { idx: number; snap: SnapshotData }[] = [];
-  for (const task of tasks) {
-    for (const node of task.nodes) {
-      if (node.step.role === "agent" && node.snapshot) evs.push({ idx: node.eventIndex, snap: node.snapshot });
-    }
-  }
-  if (evs.length <= 1) return lossless; // nothing meaningful to drop
-
-  // Drop the oldest events; keep the largest surviving suffix that fits. Dropping
-  // more only shrinks the render (the first survivor reseeds against a later
-  // snapshot, so its delta also shrinks), so first-fit while scanning the drop
-  // count upward gives the smallest sufficient drop.
-  let bestOut = lossless;
-  let bestTokens = estimateTokens(lossless);
-  let dropped = 0;
-  for (let d = 1; d <= evs.length - 1; d++) {
-    bestOut = renderKeeping(evs[d].idx, evs[d - 1].snap, d); // keep eventIndex >= evs[d].idx
-    bestTokens = estimateTokens(bestOut);
-    dropped = d;
-    if (bestTokens <= windowTokens) break;
-  }
-  log[bestTokens > windowTokens ? "warn" : "debug"](
-    { windowTokens, dropped, kept: evs.length - dropped, tokens: bestTokens },
-    bestTokens > windowTokens
-      ? "context over window even after keeping only the most recent event"
-      : "sliding compaction"
-  );
-  return bestOut;
-}
-
-/**
  * Render the agent trajectory as the sequence of per-event Thought / Action /
- * Observation bodies (delta-style). Shared by the `# Agent Events` section and
- * the compacted render's suffix. The rolling prevSnapshot (seeded by the hidden
- * init snapshot) drives the per-event "operator X added/updated" diff in each
- * Observation. Returns the joined bodies, or the empty-trajectory placeholder.
+ * Observation bodies (delta-style). The rolling prevSnapshot (seeded by the
+ * hidden init snapshot) drives the per-event "operator X added/updated" diff in
+ * each Observation. Returns the joined bodies, or the empty-trajectory
+ * placeholder.
  */
 function renderAgentEvents(
   tasks: TaskGroup[],
   workflowState: WorkflowState,
   options: AssembleContextOptions,
   initSnapshot: SnapshotData | undefined,
-  latestUserStepId: string | undefined,
   createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
   const bodies: string[] = [];
   let prevSnapshot: SnapshotData | undefined = initSnapshot;
-  for (const [taskIndex, task] of tasks.entries()) {
+  for (const task of tasks) {
     const body = serializeTaskBody(
       task,
       workflowState,
@@ -703,9 +316,7 @@ function renderAgentEvents(
       s => {
         prevSnapshot = s;
       },
-      latestUserStepId,
-      createFlagsByStep,
-      /*laterTurn=*/ taskIndex > 0
+      createFlagsByStep
     );
     if (body) bodies.push(body);
   }
@@ -730,17 +341,9 @@ function renderInterleaved(
   sections.push("# Agent Events");
   sections.push("");
 
-  // Sliding-window truncation marker (truncateOldest): the dropped oldest events
-  // are replaced by a single placeholder so the model knows history was elided.
-  if (options.omittedEventsCount && options.omittedEventsCount > 0) {
-    const n = options.omittedEventsCount;
-    sections.push(`(… ${n} earlier event${n === 1 ? "" : "s"} omitted to fit the context budget …)`);
-    sections.push("");
-  }
-
   // Each event as a Thought/Action/Observation body, diffed against a rolling
   // previous snapshot (seeded by the hidden init snapshot).
-  sections.push(renderAgentEvents(tasks, workflowState, options, initSnapshot, undefined, createFlagsByStep));
+  sections.push(renderAgentEvents(tasks, workflowState, options, initSnapshot, createFlagsByStep));
   sections.push("");
 
   return sections.join("\n").trimEnd();
@@ -760,27 +363,12 @@ function serializeTaskBody(
   options: AssembleContextOptions,
   getPrev: () => SnapshotData | undefined,
   setPrev: (s: SnapshotData) => void,
-  latestUserStepId: string | undefined,
-  createFlagsByStep: Map<string, Map<string, boolean>>,
-  /** True for every task group after the first (a later user turn). */
-  laterTurn = false
+  createFlagsByStep: Map<string, Map<string, boolean>>
 ): string {
   const lines: string[] = [];
 
   for (const node of task.nodes) {
-    // Sliding-window truncation (truncateOldest): drop events older than the
-    // cutoff entirely. `continue` BEFORE any setPrev so the rolling prev stays at
-    // the reseeded snapshot until the first surviving event (keeps its delta correct).
-    if (options.keepFromEventIndex !== undefined && node.eventIndex < options.keepFromEventIndex) continue;
     if (node.step.role === "user") {
-      // A caller that hoists the latest user message into a top-level
-      // `# User Task` block passes its id. Skip it here so it doesn't appear
-      // twice — except on a later turn: there the request must also be the
-      // LAST message of the transcript (the model answered "please provide
-      // the next question" to a `Continue.` 70k tokens after a request placed
-      // on top), and an inline copy at its chronological position keeps the
-      // prompt append-only within the turn.
-      if (node.step.id === latestUserStepId && !laterTurn) continue;
       lines.push(serializeUserEventInline(node));
       lines.push("");
       continue;
@@ -820,14 +408,12 @@ function serializeTaskBody(
     }
     if (node.snapshot && !actionResults.length) {
       // Observation = the execution outcome of the Action: a per-operator list.
-      // Each observation uses the same evidence controls as the compacted
-      // deck. Every operator that CHANGED or
-      // RE-EXECUTED this step (the Δ — incl. downstream ops refreshed by
-      // runPostStepExecution, via computeDelta case c) renders as
-      // `- operator <id> <added|updated|deleted>` followed by its result. On
-      // error the result keeps the engine's exception + `at line N` pointer + the
-      // `Operator code:` block (self-contained — the failing line shown in context;
-      // see renderRawResult).
+      // Every operator that CHANGED or RE-EXECUTED this step (the Δ — incl.
+      // downstream ops refreshed by runPostStepExecution, via computeDelta case
+      // c) renders as `- operator <id> <added|updated|deleted>` followed by its
+      // result. On error the result keeps the engine's exception + `at line N`
+      // pointer + the `Operator code:` block (self-contained — the failing line
+      // shown in context; see renderRawResult).
       const prev = getPrev();
       const delta = computeDelta(prev, node.snapshot);
       const createFlags = createFlagsByStep.get(node.step.id);
@@ -921,10 +507,6 @@ function serializeTaskBody(
             ? `- ${op.nativeOp.type.toLowerCase()} operator \`${op.operatorID}\` ${currInfo?.nativeError?.phase === "attempt" ? "edit rejected (not executed)" : currInfo?.nativeError?.diagnostic.stage === "dependency" ? "blocked (not executed)" : (actedVerb.get(op.operatorID) ?? (requestedResults ? (delta.has(op.operatorID) ? "re-executed" : "observed (cached)") : "updated"))}`
             : `- operator ${op.operatorID} ${actedVerb.get(op.operatorID) ?? "updated"}`
         );
-        // Checks are the operator's own violated assumptions: shown whether or
-        // not its table was requested, from this event's immutable snapshot.
-        if (op.nativeOp && currInfo && !currInfo.error && (options.nativeEvidence?.checks ?? options.nativeChecks))
-          for (const line of nativeCheckLines(op, currInfo)) obs.push(`  check: ${line}`);
         // Successful hidden outputs keep a compact receipt. Errors bypass the
         // display choice and continue through the full error renderer below.
         if (requestedResults && !requestedResults.has(op.operatorID) && !currInfo?.error) {
@@ -1131,66 +713,8 @@ function stringifyOutput(output: unknown): string {
 }
 
 /* ============================================================================
- *  Snapshot rendering (the compacted deck and the per-event delta)
+ *  Snapshot rendering (the per-event delta)
  * ========================================================================= */
-
-/**
- * Rows to keep as a peek in the compress deck for one operator: `ratio` of the
- * operator's true output-row count, clamped to `[3, maxResultRows||20]`. The
- * ratio keeps the sample proportional to the data; the cap guarantees the deck
- * stays a compression (a 50k-row table can't dump thousands of rows). Errored /
- * empty operators have no rows to sample ⇒ the floor of 3 (harmless).
- */
-export function deckRowCap(
-  info: OperatorInfo | undefined,
-  ratio: number | undefined,
-  maxRows: number | undefined
-): number {
-  const rows =
-    info?.totalRowCount ?? info?.outputTuples ?? (Array.isArray(info?.result) ? (info!.result as unknown[]).length : 0);
-  const hardCap = maxRows && maxRows > 0 ? maxRows : 20;
-  const r = ratio && ratio > 0 ? ratio : 0.1;
-  return Math.max(3, Math.min(hardCap, Math.ceil(rows * r)));
-}
-
-/**
- * Compact ("deck") snapshot render for the compress compaction: one block per
- * operator, each Result rendered as statistics (Column Schema and stats) plus a
- * `deckSampleRatio` row peek instead of its full table — the folded prefix's raw
- * trajectory collapses to a few stat lines per operator. Per-operator
- * `maxResultRows` is the ratio-sampled cap.
- */
-function serializeSnapshotCompact(
-  snapshot: SnapshotData,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  sectionLevel: number
-): string | null {
-  const { workflow } = snapshot;
-  if (workflow.operators.length === 0) return null;
-
-  const lines: string[] = [];
-  const sharedUpstream = new Map<string, string>();
-  const { sortedOps, allLinks } = topoSortDag(workflow);
-  const sectionHash = "#".repeat(sectionLevel);
-  const operatorLevel = sectionLevel + 1;
-
-  lines.push(`${sectionHash} Operators`);
-  lines.push("");
-  for (const op of sortedOps) {
-    const info = snapshot.results.get(op.operatorID)?.info;
-    const perOpOptions: AssembleContextOptions = {
-      ...options,
-      maxResultRows: deckRowCap(info, options.deckSampleRatio, options.maxResultRows),
-      nativeObservationCompaction: true,
-    };
-    lines.push(
-      serializeOperatorFull(op, snapshot, workflowState, perOpOptions, allLinks, operatorLevel, sharedUpstream)
-    );
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
-}
 
 /**
  * Δᵢ = operators in snapshot S_i that differ from S_{i-1}.
@@ -1249,14 +773,12 @@ function nativeEvidenceAtSnapshot(
     flow: false,
     maxChars: options.nativeEvidence?.maxChars ?? options.maxOperatorResultCharLimit ?? 2000,
     frozen: snapshot.nativeObservations?.[operatorId],
-    compact: options.nativeObservationCompaction === true,
     sharedUpstream,
   };
 }
 
 function resultFormatOptions(options: AssembleContextOptions): FormatOperatorResultOptions {
   return {
-    schemaInResult: options.schemaInResult,
     maxResultRows: options.maxResultRows,
   };
 }
@@ -1270,237 +792,6 @@ function outputColsFromSnapshot(snapshot: SnapshotData | undefined, opId: string
   return Object.keys(r[0] as Record<string, unknown>).filter(k => k !== "__row_index__" && k !== "__is_visualization__")
     .length;
 }
-
-/**
- * The operator's single consolidated `Inputs:` line, embedded in the operator
- * block so upstream connectivity is local (no separate `## Links` section).
- * Lists each upstream operator id + `(R rows, C cols)` when the op has executed
- * (rows from this op's input port metrics, cols resolved from the upstream
- * operator's output). Source operators emit nothing. Order is by port —
- * cosmetic only; the engine binds `process()` params by NAME=id, not position.
- */
-function formatOperatorAdjacency(
-  op: OperatorPredicate,
-  allLinks: WorkflowContent["links"],
-  opInfo?: OperatorInfo,
-  snapshot?: SnapshotData
-): string[] {
-  // V2 measured relationships belong inside the observed result's budget.
-  // Do not infer unmatched rows from output/min(input), or expose these
-  // legacy heuristics in the evidence-off framework control.
-  if (op.nativeOp) return []; // the operands are in the definition line
-  const lines: string[] = [];
-  const inbound = allLinks
-    .filter(l => l.target.operatorID === op.operatorID)
-    .map(l => ({ up: l.source.operatorID, port: op.inputPorts?.findIndex(p => p.portID === l.target.portID) ?? -1 }))
-    .sort((a, b) => a.port - b.port);
-  if (inbound.length > 0) {
-    const shapes = opInfo?.inputPortShapes ?? [];
-    // The single consolidated Inputs line: upstream id + (rows, cols) when the
-    // op has executed, in a stable order (by port — cosmetic only; the engine
-    // binds process() params by NAME=id, not position). Input row count comes
-    // from this op's port metrics; input column count from the upstream
-    // operator's output (engine port metrics omit it).
-    const parts = inbound.map(i => {
-      const shape = shapes.find(s => s.portIndex === i.port);
-      const rowsPart = typeof shape?.rows === "number" ? `${shape.rows} rows` : undefined;
-      const colN = typeof shape?.columns === "number" ? shape.columns : outputColsFromSnapshot(snapshot, i.up);
-      const colsPart = typeof colN === "number" ? `${colN} cols` : undefined;
-      const shapeStr = [rowsPart, colsPart].filter(Boolean).join(", ");
-      return shapeStr ? `${i.up} (${shapeStr})` : i.up;
-    });
-    lines.push("Inputs: " + parts.join(", "));
-  }
-  return lines;
-}
-
-function serializeOperatorFull(
-  op: OperatorPredicate,
-  snapshot: SnapshotData,
-  workflowState: WorkflowState,
-  options: AssembleContextOptions,
-  allLinks: WorkflowContent["links"],
-  operatorLevel: number,
-  sharedUpstream?: Map<string, string>
-): string {
-  const info = snapshot.results.get(op.operatorID)?.info;
-  // Visibility is a serializer invariant: a block shows only the results its
-  // step requested (and every error).
-  const requested = snapshot.reactStepId ? options.batchObservationsByStep?.get(snapshot.reactStepId) : undefined;
-  if (requested && !requested.has(op.operatorID) && !info?.error) {
-    const rows = info?.totalRowCount ?? info?.outputTuples;
-    if (op.nativeOp)
-      return operatorBlock(
-        describeOperator(op, info, {
-          scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
-          issues: ["- note: result not requested."],
-        })
-      );
-    return [
-      `${"#".repeat(operatorLevel)} ${op.operatorType} operator \`${op.operatorID}\``,
-      info
-        ? `Result: executed${rows !== undefined ? `, ${rows} rows` : ""}; result not requested`
-        : "Result: unavailable; result not requested",
-    ].join("\n");
-  }
-  const execText = info
-    ? formatOperatorResult(op.operatorID, info, workflowState, {
-        ...resultFormatOptions(options),
-        // The operator block renders a single consolidated `Inputs:` (with counts)
-        // via formatOperatorAdjacency, so skip the in-Result one.
-        inputsInResult: false,
-        operatorAtEvent: op,
-        nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, snapshot, options, sharedUpstream),
-      })
-    : undefined;
-
-  if (op.nativeOp) {
-    const block = describeOperator(op, info, {
-      scope: resultScope(op, snapshot.workflow, id => snapshot.results.get(id)?.info),
-      implementation: true,
-      usedBy: snapshot.workflow.operators
-        .filter(item => item.nativeOp?.inputs.includes(op.operatorID))
-        .map(item => item.operatorID),
-      issues: info?.error && execText ? execText.split("\n") : [],
-    });
-    if (execText?.startsWith("columns: ")) block.columns = [];
-    return [operatorBlock(block), ...(execText && !info?.error ? [execText] : [])].join("\n");
-  }
-
-  // No status label in the header. Execution state is conveyed by the Result
-  // section itself:
-  //   - no info AND no errored upstream → no `Result:` block
-  //     (operator hasn't been executed yet)
-  //   - no info BUT an upstream op has info.error
-  //                                    → `Result: (skipped — upstream
-  //     operator `X` errored; …)` so the agent can distinguish "blocked
-  //     by upstream failure" from "not yet built". Walks transitively
-  //     through upstreams that themselves have no info, so a long
-  //     skipped chain points back to the actual root-cause error.
-  //   - successful info               → `Result:` block with the data preview
-  //   - error info                    → `Result:` block beginning with
-  //     `[ERROR] …`, which (per the Amber backend's format) carries the
-  //     user's code + line marker inline.
-  const opHash = "#".repeat(operatorLevel);
-  const lines: string[] = [];
-  // NATIVE operators: `### filter operator \`id\`` — the type is the header, the
-  // parameters are the summary. Other operators keep `### Operator \`id\` (Type)` + Summary.
-  lines.push(`${opHash} Operator \`${op.operatorID}\` (${op.operatorType})`);
-  lines.push(`Summary: ${op.customDisplayName || op.operatorID}`);
-  for (const l of formatOperatorAdjacency(op, allLinks, info, snapshot)) lines.push(l);
-
-  // Operator properties (config). Rendered for every operator except the
-  // Python code operators (whose `code` is stripped — see CODE_OPERATOR_TYPES)
-  // when there is at least one property to show. Empty-property operators
-  // render nothing.
-  if (
-    !op.nativeOp &&
-    !CODE_OPERATOR_TYPES.has(op.operatorType) &&
-    op.operatorProperties &&
-    Object.keys(op.operatorProperties).length > 0
-  ) {
-    lines.push(`Properties: ${JSON.stringify(op.operatorProperties)}`);
-  }
-
-  if (execText) {
-    lines.push("Result:");
-    for (const l of execText.split("\n")) lines.push("  " + l);
-  } else if (!info) {
-    // No own result/error AND no info entry for this op. Distinguish
-    // "blocked by upstream error" from "not yet executed" by walking
-    // upstreams transitively (through ops that also have no info) to
-    // find any ancestor with info.error.
-    const failedUpstreams = collectFailedUpstreamRoots(op.operatorID, snapshot, allLinks);
-    if (failedUpstreams.length > 0) {
-      const noun = failedUpstreams.length === 1 ? "operator" : "operators";
-      const list = failedUpstreams.map(id => `\`${id}\``).join(", ");
-      lines.push(`Result: (skipped — upstream ${noun} ${list} errored; see [ERROR] above)`);
-    }
-  }
-
-  // Print output (debug-only). Surface the operator's captured stdout so the model
-  // can see what it printed instead of having it silently dropped. It is NOT the
-  // operator's result and is NOT passed downstream — the returned DataFrame remains
-  // the only data plane.
-  if (info?.consoleLogs && info.consoleLogs.length > 0) {
-    // Only actual print() output (ConsoleMessageType.PRINT). consoleLogs also
-    // carries ERROR/COMMAND/DEBUGGER messages — the error traceback is already in
-    // the Result block, so including it here would duplicate + mislabel it.
-    const text = info.consoleLogs
-      .filter(c => {
-        const t = String(c.msgType ?? "").toUpperCase();
-        return t === "PRINT" || t === "0";
-      })
-      // print() text is carried in `title` (message is empty); prefer whichever is set.
-      .map(c => (typeof c.title === "string" && c.title.trim().length > 0 ? c.title : c.message))
-      .filter(m => typeof m === "string" && m.trim().length > 0)
-      .join("\n")
-      .trimEnd();
-    if (text) {
-      lines.push(
-        "Print output (your print(...) calls — for debugging only; NOT this operator's result and not passed downstream):"
-      );
-      for (const l of text.split("\n")) lines.push("  " + l);
-    }
-  }
-
-  return lines.join("\n");
-}
-
-/**
- * Walk upstream from `opId` and return the set of ancestor operators
- * whose `info.error` is set, when this op has no info of its own.
- *
- * Traversal rules:
- *   - If an ancestor has `info.error` → record it, do not traverse past it
- *     (it's the chain's root cause for this branch).
- *   - If an ancestor has an `info` without an error → traversal of this
- *     branch stops (that ancestor ran successfully; it's not why our
- *     op was blocked).
- *   - If an ancestor has no `info` → keep walking; the error might be
- *     further up.
- *
- * Returns deduplicated upstream IDs in DAG-link discovery order.
- */
-function collectFailedUpstreamRoots(
-  opId: string,
-  snapshot: SnapshotData,
-  allLinks: WorkflowContent["links"]
-): string[] {
-  const childToParents = new Map<string, string[]>();
-  for (const link of allLinks) {
-    const arr = childToParents.get(link.target.operatorID) ?? [];
-    arr.push(link.source.operatorID);
-    childToParents.set(link.target.operatorID, arr);
-  }
-  const visited = new Set<string>();
-  const failed: string[] = [];
-  const seen = new Set<string>();
-  const queue: string[] = [...(childToParents.get(opId) ?? [])];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    if (visited.has(cur)) continue;
-    visited.add(cur);
-    const upInfo = snapshot.results.get(cur)?.info;
-    if (upInfo?.error) {
-      if (!seen.has(cur)) {
-        seen.add(cur);
-        failed.push(cur);
-      }
-      continue;
-    }
-    if (upInfo) {
-      // Ran successfully — not why we're blocked.
-      continue;
-    }
-    for (const p of childToParents.get(cur) ?? []) {
-      if (!visited.has(p)) queue.push(p);
-    }
-  }
-  return failed;
-}
-
-// `buildLineageErrorContext` (#28) now lives in context/decorate/flow/error-context.
 
 /* ============================================================================
  *  Shared helpers
@@ -1535,5 +826,5 @@ function topoSortDag(workflow: WorkflowContent) {
   const sortedOps = [...allOperators].sort(
     (a, b) => (topoOrder.get(a.operatorID) ?? 0) - (topoOrder.get(b.operatorID) ?? 0)
   );
-  return { sortedOps, allLinks, topoOrder };
+  return { sortedOps };
 }

@@ -220,11 +220,11 @@ scanned workbook's receipt lists its sheet names; `scan(..., sheet='name')`
 reads one.
 
 `show result <id>, ...[<col>, ...] [view]` computes what is stale and displays
-each result in `full`, `sample`, or `sample_stats`; omitting the view selects
+each result in `full` or `sample_stats`; omitting the view selects
 the session default. Session
 `retrievalViews` controls the available choices independently of `dataEvidence`.
 Both omitted views and current default settings select `["sample_stats", "full"]`;
-explicitly select `["sample", "full"]` to disable native data statistics.
+select `["full"]` to disable native data statistics.
 `flowEvidence` adds measured operator effects to execution observations and
 bounded flow summaries to retrieval. `fullResultCharLimit` defaults to 5,000; transport
 retains up to 100,000 characters independently of the display cap;
@@ -297,7 +297,6 @@ Fast smoke of the whole stack (backends must be up; no `bun run dev` needed):
 ```bash
 cd agent-service
 bun run e2e                                    # static workflows through execution
-bun run benchmark/e2e/context-tuning-run.ts    # context-knob smoke matrix
 bun test && bun run typecheck                  # unit tests + types
 ```
 

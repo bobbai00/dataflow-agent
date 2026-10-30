@@ -22,8 +22,7 @@ views or column selections.
 | View | Records | Data statistics |
 | --- | --- | --- |
 | `full` | All retained records that fit `fullResultCharLimit`, without sample cell clipping | None |
-| `sample` | Records within `maxOperatorResultCharLimit` and `maxResultRows` | None |
-| `sample_stats` | The identical sample | Available column/table evidence within its own 2,000-character budget |
+| `sample_stats` | Records within `maxOperatorResultCharLimit` and `maxResultRows` | Available column/table evidence within its own 2,000-character budget |
 
 Every receipt reports the view, returned/total rows and columns, completeness,
 and the producing result version. A capped `full` view is explicitly incomplete.
@@ -37,9 +36,9 @@ fit. That completeness refers to the preview output, not the source file.
 `sample_stats` reports collected row/column coverage and explicitly identifies
 unavailable statistics. Raw-line tables need parsing before column statistics
 are meaningful; repeated raw lines are not reported as duplicate data records.
-The collector currently bounds profiles by 100,000 rows, 1,000,000 cells, 128
-columns and 0.2 seconds per worker. Large-table profiles can therefore cover a
-prefix. Counts and ranges describe that prefix; they are not population estimates.
+The collector profiles every row of each worker's output, for up to 128
+columns: counts, ranges and distinct counts are exact, and value lists are kept
+for columns with at most 256 distinct values.
 If profiling measured no rows of a nonempty table, its data statistics are
 marked unavailable. Independently measured operator counters remain usable.
 
@@ -133,7 +132,7 @@ deduplication. Those choices depend on the task and source definitions.
 ```json
 {
   "nativeProfileCollection": true,
-  "retrievalViews": ["full", "sample", "sample_stats"],
+  "retrievalViews": ["sample_stats", "full"],
   "fullResultCharLimit": 5000,
   "maxOperatorResultCharLimit": 2000,
   "maxResultRows": 5,
@@ -155,7 +154,7 @@ recorded revisions.
 
 The three new character limits default to 5,000 / 2,000 / 2,000 respectively
 and accept integers from 128 through 100,000. `maxResultRows: 0` leaves sample
-size bounded only by characters. Row limits apply to sample views only.
+size bounded only by characters. Row limits apply to `sample_stats` only.
 
 ## Storage, execution and history
 
@@ -184,20 +183,19 @@ Unknown phases remain absent; cached results keep their original measurements.
 
 ## Experiments
 
-The pilot driver in `benchmark/retrieval/run.py` crosses four policies with
-automatic flow evidence off/on: fixed `full`, fixed `sample`, fixed
-`sample_stats`, and model-selected views. It records actual settings, prompt,
+The campaign driver in `benchmark/retrieval/run.py` runs the arms defined in
+`benchmark/retrieval/configuration.py`. It records actual settings, prompt,
 schema, traces, producing versions, official KramaBench scores and costs. The
 original task evaluator is unchanged; full pass means official score >= 1.0.
 Independent repetitions retain failures and use no outcome-selected retries.
 
-The matched `evidence_data{0,1}_flow{0,1}` arms offer sample/full when data is off
-and sample_stats/full when it is on, with flow independently toggled. All four
-collect full-row profiles internally, so they compare exposure rather than
-profiling overhead. Pass `--full-result-char-limit 5000` to use the current
-service display cap; the runner's historical default remains 100,000. Current
-inspection/filter contracts do not change the interpretation of frozen earlier
-campaigns.
+The matched `evidence_full_flow{0,1}` and `evidence_data1_flow{0,1}` arms read only
+`full` when data is off and offer `sample_stats`/`full` when it is on, with flow
+independently toggled. All four collect full-row profiles internally, so they
+compare exposure rather than profiling overhead. Pass
+`--full-result-char-limit 5000` to use the current service display cap; the
+runner's historical default remains 100,000. Current inspection/filter
+contracts do not change the interpretation of frozen earlier campaigns.
 
 ```bash
 benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py \

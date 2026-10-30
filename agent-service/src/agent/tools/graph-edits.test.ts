@@ -23,7 +23,6 @@ import { WorkflowSystemMetadata } from "../util/workflow-system-metadata";
 import { planGraphEdit, inspectGraph, missingGraphInputs } from "./graph-edits";
 import { computeStaleResultOps } from "../workflow-snapshot-storage";
 import { compileNativeOp } from "../native/codegen";
-import { validateNativeSettings } from "../native/settings";
 import { nativeAssignmentText } from "../native/catalog";
 
 const context = () => {
@@ -322,24 +321,17 @@ last"""
   expect(missingGraphInputs(state.getWorkflowContent())).toEqual([]);
 });
 
-test("full profile scope is compiled into new operators, and existing operators keep theirs", async () => {
-  const plan = (workflow: ReturnType<WorkflowState["getWorkflowContent"]>, changes: string, scope: "prefix" | "full") =>
-    planGraphEdit(workflow, changes, {
-      ...context(),
-      settings: { nativeProfileCollection: true, nativeProfileScope: scope },
-    });
-  const full = await plan(new WorkflowState().getWorkflowContent(), chain, "full");
-  for (const op of full.workflow.operators) {
-    expect(op.nativeOp?.profileCollection).toBe(true);
-    expect(op.nativeOp?.profileScope).toBe("full");
-  }
+test("profile collection is compiled into new operators, and existing operators keep theirs", async () => {
+  const plan = (workflow: ReturnType<WorkflowState["getWorkflowContent"]>, changes: string, collection: boolean) =>
+    planGraphEdit(workflow, changes, { ...context(), settings: { nativeProfileCollection: collection } });
+  const collected = await plan(new WorkflowState().getWorkflowContent(), chain, true);
+  for (const op of collected.workflow.operators) expect(op.nativeOp?.profileCollection).toBe(true);
   const code = JSON.parse(
-    String(full.workflow.operators[0].operatorProperties.code).match(/json\.loads\((".*")\)/)![1]
+    String(collected.workflow.operators[0].operatorProperties.code).match(/json\.loads\((".*")\)/)![1]
   );
-  expect(JSON.parse(code).profileScope).toBe("full");
-  const prefix = await plan(new WorkflowState().getWorkflowContent(), chain, "prefix");
-  expect(prefix.workflow.operators.some(op => "profileScope" in op.nativeOp!)).toBe(false);
-  const updated = await plan(full.workflow, 'source = scan("data/b.csv")', "prefix");
-  expect(updated.workflow.operators.find(op => op.operatorID === "source")!.nativeOp?.profileScope).toBe("full");
-  expect(() => validateNativeSettings({ nativeProfileScope: "everything" } as any)).toThrow(/prefix" or "full/);
+  expect(JSON.parse(code).profileCollection).toBe(true);
+  const plain = await plan(new WorkflowState().getWorkflowContent(), chain, false);
+  expect(plain.workflow.operators.some(op => "profileCollection" in op.nativeOp!)).toBe(false);
+  const updated = await plan(collected.workflow, 'source = scan("data/b.csv")', false);
+  expect(updated.workflow.operators.find(op => op.operatorID === "source")!.nativeOp?.profileCollection).toBe(true);
 });

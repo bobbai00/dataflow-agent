@@ -102,7 +102,7 @@ function attemptedView(statement: ParsedStatement, type: string, inputs: string[
 export function normalizeStatement(
   statement: ParsedStatement,
   functions: Record<string, ParsedFunction>,
-  options: { profileCollection?: boolean; profileScope?: "full" } = {}
+  options: { profileCollection?: boolean } = {}
 ): ProgramStatement {
   const base = { id: statement.id, op: statement.op, line: statement.line, source: statement.source };
   const def = NATIVE_BY_NAME.get(statement.op);
@@ -145,7 +145,6 @@ export function normalizeStatement(
     const view: NativeOpView = { type: def.type, properties, inputs, source: statement.source };
     if (used.size) view.functions = Object.fromEntries(used);
     if (options.profileCollection === true) view.profileCollection = true;
-    if (options.profileCollection === true && options.profileScope === "full") view.profileScope = "full";
     view.revision = nativeRevision(view);
     return { ...base, view, attempted: view };
   } catch (error) {

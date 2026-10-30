@@ -38,10 +38,10 @@ export function validateNativeSettings(settings: object = {}): void {
       !Array.isArray(views) ||
       views.length === 0 ||
       new Set(views).size !== views.length ||
-      views.some(v => !["full", "sample", "sample_stats"].includes(v))
+      views.some(v => !["full", "sample_stats"].includes(v))
     )
       throw new NativeCatalogSettingsError(
-        "retrievalViews must be a nonempty list of unique full, sample, or sample_stats views"
+        "retrievalViews must be a nonempty list of unique full or sample_stats views"
       );
   }
   const limit = supplied.fullResultCharLimit;
@@ -64,15 +64,11 @@ export function validateNativeSettings(settings: object = {}): void {
     "flowEvidence",
     "operatorDoc",
     "nativeProfileCollection",
-    "nativeChecks",
   ] as const) {
     const value = (settings as Record<string, unknown>)[key];
     if (value !== undefined && typeof value !== "boolean")
       throw new NativeCatalogSettingsError(`${key} must be a boolean`);
   }
-  const scope = (settings as Record<string, unknown>).nativeProfileScope;
-  if (scope !== undefined && scope !== "prefix" && scope !== "full")
-    throw new NativeCatalogSettingsError('nativeProfileScope must be "prefix" or "full"');
   const multiRequest = (settings as Record<string, unknown>).multiRequest;
   if (multiRequest !== undefined && !["off", "transcript"].includes(String(multiRequest)))
     throw new NativeCatalogSettingsError('multiRequest must be "off" or "transcript"');

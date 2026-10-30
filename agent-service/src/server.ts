@@ -23,7 +23,6 @@ import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
 import { createOpenAI } from "@ai-sdk/openai";
 import { withModelWireTrace } from "./agent/llm-drivers/wire-trace";
-import { readInputBudget, withInputBudget, withModelCallLimit } from "./agent/llm-drivers/input-budget";
 import { TexeraAgent, type AgentMessageResult } from "./agent/texera-agent";
 import { NativeCatalogSettingsError, refuseUnknownSettings, validateNativeSettings } from "./agent/native/settings";
 import { EVIDENCE_CHAR_LIMIT } from "./agent/native/retrieval";
@@ -86,14 +85,9 @@ export function buildContextAssembler(): ContextAssembler {
         maxChars: settings.maxOperatorResultCharLimit,
         dataMaxChars: EVIDENCE_CHAR_LIMIT,
         flowMaxChars: EVIDENCE_CHAR_LIMIT,
-        checks: settings.nativeChecks,
       },
       dataEvidence: settings.dataEvidence,
       flowEvidence: settings.flowEvidence,
-      nativeChecks: settings.nativeChecks,
-      contextWindowTokens: settings.contextWindowTokens,
-      compactionStrategy: settings.compactionStrategy,
-      deckSampleRatio: settings.deckSampleRatio,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
     });
@@ -135,17 +129,12 @@ function applyInitialSettings(
     executionTimeoutMs: settings.executionTimeoutMinutes ? settings.executionTimeoutMinutes * 60000 : undefined,
     maxSteps: settings.maxSteps,
     nativeProfileCollection: settings.nativeProfileCollection,
-    nativeProfileScope: settings.nativeProfileScope,
     dataEvidence: settings.dataEvidence,
     retrievalViews: settings.retrievalViews,
     fullResultCharLimit: settings.fullResultCharLimit,
     flowEvidence: settings.flowEvidence,
     operatorDoc: settings.operatorDoc,
     instructions: settings.instructions,
-    nativeChecks: settings.nativeChecks,
-    contextWindowTokens: settings.contextWindowTokens,
-    compactionStrategy: settings.compactionStrategy,
-    deckSampleRatio: settings.deckSampleRatio,
     maxResultRows: settings.maxResultRows,
     multiRequest: settings.multiRequest,
   });
@@ -161,9 +150,6 @@ async function createAgentInstance(
   const agentId = restoreId ?? `agent-${AGENT_ID_SALT}-${++agentCounter}`;
   const config = getBackendConfig();
 
-  const inputBudget = readInputBudget(process.env);
-  const modelCallLimit = Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0);
-
   const openai = createOpenAI({
     baseURL: `${config.modelsEndpoint}/api`,
     // The LLM gateway (access-control-service) enforces a REGULAR/ADMIN-role
@@ -173,21 +159,12 @@ async function createAgentInstance(
     // Every model request has a deadline; a request that never answers is
     // abandoned and the turn retries it (TexeraAgent.sendMessage).
     fetch: withRequestTimeout(
-      withModelWireTrace(
-        process.env.TEXERA_LLM_TRACE_DIR,
-        () => ({
-          agentId,
-          workflowId: delegateConfig.workflowId,
-          headId: agent.getHead(),
-          messageId: agent.getCurrentMessageId(),
-          inputBudget,
-          modelCallLimit,
-        }),
-        withInputBudget(
-          inputBudget,
-          withModelCallLimit(modelCallLimit, () => agent.getCurrentMessageId())
-        )
-      )
+      withModelWireTrace(process.env.TEXERA_LLM_TRACE_DIR, () => ({
+        agentId,
+        workflowId: delegateConfig.workflowId,
+        headId: agent.getHead(),
+        messageId: agent.getCurrentMessageId(),
+      }))
     ),
   });
 
@@ -257,23 +234,18 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   maxSteps: t.Optional(t.Number()),
   ...OBSERVATION_SETTINGS_SCHEMA,
   nativeProfileCollection: t.Optional(t.Boolean()),
-  nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
   dataEvidence: t.Optional(t.Boolean()),
   retrievalViews: t.Optional(
-    t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
+    t.Array(t.Union([t.Literal("full"), t.Literal("sample_stats")]), {
       minItems: 1,
-      maxItems: 3,
+      maxItems: 2,
     })
   ),
   fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
   flowEvidence: t.Optional(t.Boolean()),
   operatorDoc: t.Optional(t.Boolean()),
   instructions: t.Optional(t.String({ maxLength: 20000 })),
-  nativeChecks: t.Optional(t.Boolean()),
   contextMode: t.Optional(t.Literal("delta")),
-  contextWindowTokens: t.Optional(t.Number()),
-  compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
-  deckSampleRatio: t.Optional(t.Number()),
   maxResultRows: t.Optional(t.Number()),
   multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript")])),
 });
@@ -287,18 +259,13 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     executionTimeoutMinutes: Math.round(agentSettings.executionTimeoutMs / 60000),
     maxSteps: agentSettings.maxSteps,
     nativeProfileCollection: agentSettings.nativeProfileCollection,
-    nativeProfileScope: agentSettings.nativeProfileScope,
     dataEvidence: agentSettings.dataEvidence,
     retrievalViews: agentSettings.retrievalViews,
     fullResultCharLimit: agentSettings.fullResultCharLimit,
     flowEvidence: agentSettings.flowEvidence,
     operatorDoc: agentSettings.operatorDoc,
     instructions: agentSettings.instructions,
-    nativeChecks: agentSettings.nativeChecks,
     contextMode: "delta",
-    contextWindowTokens: agentSettings.contextWindowTokens,
-    compactionStrategy: agentSettings.compactionStrategy,
-    deckSampleRatio: agentSettings.deckSampleRatio,
     maxResultRows: agentSettings.maxResultRows,
     multiRequest: agentSettings.multiRequest,
   };
@@ -932,14 +899,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     };
   })
 
-  .get("/:id/system-info", ({ params: { id } }) => {
-    const agent = getAgent(id);
-    return {
-      ...agent.getSystemInfo(),
-      inputBudget: readInputBudget(process.env),
-      modelCallLimit: Number(process.env.MODEL_MAX_CALLS_PER_TURN ?? 0),
-    };
-  })
+  .get("/:id/system-info", ({ params: { id } }) => getAgent(id).getSystemInfo())
 
   .post("/:id/stop", ({ params: { id } }) => {
     const agent = getAgent(id);
@@ -1106,17 +1066,12 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
           settings.executionTimeoutMinutes !== undefined ? settings.executionTimeoutMinutes * 60000 : undefined,
         maxSteps: settings.maxSteps,
         nativeProfileCollection: settings.nativeProfileCollection,
-        nativeProfileScope: settings.nativeProfileScope,
         dataEvidence: settings.dataEvidence,
         retrievalViews: settings.retrievalViews,
         fullResultCharLimit: settings.fullResultCharLimit,
         flowEvidence: settings.flowEvidence,
         operatorDoc: settings.operatorDoc,
         instructions: settings.instructions,
-        nativeChecks: settings.nativeChecks,
-        contextWindowTokens: settings.contextWindowTokens,
-        compactionStrategy: settings.compactionStrategy,
-        deckSampleRatio: settings.deckSampleRatio,
         maxResultRows: settings.maxResultRows,
         multiRequest: settings.multiRequest,
       });

@@ -74,7 +74,7 @@ export interface ParsedTurn extends TurnReceiptInfo {
 export type TurnParse = { ok: true; turn: ParsedTurn } | { ok: false; line?: number; error: string };
 
 export interface TurnParseOptions {
-  /** Retrieval views this session allows; the first sample view is the default. */
+  /** Retrieval views this session allows; `sample_stats` is the default when allowed. */
   views: readonly RetrievalView[];
 }
 
@@ -253,11 +253,8 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
   /** The backticks of a `text`/`turn` fence whose lines are read in place. */
   let blockFence: string | undefined;
   let pendingSet: { line: number; scan: DeclarationScan } | undefined;
-  const defaultView: RetrievalView = options.views.includes("sample_stats")
-    ? "sample_stats"
-    : options.views.includes("sample")
-      ? "sample"
-      : options.views[0];
+  const defaultView: RetrievalView = options.views.includes("sample_stats") ? "sample_stats" : options.views[0];
+  const offered = (view: string): view is RetrievalView => (options.views as readonly string[]).includes(view);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -354,10 +351,12 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
       const statement: TurnStatement = { line: number, text: trimmed, kind: "show", resource, actionIndexes: [] };
       if (resource === "result") {
         let spec = rest;
-        let view: RetrievalView = defaultView;
+        let view: string = defaultView;
+        // `sample` is read as a view too, so that it is refused by name rather
+        // than taken for an operator ID.
         const viewMatch = /\s+(full|sample_stats|sample)\s*$/.exec(spec);
         if (viewMatch) {
-          view = viewMatch[1] as RetrievalView;
+          view = viewMatch[1];
           spec = spec.slice(0, viewMatch.index).trim();
         }
         let columns: string[] | undefined;
@@ -370,7 +369,7 @@ export function parseTurn(fields: TurnFields, options: TurnParseOptions): TurnPa
         }
         const ids = identifiers(spec, number, "show result");
         if (!Array.isArray(ids)) return ids;
-        if (!options.views.includes(view))
+        if (!offered(view))
           return fail(number, `the view ${JSON.stringify(view)} is unavailable; use ${options.views.join(" or ")}.`);
         statement.ids = ids;
         statement.view = view;

@@ -187,6 +187,11 @@ describe(`POST ${API}/agents`, () => {
       "userTaskPlacement",
       "catalogSource",
       "catalogRecent",
+      "nativeChecks",
+      "nativeProfileScope",
+      "contextWindowTokens",
+      "compactionStrategy",
+      "deckSampleRatio",
       "nativeTransport",
       "columnStats",
       "maxStep",
@@ -413,7 +418,7 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
 
   test("retrieval capabilities and budgets survive create, GET, and PATCH", async () => {
     const settings = {
-      retrievalViews: ["full", "sample", "sample_stats"],
+      retrievalViews: ["full", "sample_stats"],
       fullResultCharLimit: 100000,
       maxOperatorResultCharLimit: 1500,
       maxResultRows: 5,
@@ -429,7 +434,8 @@ describe(`PATCH ${API}/agents/:id/settings`, () => {
     });
     for (const bad of [
       { retrievalViews: [] },
-      { retrievalViews: ["sample", "sample"] },
+      { retrievalViews: ["sample_stats", "sample_stats"] },
+      { retrievalViews: ["sample", "full"] },
       { fullResultCharLimit: 100001 },
     ]) {
       expect((await patchJson(`${API}/agents/${created.id}/settings`, bad)).status).toBeGreaterThanOrEqual(400);

@@ -155,9 +155,6 @@ without moving HEAD.
 cd agent-service
 bun run e2e          # static workflows through the execution path
 
-# context-parameter smoke matrix (compaction budgets, deck sampling):
-bun run benchmark/e2e/context-tuning-run.ts
-
 # real-browser checks, from frontend/ (Playwright; each brings its own computing unit):
 node e2e/agent-panel.e2e.mjs                                         # chat, settings, versioning, new chat
 PROBE_MODEL=claude-haiku-5.5 node e2e/agent-operator-actions.e2e.mjs # Run / Edit / Feedback on an operator
@@ -169,13 +166,6 @@ gateway):
 | Suite | Result |
 |---|---|
 | `bun run e2e` (8 static workflows + strict validators) | 8/8 pass |
-| context-tuning matrix (6 configs) | 6/6 pass, all reached the correct answer |
-
-Context-tuning matrix configs, all green: `latest` default;
-`latest + columnStats + thoughtReplayK=3`; `delta` unbounded;
-`delta + contextWindowTokens=8000 + compress + deckSampleRatio=0.25`;
-`delta + contextWindowTokens=6000 + sliding`;
-`delta + turnHistory=index + indexDetailedOperators=6 + indexRichTables=2`.
 
 `bun run e2e:errors` checks the worker's error contract: the exception type
 and a `(line N) \`source\` - ` pointer at the offending statement; the
@@ -201,9 +191,6 @@ Passed as `settings` on agent creation (`POST /api/agents/`) or via
 | `nativeProfileCollection` | bool (default `true`) | collect the counters behind both evidence kinds; fixed for the life of a workflow |
 | `maxOperatorResultCharLimit` | int (default 2000) | per-result budget shared by schema, sample rows and enabled evidence |
 | `contextMode` | `delta` (the only value) | the full event trajectory as a tool-calling transcript, append-only for the provider cache |
-| `contextWindowTokens` | int (0 = unbounded) | DELTA budget; overflow triggers compaction |
-| `compactionStrategy` | `compress` \| `sliding` | fold old events into a stats deck vs. evict oldest |
-| `deckSampleRatio` | 0..1 (default 0.10) | fraction of folded operators' rows kept as a peek |
 | `maxResultRows` | int (0 = no cap) | rows rendered per operator result |
 | `maxSteps` | int (default 100) | per-turn step budget |
 | `executionTimeoutMinutes` | int | per workflow execution |

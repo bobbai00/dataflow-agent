@@ -248,19 +248,16 @@ These are worker collection limits, **not** the model-context character budget:
 
 | Default limit                 |          Value | Consequence when reached                                                                            |
 | ----------------------------- | -------------: | --------------------------------------------------------------------------------------------------- |
-| Processed rows                |        100,000 | Remaining rows are not profiled                                                                     |
-| Processed cells               |      1,000,000 | Reduces the processed prefix on wide tables                                                         |
 | Profiled columns              |            128 | Later columns omitted; full-row structural claims disabled                                          |
-| Distinct values per column    |            256 | Exact dictionary abandoned on overflow                                                              |
-| Distinct row identities       |          4,096 | Duplicate-row metric unavailable on overflow                                                        |
+| Distinct values per column    |            256 | Exact dictionary abandoned on overflow; the distinct count of a single yield stays exact            |
 | Displayed frequency entries   |              8 | Remaining non-null mass is `otherCount`                                                             |
 | Profiled scalar string length | 192 characters | Affected value/range data becomes unavailable                                                       |
 | Encoded worker payload        |   65,536 bytes | Drop the largest value dictionaries/frequencies first, retaining compact categories where possible; then native counters and profile contents if necessary |
-| Accumulated collection time   |    0.2 seconds | Cooperative cutoff checked every 128 rows; not a hard wall-clock execution timeout                  |
 
-The accumulator still tracks the full output row count via DataFrame lengths
-when value profiling stops. Row selection is a **prefix of worker output**, not
-a uniform random sample or a statistically representative sample.
+Every row of the worker's output is profiled, one vectorized pass per column:
+counts, ranges and distinct counts are exact. Duplicate rows are counted within
+one DataFrame yield; a worker that yields several frames reports them as
+unavailable.
 
 `full=N rows` on a column requires a valid version-bound profile, a processed
 row count equal to the output's total row count, and all expected worker
@@ -601,8 +598,7 @@ length(selected flow evidence) <= E
 ```
 
 An observation can therefore exceed `B` by up to `E` per enabled family.
-Historical compaction keeps a recorded observation whole unless an explicit
-limit is given. Before 2026-09-23 the data facts outranked the rows that
+A recorded observation is replayed whole. Before 2026-09-23 the data facts outranked the rows that
 overflowed the reserve, so enabling data evidence showed about 29% fewer rows
 (Luna traces: 9.0 against 12.7 rows per incomplete table).
 
@@ -1090,7 +1086,7 @@ this documentation change does not initiate a new benchmark run.
 | Worker publication                              | [`data_processor.py`](../amber/src/main/python/core/runnables/data_processor.py): `_publish_table_profile`, `finish_table_profile`                                                                                                  |
 | Profile validation/worker merge                 | [`profiles.ts`](../agent-service/src/agent/native/profiles.ts): `mergeTableProfiles`                                                                                                                                                |
 | Execution/input/cache identity                  | [`result-versions.ts`](../agent-service/src/agent/native/result-versions.ts): `bindResultVersion`                                                                                                                                   |
-| Data/flow candidates and shared-budget selector | [`evidence.ts`](../agent-service/src/agent/native/evidence.ts): `collectNativeEvidence`, `selectNativeObservation`, `restrictNativeObservation`                                                                                     |
+| Data/flow candidates and shared-budget selector | [`evidence.ts`](../agent-service/src/agent/native/evidence.ts): `collectNativeEvidence`, `selectNativeObservation`                                                                                                                  |
 | Dependency ranking and bound-input traversal    | [`evidence-lineage.ts`](../agent-service/src/agent/native/evidence-lineage.ts)                                                                                                                                                      |
 | Immutable observations and invalidation         | [`workflow-snapshot-storage.ts`](../agent-service/src/agent/workflow-snapshot-storage.ts): `captureNativeObservations`, `setOperatorResult`                                                                                         |
 | Batch schema, observe, dependency scheduling    | [`native-batch-tools.ts`](../agent-service/src/agent/tools/native-batch-tools.ts)                                                                                                                                                   |

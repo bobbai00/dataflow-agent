@@ -46,7 +46,6 @@ export interface RegisteredStageInput {
   namespace?: RegisteredNamespace;
   operators: Record<string, NativeOpView>;
   profileCollection?: boolean;
-  profileScope?: "full";
 }
 export interface RegisteredStageResult {
   namespace: RegisteredNamespace;
@@ -244,9 +243,7 @@ function normalizeRegisteredFilter(
     source: statement.source,
     graph: { inputPorts: ["input-0"] },
     properties: { registered: { ...registration, namespaceRevision: hash(cells) } },
-    ...(options.profileCollection
-      ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
-      : {}),
+    ...(options.profileCollection ? { profileCollection: true } : {}),
   };
 }
 
@@ -270,9 +267,7 @@ function normalizeRegisteredMap(statement: SetStatement, cells: string[], option
     properties: {
       registered: { cells, lambda: fn.source, names: fn.names ?? [], settings: {}, namespaceRevision: hash(cells) },
     },
-    ...(options.profileCollection
-      ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
-      : {}),
+    ...(options.profileCollection ? { profileCollection: true } : {}),
   };
 }
 
@@ -414,9 +409,7 @@ export async function stageRegisteredEdit(options: RegisteredStageInput): Promis
               namespaceRevision: hash(cells),
             },
           },
-          ...(options.profileCollection
-            ? { profileCollection: true, ...(options.profileScope ? { profileScope: options.profileScope } : {}) }
-            : {}),
+          ...(options.profileCollection ? { profileCollection: true } : {}),
         };
       }
       if (doc !== undefined) view.doc = doc;

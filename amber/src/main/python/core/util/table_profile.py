@@ -15,16 +15,16 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Bounded, structured observations over actual worker output DataFrames.
+"""Structured observations over actual worker output DataFrames.
 
 No rendered text is parsed and no task-specific statistic is calculated.
-Counts/ranges are exact for the explicitly recorded processed prefix. Bounded
-exact dictionaries are abandoned on overflow, never relabeled as exact sketches.
-Worker contributions remain separate on the wire; operator-level coverage is
-decided only with the expected worker count and execution identity.
+Counts, ranges and distinct counts are exact over every row a worker yields.
+Value dictionaries are kept only up to a bound and abandoned on overflow,
+never relabeled as exact sketches. Worker contributions remain separate on
+the wire; operator-level coverage is decided only with the expected worker
+count and execution identity.
 """
 
-from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
@@ -43,22 +43,19 @@ PROFILE_PREFIX = "__texera_profile_v1__:"
 
 @dataclass(frozen=True)
 class ProfileLimits:
-    max_rows: int = 100_000
-    max_cells: int = 1_000_000
     max_columns: int = 128
     distinct_limit: int = 256
     row_distinct_limit: int = 4096
     top_k: int = 8
     max_value_chars: int = 192
     max_payload_bytes: int = 65_536
-    max_seconds: float = 0.2
 
 
 def _json(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
-def _type(column, probe_rows):
+def _type(column):
     dtype = column.dtype
     if pd.api.types.is_bool_dtype(dtype):
         return "bool"
@@ -69,7 +66,7 @@ def _type(column, probe_rows):
     if pd.api.types.is_datetime64_any_dtype(dtype):
         return "datetime"
     if dtype == object:
-        inferred = pd.api.types.infer_dtype(column.iloc[:probe_rows], skipna=True)
+        inferred = pd.api.types.infer_dtype(column, skipna=True)
         return {
             "integer": "int64",
             "floating": "float64",
@@ -81,10 +78,6 @@ def _type(column, probe_rows):
             "date": "datetime",
         }.get(inferred, "unsupported")
     return "str" if pd.api.types.is_string_dtype(dtype) else "unsupported"
-
-
-def _missing(value):
-    return value is None or value is pd.NA or value is pd.NaT or (isinstance(value, float) and math.isnan(value))
 
 
 def _scalar(value, kind, limit):
@@ -137,18 +130,13 @@ class ProfileAccumulator:
         self.finished = False
         self.unavailable = False
         self.omissions = set()
-        self.rows = Counter()
         self.null_rows = 0
-        # "full": exact statistics over every row, computed column by column
-        # (see _add_full). Otherwise the bounded prefix walk below.
-        self.full = self.metadata.get("profileScope") == "full"
         self.duplicates = None
 
-    def _schema(self, frame, probe_rows=None):
-        if probe_rows is None:
-            probe_rows = min(128, max(0, self.limits.max_rows - self.rows_processed))
+    def _schema(self, frame):
+        # Types come from every value, not from the first rows.
         return [
-            {"name": str(name), "type": _type(frame.iloc[:, i], probe_rows), "dtype": str(frame.iloc[:, i].dtype)}
+            {"name": str(name), "type": _type(frame.iloc[:, i]), "dtype": str(frame.iloc[:, i].dtype)}
             for i, name in enumerate(frame.columns[: self.limits.max_columns])
         ]
 
@@ -190,111 +178,22 @@ class ProfileAccumulator:
             return None
         if self.column_count > self.limits.max_columns:
             self.omissions.add("column_budget")
-            self.rows = None
             self.null_rows = None
         return self.schema
 
     def add(self, frame):
+        """Exact statistics over every row, one vectorized pass per column.
+
+        Counts, ranges, distinct counts and duplicate rows cover the whole
+        table; value lists are still kept only for columns with at most
+        distinct_limit values."""
         if self.finished:
             raise RuntimeError("Profile is already finished")
-        if self.full:
-            return self._add_full(frame)
         started = self.clock()
         self.row_count += len(frame)
         self.yields += 1
         try:
             schema = self._accept(frame, self._schema(frame))
-            if schema is None:
-                return
-            width = min(len(schema), self.limits.max_columns)
-            left_rows = max(0, self.limits.max_rows - self.rows_processed)
-            left_cells = max(0, self.limits.max_cells - self.cells_processed) // max(1, width)
-            count = min(len(frame), left_rows, left_cells)
-            if len(frame) > left_rows:
-                self.omissions.add("row_budget")
-            if len(frame) > left_cells:
-                self.omissions.add("cell_budget")
-            selected = frame.iloc[:count, :width]
-            for i, row in enumerate(selected.itertuples(index=False, name=None)):
-                if i % 128 == 0 and self.elapsed + self.clock() - started >= self.limits.max_seconds:
-                    self.omissions.add("time_budget")
-                    break
-                row_values, row_complete, nulls = [], True, 0
-                for column, value in zip(schema, row):
-                    state = self.columns[column["name"]]
-                    if _missing(value):
-                        state["null"] += 1
-                        nulls += 1
-                        row_values.append(None)
-                        continue
-                    state["nonnull"] += 1
-                    try:
-                        encoded = _scalar(value, column["type"], self.limits.max_value_chars)
-                    except (ValueError, TypeError, OverflowError) as error:
-                        reason = str(error)
-                        state["omissions"].add(
-                            reason
-                            if reason in ("nonfinite_value", "value_budget", "unsupported_type")
-                            else "unsupported_type"
-                        )
-                        state["values"] = None
-                        state["range_valid"] = False
-                        state["min"] = state["max"] = None
-                        row_complete = False
-                        continue
-                    if encoded["type"] == "float64" and encoded["value"] == 0:
-                        # -0.0 and 0.0 are one value, as pandas counts them.
-                        encoded = {**encoded, "value": 0.0}
-                    row_values.append(encoded)
-                    if state["range_valid"] and encoded["type"] in ("int64", "float64", "datetime"):
-                        if state["min"] is None or _order(encoded) < _order(state["min"]):
-                            state["min"] = encoded
-                        if state["max"] is None or _order(encoded) > _order(state["max"]):
-                            state["max"] = encoded
-                    if state["values"] is not None:
-                        key = _json(encoded)
-                        entry = state["values"].get(key)
-                        if entry is not None:
-                            entry["count"] += 1
-                        elif len(state["values"]) < self.limits.distinct_limit:
-                            state["values"][key] = {"value": encoded, "count": 1}
-                        else:
-                            state["values"] = None
-                            state["omissions"].add("distinct_limit")
-                if self.null_rows is not None and width and nulls == width:
-                    self.null_rows += 1
-                if self.rows is not None:
-                    if not row_complete:
-                        self.rows = None
-                        self.omissions.add("row_values_unavailable")
-                    else:
-                        key = _json(row_values)
-                        if key in self.rows or len(self.rows) < self.limits.row_distinct_limit:
-                            self.rows[key] += 1
-                        else:
-                            self.rows = None
-                            self.omissions.add("row_distinct_limit")
-                self.rows_processed += 1
-                self.cells_processed += width
-        except Exception:
-            # Optional profiling must never replace a valid data result with an
-            # error. Do not include exception text containing arbitrary cells.
-            self.fail("profiler_error")
-        finally:
-            self.elapsed += max(0.0, self.clock() - started)
-
-    def _add_full(self, frame):
-        """Exact statistics over every row, one vectorized pass per column.
-
-        Counts, ranges, distinct counts and duplicate rows cover the whole
-        table; value lists are still kept only for columns with at most
-        distinct_limit values. There is no row, cell or time budget."""
-        started = self.clock()
-        self.row_count += len(frame)
-        self.yields += 1
-        try:
-            # Types come from every value, not from the first rows.
-            schema = self._accept(frame, self._schema(frame, probe_rows=len(frame)))
             if schema is None:
                 return
             width = min(len(schema), self.limits.max_columns)
@@ -353,7 +252,7 @@ class ProfileAccumulator:
         except TypeError:
             counts, reason = None, reason or "unsupported_type"
         # Values outside the supported types have no equality the profile
-        # vouches for; their distinct count stays unknown, as in bounded scope.
+        # vouches for; their distinct count stays unknown.
         if counts is not None and self.yields == 1 and reason != "unsupported_type":
             state["distinct"] = len(counts)
         if reason is not None:
@@ -402,7 +301,6 @@ class ProfileAccumulator:
         self.unavailable = True
         self.omissions.add(reason)
         self.columns = {}
-        self.rows = None
         self.null_rows = None
 
     def finish(self):
@@ -412,7 +310,7 @@ class ProfileAccumulator:
         columns = {}
         for name, state in self.columns.items():
             values = state["values"]
-            # Full scope keeps an exact count for one yield even without a value list.
+            # One yield keeps its exact count even without a value list.
             distinct = state["distinct"] if "distinct" in state else (len(values) if values is not None else None)
             frequencies = None
             if values is not None:
@@ -476,11 +374,7 @@ class ProfileAccumulator:
                     else None
                 ),
                 "structure": {
-                    "duplicateRows": (
-                        self.duplicates
-                        if self.full
-                        else self.rows_processed - len(self.rows) if self.rows is not None else None
-                    ),
+                    "duplicateRows": self.duplicates,
                     "allNullRows": self.null_rows,
                     "allNullColumns": [
                         name for name, col in columns.items() if col["rowsProcessed"] and col["nonnullCount"] == 0
@@ -489,7 +383,7 @@ class ProfileAccumulator:
                 "algorithm": {
                     "name": "bounded-exact-v1",
                     "rowSelection": "prefix",
-                    "scope": "full" if self.full else "bounded",
+                    "scope": "full",
                     "distinctLimit": self.limits.distinct_limit,
                     "rowDistinctLimit": self.limits.row_distinct_limit,
                     "topK": self.limits.top_k,

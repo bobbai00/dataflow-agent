@@ -167,7 +167,7 @@ export function exampleTable(id: string, kind: string, rows: Row[], inputs: stri
 
 export function registeredExamples(options: Options): string {
   const views = availableRetrievalViews(options);
-  const sample = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : "full";
+  const sample = views.includes("sample_stats") ? "sample_stats" : "full";
   const finalView = views.includes("full") ? "full" : sample;
   const tables = new Map<string, ReturnType<typeof exampleTable>>();
   const completed = new Set<string>();
@@ -321,9 +321,7 @@ export function registeredExamples(options: Options): string {
     call("", `${statement("records")}\n${show("records")}`, true),
     sample === "sample_stats"
       ? "Both displayed rows belong to A, but the full-table statistics also contain B. A sample does not define the population; aggregate the whole source."
-      : sample === "sample"
-        ? "Both displayed rows belong to A. They do not establish which groups exist; aggregate the whole source."
-        : "The complete source contains groups A and B. Aggregate the whole source.",
+      : "The complete source contains groups A and B. Aggregate the whole source.",
     call("", `${statement("totals")}\n${statement("report")}\n${show("report", true)}`, true),
     reply("Group A: 60; group B: 70."),
   ];

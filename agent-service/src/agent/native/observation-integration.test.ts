@@ -239,12 +239,12 @@ test("how a scan read its files is shown without flow evidence; the empty-source
 for (const tableFormat of ["markdown", "tsv"] as const)
   for (const wide of [false, true])
     for (const flow of [false, true])
-      for (const view of ["full", "sample", "sample_stats"] as const) {
+      for (const view of ["full", "sample_stats"] as const) {
         test(`${tableFormat}, wide=${wide}, flow=${flow}, ${view}: readable frozen receipt and no hidden execution`, async () => {
           const f = fixture();
           persist(f.storage, "read", info(wide));
           // A bare read of a completed result: `show result` would also execute first.
-          const views = ["full", "sample", "sample_stats"] as const;
+          const views = ["full", "sample_stats"] as const;
           const result = prepareActions([{ type: "retrieve", operator_ids: ["source"], view }], views);
           await executeDataflowActionBatch(result, {
             ...f,

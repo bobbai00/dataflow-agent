@@ -20,14 +20,12 @@ from benchmark.retrieval.configuration import campaign_arms, full_result_char_li
 class ConfigurationTests(unittest.TestCase):
     def test_evidence_matrix_changes_only_exposure_and_keeps_full_available(self):
         arms = campaign_arms()
-        for data in [0, 1]:
-            for flow in [0, 1]:
-                self.assertEqual(arms[f"evidence_data{data}_flow{flow}"], {
-                    "retrievalViews": ["sample_stats" if data else "sample", "full"],
-                    "dataEvidence": bool(data),
-                    "flowEvidence": bool(flow),
-                    "nativeProfileScope": "full",
-                })
+        for flow in [0, 1]:
+            self.assertEqual(arms[f"evidence_data1_flow{flow}"], {
+                "retrievalViews": ["sample_stats", "full"],
+                "dataEvidence": True,
+                "flowEvidence": bool(flow),
+            })
 
     def test_full_only_baseline_differs_from_the_data_arms_only_in_the_statistics_view(self):
         arms = campaign_arms()
@@ -37,24 +35,15 @@ class ConfigurationTests(unittest.TestCase):
                 "retrievalViews": ["full"],
                 "dataEvidence": False,
                 "flowEvidence": bool(flow),
-                "nativeProfileScope": "full",
             })
             self.assertEqual({**baseline, "retrievalViews": data["retrievalViews"], "dataEvidence": True}, data)
 
-    def test_historical_arms_retain_their_original_meaning(self):
-        arms = campaign_arms()
-        for view in ["full", "sample", "sample_stats", "adaptive"]:
-            for flow in [0, 1]:
-                expected = {
-                    "retrievalViews": ["full", "sample", "sample_stats"] if view == "adaptive" else [view],
-                    "flowEvidence": bool(flow),
-                    "dataEvidence": view in ["sample_stats", "adaptive"],
-                }
-                self.assertEqual(arms[f"{view}_flow{flow}"], expected)
-                self.assertEqual(arms[f"{view}_flow{flow}_fullstats"], {
-                    **expected, "nativeProfileScope": "full",
-                })
-        self.assertEqual(len(arms), 28)
+    def test_the_arms_are_the_matrix_and_the_lean_variants_of_its_default(self):
+        self.assertEqual(sorted(campaign_arms()), [
+            "evidence_data1_flow0", "evidence_data1_flow0_hygiene", "evidence_data1_flow0_hygiene_strict",
+            "evidence_data1_flow0_lean", "evidence_data1_flow0_opt", "evidence_data1_flow0_opt_strict",
+            "evidence_data1_flow0_tsv", "evidence_data1_flow1", "evidence_full_flow0", "evidence_full_flow1",
+        ])
 
     def test_lean_arms_change_only_the_record_format_on_the_default_views(self):
         arms = campaign_arms()

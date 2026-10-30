@@ -19,10 +19,10 @@
 
 import { DEFAULT_OBSERVATION_FORMAT, type ObservationFormatSettings } from "../agent/native/observation-format";
 
-export type RetrievalView = "full" | "sample" | "sample_stats";
+export type RetrievalView = "full" | "sample_stats";
 
 export interface RetrievalSettings {
-  /** Available native Retrieve views. Omitted: sample_stats and full; sample can be enabled explicitly. */
+  /** Available native Retrieve views. Omitted: sample_stats and full. */
   retrievalViews?: RetrievalView[];
   /** Full-view display ceiling (default 5,000). Native transport independently retains up to 100,000 characters. */
   fullResultCharLimit?: number;
@@ -144,14 +144,6 @@ export interface UserActionInfo {
   error?: string;
 }
 
-/**
- * DELTA compaction strategy — how the assembler shrinks the trajectory once the
- * raw delta would exceed `contextWindowTokens`:
- *   - "sliding": evict the oldest whole agent events until it fits.
- *   - "compress": fold the oldest events into a stats deck, then resume raw
- *     delta for the fresh suffix (rolling compaction).
- */
-export type CompactionStrategy = "sliding" | "compress";
 export type MultiRequestMode = "off" | "transcript";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
@@ -163,30 +155,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
    *  of model-facing exposure (`dataEvidence` / `flowEvidence`). Compiled into
    *  each operator, so it cannot change on an existing workflow. */
   nativeProfileCollection?: boolean;
-  /** With collection on: "prefix" profiles a bounded prefix of each result
-   *  (row, cell and time budgets); "full" profiles every row exactly with
-   *  vectorized passes. Compiled into each operator like collection. */
-  nativeProfileScope?: "prefix" | "full";
-  /** DELTA context-window budget, in tokens (estimated chars/4). Bounds the
-   *  assembled trajectory user-message — the true model window minus the
-   *  ~constant system prompt + response headroom, which the caller folds into
-   *  this number. `0` ⇒ unbounded (lossless delta — legacy behavior). When
-   *  `> 0`, the assembler renders the "original" raw delta (schema-only, no
-   *  stats) while it fits, then COMPACTS via `compactionStrategy` once it would
-   *  overflow. Only meaningful in DELTA mode. Default 0. */
-  contextWindowTokens: number;
-  /** How DELTA compacts once the raw delta exceeds `contextWindowTokens`:
-   *   - "sliding": drop the oldest whole agent events until it fits (an
-   *     `(… N earlier events omitted …)` marker stands in their place).
-   *   - "compress": fold the oldest events into a `# Dataflow (compacted)` deck
-   *     — the boundary snapshot rendered per-operator as `Column Schema and
-   *     stats:` + a ratio-sampled row peek — then resume raw delta for the
-   *     fresh suffix (rolling compaction). Default "compress". */
-  compactionStrategy: CompactionStrategy;
-  /** compress-deck row sampling: fraction of each folded operator's output rows
-   *  to keep as a peek alongside its stats, clamped to `[3, maxResultRows||20]`.
-   *  Default 0.10. */
-  deckSampleRatio: number;
   maxResultRows: number;
   /** Bounded, version-bound column/table facts on explicitly observed results. */
   dataEvidence: boolean;
@@ -199,11 +167,6 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** Instructions for this session, appended to the system prompt: rules of
    *  engagement beyond the standard prompt. Empty by default. */
   instructions: string;
-  /** `check:` lines under every executed operator whose own assumptions the
-   *  engine found violated on the full tables (records repeated across
-   *  sources, row effects inside a process function). A scan's header
-   *  findings are notes shown in every setting. Off by default. */
-  nativeChecks: boolean;
   /**
    * Sessions that answer several requests. "off" (default): one request, as
    * before. "transcript": a later request follows the whole earlier transcript,
@@ -226,15 +189,10 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // default (the matrix of 2026-10-10: equal accuracy at lower cost than the
   // full view); flow evidence stays opt-in.
   nativeProfileCollection: true,
-  nativeProfileScope: "full",
   dataEvidence: true,
   flowEvidence: false,
   operatorDoc: false,
   instructions: "",
-  nativeChecks: false,
-  contextWindowTokens: 0,
-  compactionStrategy: "compress",
-  deckSampleRatio: 0.1,
   // Sample rows per `show result`: three keep a pattern or both ends in view
   // at about half the tokens of five (2026-10-11 cost study).
   maxResultRows: 3,
@@ -263,15 +221,10 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   /** The only context: each event replayed with the operators it changed. */
   contextMode?: "delta";
   nativeProfileCollection?: boolean;
-  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   instructions?: string;
-  nativeChecks?: boolean;
-  contextWindowTokens?: number;
-  compactionStrategy?: CompactionStrategy;
-  deckSampleRatio?: number;
   maxResultRows?: number;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
@@ -301,15 +254,10 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   maxSteps?: number;
   contextMode?: "delta";
   nativeProfileCollection?: boolean;
-  nativeProfileScope?: "prefix" | "full";
   dataEvidence?: boolean;
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   instructions?: string;
-  nativeChecks?: boolean;
-  contextWindowTokens?: number;
-  compactionStrategy?: CompactionStrategy;
-  deckSampleRatio?: number;
   maxResultRows?: number;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;

@@ -197,7 +197,7 @@ An agent created with no `settings` uses
 |---|---|---|
 | `contextMode` | `delta` (the only context) | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
 | `dataEvidence` | `true` | legacy switch; native statistics depend only on `retrievalViews` and the requested view |
-| `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; explicitly use `["sample", "full"]` to disable native statistics |
+| `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; `["full"]` disables native statistics |
 | `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
 | `operatorDoc` | `false` (agents made in the UI: `true`) | asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
 | `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |

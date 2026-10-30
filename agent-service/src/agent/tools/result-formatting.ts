@@ -22,7 +22,6 @@ import { parseNativeDiagnostic, nativeDiagnosticIssue, resolveNativeDiagnostic }
 import { nativeOperatorName } from "../native/catalog";
 import type { OperatorPredicate, WorkflowContent } from "../../types/workflow";
 import {
-  restrictNativeObservation,
   selectNativeObservation,
   type NativeEvidenceContext,
   type NativeObservation,
@@ -31,30 +30,16 @@ import {
 import type { WorkflowState } from "../workflow-state";
 import { shareNativeObservation } from "../native/evidence-compaction";
 import { getVisibleResultHeaders } from "./tools-utility";
-// DECORATE data-facet render rungs (extracted into context/decorate/data/*).
-// result-formatting orchestrates them in the established composition order and
-// owns only the SUBSTRATE (sampling + TSV table render + shape metadata).
-import { formatSchemaLine } from "../context/decorate/data/schema";
-
-// Back-compat re-exports: these render helpers were defined here before the
-// DECORATE extraction; existing importers (e.g. loader-levers.test.ts) still
-// reference them from this module.
-export { formatSchemaLine };
 
 export interface FormatOperatorResultOptions {
   /** V2 evidence shares the result body budget. A recorded DELTA frame wins
-   * over today's exposure settings; only explicit compaction may shorten it. */
+   * over today's exposure settings. */
   nativeEvidence?: Pick<NativeEvidenceContext, "workflow" | "resolveInput"> &
-    NativeObservationOptions & { frozen?: NativeObservation; compact?: boolean; sharedUpstream?: Map<string, string> };
+    NativeObservationOptions & { frozen?: NativeObservation; sharedUpstream?: Map<string, string> };
   /** The operator definition that earned this result. Historical observations
    *  must echo failed parameters/code from their snapshot, not a later edit
    *  (or deletion) in the live DAG. Undefined keeps the current-state lookup. */
   operatorAtEvent?: OperatorPredicate;
-  /** When true, prepend a compact `Schema:` line listing every output column
-   *  as `name (type)`, derived from `opInfo.columnStats` (the `(type)` tag) or
-   *  the result-row headers (names only). A cheaper, complete substitute for
-   *  the fuller `Column Schema and stats:` block. Defaults to false. */
-  schemaInResult?: boolean;
   /** W1: cap the TSV sample to first ceil(N/2) + last floor(N/2) rows (a true
    *  row count, vs the char-budget proxy). 0/undefined = no cap. */
   maxResultRows?: number;
@@ -63,12 +48,6 @@ export interface FormatOperatorResultOptions {
    *  caller (which has the snapshot) supplies this to fill in `M cols` on the
    *  `Inputs:` shape line. Returns undefined when unknown. */
   resolveInputColumns?: (upstreamOpId: string) => number | undefined;
-  /** Whether to render the `Inputs:` shape line inside the Result block.
-   *  Operator blocks set this false — they render a single consolidated `Inputs:`
-   *  line (with counts) at the operator-block level, so repeating it here is
-   *  duplication. DELTA leaves it true (it has no operator-block level).
-   *  Undefined ⇒ true. */
-  inputsInResult?: boolean;
 }
 
 /** Wide DataFrames blow up Latest-mode context because the whole result is
@@ -226,13 +205,8 @@ export function formatOperatorResult(
   const nativeOp = options.operatorAtEvent ?? workflowState.getOperator(operatorId);
   if (nativeOp?.nativeOp) {
     const evidence = options.nativeEvidence;
-    if (evidence?.frozen) {
-      const text = restrictNativeObservation(
-        evidence.frozen,
-        evidence.compact ? { maxRows: options.maxResultRows } : {}
-      );
-      return shareNativeObservation(text, evidence.frozen, operatorId, evidence.sharedUpstream);
-    }
+    if (evidence?.frozen)
+      return shareNativeObservation(evidence.frozen.text, evidence.frozen, operatorId, evidence.sharedUpstream);
     const budget = evidence?.maxChars ?? 2000;
     const observation = selectNativeObservation({
       ...evidence,
@@ -323,27 +297,15 @@ export function formatOperatorResult(
   const completeSmallTableVisible = provablyComplete;
 
   const metadataLines = [
-    formatInputOutputMetadata(
-      workflowState,
-      operatorId,
-      opInfo,
-      columns,
-      options.inputsInResult !== false,
-      options.resolveInputColumns
-    ),
+    formatInputOutputMetadata(workflowState, operatorId, opInfo, columns, options.resolveInputColumns),
     columnsTruncated
       ? `(showing first ${Math.ceil(MAX_DISPLAYED_COLUMNS / 2)} and last ${Math.floor(MAX_DISPLAYED_COLUMNS / 2)} of ${columns} columns)`
       : "",
     ...(opInfo.warnings ?? []),
   ].filter(Boolean);
 
-  const schemaLine = options.schemaInResult === true ? formatSchemaLine(opInfo) : undefined;
-  // Layout: shape metadata (Inputs / Output Table) → the result TABLE (TSV) →
-  // then the data-derived annotations that DESCRIBE the table (schema / column
-  // schema+stats / format & structure hints), so annotations read AFTER the data
-  // they refer to. Flow rungs live in context-utils' "Operators needing
-  // attention" section; result-formatting owns only the data facet + TSV.
-  return [...metadataLines, dataString, schemaLine].filter(Boolean).join("\n");
+  // Layout: shape metadata (Inputs / Output Table), then the result TABLE (TSV).
+  return [...metadataLines, dataString].filter(Boolean).join("\n");
 }
 
 /**
@@ -384,14 +346,13 @@ function formatInputOutputMetadata(
   operatorId: string,
   opInfo: OperatorInfo,
   outputColumns: number,
-  includeInputs: boolean,
   resolveInputColumns?: (upstreamOpId: string) => number | undefined
 ): string {
   const outputRows = opInfo.totalRowCount ?? opInfo.outputTuples;
   const outputLine = `Output Table: ${outputRows} rows, ${outputColumns} cols`;
 
   const inputShapes = opInfo.inputPortShapes;
-  if (!includeInputs || !inputShapes || inputShapes.length === 0) {
+  if (!inputShapes || inputShapes.length === 0) {
     return outputLine;
   }
 

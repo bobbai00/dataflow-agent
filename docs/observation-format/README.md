@@ -260,7 +260,6 @@ for complete examples.
 | `error <CODE>` | a failed operator or action; `at` and `fix` follow when known | `[ERROR] … [CODE; stage; revision] …` plus `Hint:`, `Field:`, `Diagnostic:` lines |
 | `note` | what the system observed about the state: empty or top-k inputs, current pools, retyped literals, a replaced column, a renamed join column, booleans reduced as 1/0 | `note:` lines, ledger only, plus the adjustment lines |
 | `flow` | measurements of how the result was produced: join matching, filter retention, cast failures, reducer denominators, window boundaries, scan sources | `Flow measurement:` and `Flow guarantee:` lines, `flowEvidence` only |
-| `check` | a violated assumption found by `nativeChecks` | `check:` lines |
 | `not run` | operators that did not run, grouped by cause | one `[ERROR] … not executed` line per operator |
 
 The diagnostic identifier and the revision hash stay in the trace and leave the

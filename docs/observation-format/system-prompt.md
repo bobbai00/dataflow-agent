@@ -58,7 +58,6 @@ examples; none changes the wording of another section.
 |---|---|---|---|
 | `sample_stats` in `retrievalViews` | Data statistics | — | data statistics: an aggregate's denominator; a partial profile |
 | `flowEvidence` | Flow statistics | — | flow statistics: a cast that lost values; a join that dropped rows |
-| `nativeChecks` | the `check` line | — | — |
 | `multiTask` (or loaded state) | — | Earlier tasks in the session, including when to update an operator in place | building on an earlier task; revising a rule for the rest of the session |
 | `stateHistory` | — | Saved versions: what answering a task saves, and how to read or restore it | comparing with an earlier task and going back |
 | `stateLedger` | — | Task catalog and provenance | the catalog entry and provenance lines inside the multi-task example |

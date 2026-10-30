@@ -177,13 +177,12 @@ with pd.ExcelWriter(spec['path'], engine='openpyxl') as writer:
   for (const data of [false, true])
     for (const flow of [false, true]) {
       const cell = `data${Number(data)}-flow${Number(flow)}`;
-      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["full"];
       views = retrievalViews;
       const settings = {
         contextMode: "delta" as const,
         retrievalViews,
         nativeProfileCollection: true,
-        nativeProfileScope: "full" as const,
         dataEvidence: data,
         flowEvidence: flow,
         fullResultCharLimit: 5000,

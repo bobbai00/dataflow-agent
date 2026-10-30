@@ -68,7 +68,7 @@ function fixture(replies: Reply[]) {
   });
   agent.updateSettings({
     maxSteps: 25,
-    retrievalViews: ["sample", "full"],
+    retrievalViews: ["full"],
   });
   // No engine in a unit test: every operator "executes" to one row.
   (agent as any).executePostStepChanges = async () => {

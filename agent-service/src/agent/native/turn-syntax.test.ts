@@ -21,7 +21,7 @@ import { expect, test } from "bun:test";
 import { parseTurn, requestFilePath, type TurnFields } from "./turn-syntax";
 import { prepareActions } from "../tools/dataflow-actions";
 
-type View = "sample_stats" | "sample" | "full";
+type View = "sample_stats" | "full";
 const views = ["sample_stats", "full"] as const;
 /** Parse a call's statements, with definitions in `python`. */
 const parse = (statements: string, python = "", allowed: readonly View[] = views) =>
@@ -107,9 +107,9 @@ show builtin join, scan`);
     { type: "inspect", target: "reference", topic: "operators", operator_names: ["join", "scan"] },
   ]);
   expect(parsed.turn.statements.map(s => s.actionIndexes)).toEqual([[1, 2], [3, 4], [5, 6], [7], [8], [9]]);
-  // Without statistics the default view is the plain sample.
-  const sample = parse("show result a", "", ["sample", "full"]);
-  expect(sample.ok && sample.turn.actions[1]).toEqual({ type: "retrieve", operator_ids: ["a"], view: "sample" });
+  // Without statistics the default view is the full one.
+  const full = parse("show result a", "", ["full"]);
+  expect(full.ok && full.turn.actions[1]).toEqual({ type: "retrieve", operator_ids: ["a"], view: "full" });
   // A schema computes its result, then reads the first page.
   const schema = parse("show schema omni");
   expect(schema.ok && schema.turn.actions).toEqual([

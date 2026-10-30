@@ -53,9 +53,9 @@ With notes:
 ```
 
 Notes depend on settings: `stateLedger` adds the state notes (empty or top-k
-inputs, current pools, retyped literals), `nativeChecks` adds `check` lines,
-`flowEvidence` adds `flow` lines; the runtime's own adjustments (a replaced
-column, a renamed join column, booleans as 1/0) are always reported.
+inputs, current pools, retyped literals), `flowEvidence` adds `flow` lines; the
+runtime's own adjustments (a replaced column, a renamed join column, booleans as
+1/0) are always reported.
 
 ## A selection
 

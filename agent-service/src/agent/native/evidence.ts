@@ -19,7 +19,6 @@
 
 import {
   renderRecords,
-  restrictRecords,
   renderTable,
   displayValue,
   observationFormat,
@@ -82,7 +81,7 @@ export const FLOW_OMITTED_NOTICE = "- note: flow facts omitted (budget).";
  * retained here; short prefixes in text are display labels, not cache keys. */
 export interface NativeObservation {
   version: 1 | 2;
-  /** Frozen encoded records; historical restriction never reads a newer result. */
+  /** Frozen encoded records: the rows and fields the text shows. */
   records?: FrozenRecords;
   resultVersion: string | null;
   inputs: ResultVersion["inputs"];
@@ -96,7 +95,7 @@ export interface NativeObservation {
     complete: boolean;
   };
   selected: string[];
-  /** Atomic render units retained for monotone historical compaction. */
+  /** Atomic render units: the records, then each data and flow fact shown. */
   chunks: Array<{ id: string; text: string; members?: string[]; upstream?: NativeUpstreamIdentity }>;
   omitted: Array<{
     id: string;
@@ -1236,70 +1235,4 @@ export function selectNativeObservation(context: NativeEvidenceContext & NativeO
 
 function columnTypeName(type: string): string {
   return type === "unsupported" ? "unknown" : type;
-}
-
-/** Historical compaction is subtractive: it may drop rows or tail chunks,
- * never extract fresh profiles or use a later DAG to choose new evidence. */
-export function restrictNativeObservation(observation: NativeObservation, limits: { maxRows?: number }): string {
-  if (observation.version === 2 && observation.records) {
-    if (!limits.maxRows) return observation.text;
-    const budget = observation.text.length;
-    const evidence = observation.chunks.filter(c => !c.id.startsWith("table."));
-    const render = (cap: number) => {
-      const records = restrictRecords(observation.records!, {
-        maxChars: Math.min(cap, observation.options.maxChars),
-        maxRows: limits.maxRows,
-      });
-      const chunks = [records.text];
-      let retained = 0;
-      // "The complete records above show every value" holds only while the
-      // restricted records are still complete.
-      for (const chunk of evidence.filter(c => c.id !== "data.complete" || records.complete)) {
-        if ([...chunks, chunk.text].join("\n").length > cap) break;
-        chunks.push(chunk.text);
-        retained++;
-      }
-      return { text: chunks.filter(Boolean).join("\n"), retained };
-    };
-    let rendered = render(budget);
-    if (rendered.retained < evidence.length) {
-      const notice = "- note: evidence omitted (budget).";
-      if (notice.length <= budget) {
-        rendered = render(Math.max(0, budget - notice.length - 1));
-        return [rendered.text, notice].filter(Boolean).join("\n");
-      }
-    }
-    return rendered.text;
-  }
-  // A combined data+flow observation may legitimately exceed `options.maxChars`
-  // (each family has its own budget), so its whole text always fits.
-  const budget = Math.max(observation.options.maxChars, observation.text.length);
-  const rowLimit = limits.maxRows && limits.maxRows > 0 ? Math.floor(limits.maxRows) : Infinity;
-  if (rowLimit === Infinity) return observation.text;
-  const chunks: string[] = [];
-  let sampleRows = 0;
-  for (const chunk of observation.chunks) {
-    if (/^(sample|record)\./.test(chunk.id) && sampleRows++ >= rowLimit) continue;
-    let text = chunk.text;
-    if (chunk.id === "table.complete") {
-      const [schema, , ...rows] = text.split("\n");
-      if (rowLimit < rows.length)
-        text = [
-          schema,
-          `Sample from recorded table (${rowLimit}/${rows.length} rows):`,
-          ...rows.slice(0, rowLimit),
-        ].join("\n");
-    }
-    chunks.push(text);
-  }
-  const text = chunks.join("\n");
-  if (text.length <= budget) return text;
-  const notice = "Observation shortened; details omitted.";
-  const selected: string[] = [];
-  for (const chunk of chunks) {
-    if ([...selected, chunk, notice].join("\n").length > budget) break;
-    selected.push(chunk);
-  }
-  if (notice.length <= budget) return [...selected, notice].join("\n");
-  return "[omitted]".length <= budget ? "[omitted]" : "…".slice(0, budget);
 }

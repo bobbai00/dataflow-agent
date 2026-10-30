@@ -36,7 +36,7 @@ const exampleReceipts = (prompt: string) =>
   [...prompt.matchAll(/```text\n([\s\S]*?)\n```/g)].map(match => match[1]).join("\n");
 
 test("example calls are valid dataflow calls for every view setting", () => {
-  for (const retrievalViews of [["full"], ["sample"], ["sample_stats"], ["sample_stats", "full"]] as const) {
+  for (const retrievalViews of [["full"], ["sample_stats"], ["sample_stats", "full"]] as const) {
     const prompt = buildRegisteredNativeSystemPrompt({
       retrievalViews: [...retrievalViews],
       flowEvidence: true,
@@ -135,7 +135,7 @@ test("optional python and first-rows full views are described only when they are
 for (const data of [false, true])
   for (const flow of [false, true])
     test(`prompt and live agent settings agree: data=${data}, flow=${flow}`, () => {
-      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["full"];
       // Explicit retrieval choices are authoritative even when the historical
       // dataEvidence flag disagrees. A false flag alone is not a stats-off arm.
       const settings = {
@@ -169,7 +169,7 @@ for (const data of [false, true])
           "`show result <id>` gives the schema, at most 5 example records and column statistics; ask for `show result <id> full`, every record within 5000 characters, only for a small table whose every row you need."
         )
       ).toBe(data);
-      expect(prompt.includes("Look at a result without `full` first")).toBe(!data);
+      expect(prompt.includes("Check the completeness of every result.")).toBe(!data);
       expect(prompt).toContain("every record within 5000 characters");
       expect(prompt).toContain("Put the definitions, statements, and `show result` of a known computation in one call");
       // The context holds every definition and receipt: lookups are for what it lacks.
@@ -188,7 +188,7 @@ for (const data of [false, true])
 for (const data of [false, true])
   for (const flow of [false, true])
     test(`one protocol: calls prepare, sections follow the settings, size stays bounded: data=${data}, flow=${flow}`, () => {
-      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+      const retrievalViews: RetrievalView[] = data ? ["sample_stats", "full"] : ["full"];
       const prompt = buildRegisteredNativeSystemPrompt({
         retrievalViews,
         dataEvidence: data,
@@ -256,7 +256,7 @@ test("every evidence setting and table format keeps the section order and closes
   for (const data of [false, true])
     for (const flow of [false, true])
       for (const tableFormat of ["markdown", "tsv"] as const) {
-        const views: RetrievalView[] = data ? ["sample_stats", "full"] : ["sample", "full"];
+        const views: RetrievalView[] = data ? ["sample_stats", "full"] : ["full"];
         const prompt = buildRegisteredNativeSystemPrompt({
           retrievalViews: views,
           flowEvidence: flow,

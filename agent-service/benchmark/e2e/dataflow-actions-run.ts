@@ -208,7 +208,7 @@ async function task() {
   log(`Task answer: ${turn.finalAnswer}`);
 }
 
-const PROBE_VIEWS: RetrievalView[] = ["sample", "full"];
+const PROBE_VIEWS: RetrievalView[] = ["sample_stats", "full"];
 const LOADERS = `import pandas as pd
 import time
 
@@ -388,7 +388,7 @@ def utc_hour(table):
 
 async function retrievalProbes() {
   const { agentId, wid } = await provision("retrieval-views");
-  const views: RetrievalView[] = ["full", "sample", "sample_stats"];
+  const views: RetrievalView[] = ["full", "sample_stats"];
   const settings = await fetch(`${baseUrl}/api/agents/${agentId}/settings`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -419,7 +419,7 @@ def above_500(row):
   assert.equal((await lastResult(agentId)).status, "completed");
   const versions: string[] = [];
   const outputs: Record<string, any> = {};
-  for (const view of ["sample", "full", "sample_stats"] as const) {
+  for (const view of ["full", "sample_stats"] as const) {
     await debug(agentId, "", `show result wide ${view}`, views);
     const result = await lastResult(agentId);
     assert.equal(result.status, "completed");
@@ -430,19 +430,18 @@ def above_500(row):
     outputs[view] = output;
   }
   assert.ok(versions[0] && versions.every(v => v === versions[0]), "Views changed producing result identity");
-  assert.equal(outputs.sample.table.returnedRows, 5);
   assert.equal(outputs.full.table.returnedRows, 1000);
   assert.equal(outputs.full.table.complete, true);
   assert.ok(outputs.full.text.length > 2000, "Full view did not read beyond the sample limit");
   assert.equal(outputs.sample_stats.table.returnedRows, 5);
   assert.ok(outputs.sample_stats.text.includes("statistics:"));
-  assert.ok(!outputs.sample.text.includes("statistics:"));
-  await debug(agentId, "", "show result filtered sample", views);
+  assert.ok(!outputs.full.text.includes("statistics:"));
+  await debug(agentId, "", "show result filtered", views);
   const flow = await lastResult(agentId);
   assert.ok(JSON.stringify(flow).includes("Project selection/rename"), "Missing intermediate projection evidence");
   save("retrieval-views.json", { outputs, versions, flow, executions: (await history(wid)).length });
-  checks.push({ name: "three retrieval views, automatic upstream evidence and a stable result version", passed: true });
-  log("PASS three retrieval views: full=1000 rows, sample=5 rows, stable version, cached results");
+  checks.push({ name: "two retrieval views, automatic upstream evidence and a stable result version", passed: true });
+  log("PASS two retrieval views: full=1000 rows, sample_stats=5 rows, stable version, cached results");
 }
 
 async function timestampProbe() {

@@ -78,7 +78,6 @@ test("defaults expose two evidence controls and no legacy evidence settings", ()
   // A sample with full-table statistics by default; flow evidence is opt-in.
   expect((DEFAULT_AGENT_SETTINGS as any).dataEvidence).toBe(true);
   expect(DEFAULT_AGENT_SETTINGS.retrievalViews).toEqual(["sample_stats", "full"]);
-  expect(DEFAULT_AGENT_SETTINGS.nativeProfileScope).toBe("full");
   expect((DEFAULT_AGENT_SETTINGS as any).flowEvidence).toBe(false);
   expect(Object.hasOwn(DEFAULT_AGENT_SETTINGS, "dataflowReasoning")).toBe(false);
 });

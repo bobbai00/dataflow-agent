@@ -106,10 +106,10 @@ export function compactNativeObservation(
   };
 }
 
-/** The memo belongs to ONE rendered event or compacted deck. Register a fact
- * only after restriction has actually retained its complete text. A reference
- * can never point at an unobserved output, an omitted chunk, or another event.
- * Standalone stored observations remain self-contained for inspection/replay. */
+/** The memo belongs to ONE rendered event. Register a fact only once its
+ * complete text is shown. A reference can never point at an unobserved output,
+ * an omitted chunk, or another event. Standalone stored observations remain
+ * self-contained for inspection/replay. */
 export function shareNativeObservation(
   text: string,
   observation: NativeObservation,

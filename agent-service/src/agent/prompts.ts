@@ -83,10 +83,9 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
   const sampleLimit = options.maxOperatorResultCharLimit ?? 2000;
   const rowLimit = options.maxResultRows ?? 50;
   const rows = rowLimit > 0 ? `at most ${rowLimit} example records` : "example records";
-  const sample = `The schema and ${rows}, within ${sampleLimit} characters`;
   const full = `Every record within ${options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT} characters; a capped view remains partial.`;
-  const first = views.includes("sample_stats") ? "sample_stats" : views.includes("sample") ? "sample" : undefined;
-  const sampleText = `${sample}${views.includes("sample_stats") ? `, plus collected column statistics within a separate ${EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)` : ""}`;
+  const stats = views.includes("sample_stats");
+  const sampleText = `The schema and ${rows}, within ${sampleLimit} characters, plus collected column statistics within a separate ${EVIDENCE_CHAR_LIMIT}-character budget (check their row and column coverage)`;
   const lower = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
   const fullLimit = options.fullResultCharLimit ?? FULL_RESULT_CHAR_LIMIT;
   const previewRows = observationFormat(options).fullPreviewRows;
@@ -95,14 +94,12 @@ export function nativeRetrievalText(options: NativePromptLayoutOptions = {}): st
       ? ` A larger table shows its first ${previewRows} rows (a table read from files shows as many as fit); to read further rows, \`set <new id>: limit(<id>, n=..., offset=...)\` and show that.`
       : "";
   return [
-    `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${first ?? "full"}\`.`,
-    first === "sample_stats" && views.includes("full")
+    `Enabled views: ${views.map(view => `\`${view}\``).join(", ")}. The default is \`${stats ? "sample_stats" : "full"}\`.`,
+    stats && views.includes("full")
       ? `\`show result <id>\` gives the schema, ${rows} and column statistics; ask for \`show result <id> full\`, every record within ${fullLimit} characters, only for a small table whose every row you need.${larger}`
-      : first && views.includes("full")
-        ? `\`show result <id>\` gives ${lower(sampleText)}. \`show result <id> full\` gives ${lower(full)}${larger} Look at a result without \`full\` first, and ask for \`full\` only when you need every row, such as a small final table or row associations the sample does not establish; reduce a large result in the graph first.`
-        : first
-          ? `\`show result <id>\` gives ${lower(sampleText)}.`
-          : `\`show result <id> full\` gives ${lower(full)}${larger} Check the completeness of every result.`,
+      : stats
+        ? `\`show result <id>\` gives ${lower(sampleText)}.`
+        : `\`show result <id> full\` gives ${lower(full)}${larger} Check the completeness of every result.`,
     "Use `show result <id>[<col>, ...]` when a wide result hides the fields you need.",
     "Tool results put a text value or column name in double quotes, JSON-escaped, when it is empty, has spaces at either end, holds a tab, line break, backslash or the layout's separator, or would read as a number, true, false or null; the quotes are not part of the text.",
   ].join(" ");

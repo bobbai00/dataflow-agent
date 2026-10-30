@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 
 from campaign import ResourceQueue, audit_attempt, install_provider_prices, prepare_artifacts
 from catalog import inventory
+from configuration import campaign_arms
 from run import ROOT, KB, save
 
 
@@ -106,7 +107,7 @@ def main():
     jobs = [{"model": "Sonnet55", "arm": arm, "task": task, "rep": 1,
              "sut": f"{prefix}Sonnet55_{tag}_{arm}_Rep1"}
             for prefix, arm in [("CodeAgentSystem", "guided_script"),
-                                ("DataflowSystem", "adaptive_flow1")]
+                                ("DataflowSystem", "evidence_data1_flow1")]
             for task in tasks]
     random.Random(102).shuffle(jobs)
     # First production attempt checks the new script routing/instrumentation.
@@ -121,8 +122,7 @@ def main():
         "endpoint": args.endpoint, "script_endpoint": args.script_endpoint,
         "task_ids": tasks, "repetitions": 1, "models": {"Sonnet55": "claude-sonnet-5.5"},
         "pricing_overrides": install_provider_prices(cost_utils, ["claude-sonnet-5.5"]),
-        "arms": {"adaptive_flow1": {"retrievalViews": ["full", "sample", "sample_stats"],
-                                     "flowEvidence": True, "dataEvidence": True}},
+        "arms": {"evidence_data1_flow1": campaign_arms()["evidence_data1_flow1"]},
         "settings": {"contextMode": "delta", "nativeProfileCollection": True,
                      "maxSteps": 25, "maxOperatorResultCharLimit": 2000, "maxResultRows": 5,
                      "fullResultCharLimit": 100000},
@@ -130,7 +130,7 @@ def main():
                             "use_custom_prompt": True, "use_fine_grained_prompt": False,
                             "use_pitfalls_prompt": False, "no_action_detail": False,
                             "final_answer_tool_prompt": True},
-        "selection": "All 104 original top-level KramaBench tasks, both systems, one attempt each. User-selected guided 5K script preview; Dataflows retains current adaptive views with 2K samples plus statistics and flow. No task exclusions or outcome-selected retries.",
+        "selection": "All 104 original top-level KramaBench tasks, both systems, one attempt each. User-selected guided 5K script preview; Dataflows reads 2K samples with statistics, or full results, with flow evidence. No task exclusions or outcome-selected retries.",
         "attempt_policy": "One attempt per task and system, as requested; no recovery rounds or best-of selection.",
         "pass_threshold": 1.0, "workers": args.workers, "large_workers": 1,
         "large_input_bytes": 100000000, "task_timeout_seconds": args.timeout,
@@ -176,7 +176,7 @@ def main():
             time.sleep(15)
 
     def execute(job, slot):
-        dataflow = job["arm"] == "adaptive_flow1"
+        dataflow = job["arm"] == "evidence_data1_flow1"
         ready(slot, dataflow)
         if dataflow and slot not in units:
             token = login(api_endpoint=os.environ["TEXERA_API_ENDPOINT"])

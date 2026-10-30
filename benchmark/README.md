@@ -74,10 +74,11 @@ attempt time are reported separately. Raw campaigns under
 Provider-reported `usage.cost` is recorded separately from token-rate estimates;
 whole-call validation failures are counted even when no actions ran.
 
-To compare data statistics and flow evidence independently, select all four
-`evidence_data{0,1}_flow{0,1}` arms. Every arm retains full retrieval and full-table
-profile collection; data-off offers `sample` and `full`, while data-on offers
-`sample_stats` and `full`. This isolates evidence exposure, not collection cost.
+To compare data statistics and flow evidence independently, select the four
+`evidence_full_flow{0,1}` and `evidence_data1_flow{0,1}` arms. Every arm retains full
+retrieval and full-table profile collection; data-off reads only `full`, while
+data-on offers `sample_stats` and `full`. This isolates evidence exposure, not
+collection cost.
 The system prompt and tool schema follow each arm's enabled retrieval views.
 
 ```bash
@@ -85,7 +86,7 @@ bin/bench.sh retrieval run \
     --output benchmark/retrieval/runs/<new-campaign> --endpoint http://localhost:3001 \
     --tasks archeology-easy-6 legal-easy-3 biomedical-hard-3 \
     --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash \
-    --arms evidence_data0_flow0 evidence_data0_flow1 evidence_data1_flow0 evidence_data1_flow1 \
+    --arms evidence_full_flow0 evidence_full_flow1 evidence_data1_flow0 evidence_data1_flow1 \
     --repetitions 1 --workers 2 --full-result-char-limit 5000
 ```
 
@@ -95,7 +96,7 @@ is the answer; see `docs/native-registered-python-design.md`. `--full-result-cha
 the display budget independently of retained data and records it in the campaign
 manifest. Its default remains 100,000 for existing campaign compatibility; pass
 5,000 explicitly to match the current service default. Valid values are
-128–100,000. Historical arm names retain their original settings.
+128–100,000.
 
 For an opt-in infrastructure project with independent names and volumes, use
 the supported launcher with the isolated overlay. Standard host ports must be

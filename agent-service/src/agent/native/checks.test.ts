@@ -20,15 +20,15 @@
 import { describe, expect, test } from "bun:test";
 import type { OperatorInfo } from "../../types/execution";
 import type { OperatorPredicate } from "../../types/workflow";
-import { constantColumnLines, hygieneLines, nativeAdjustmentLines, nativeCheckLines, scanNoteLines } from "./checks";
+import { constantColumnLines, hygieneLines, nativeAdjustmentLines, scanNoteLines } from "./checks";
 
 const op = (type: string, properties: Record<string, unknown> = {}): OperatorPredicate =>
   ({ operatorID: "x", operatorType: "DataProcessing", nativeOp: { type, properties, inputs: [] } }) as any;
 const info = (operations: Record<string, unknown>, totalRowCount = 10): OperatorInfo =>
   ({ state: "Completed", totalRowCount, tableProfile: { native: { operations } } }) as any;
 
-describe("nativeCheckLines", () => {
-  test("a header that reads as data is a scan note shown in every setting, not a check", () => {
+describe("scanNoteLines", () => {
+  test("a header that reads as data is named, with the skip that gives the header", () => {
     const operations = {
       scan: {
         sources: [
@@ -42,75 +42,11 @@ describe("nativeCheckLines", () => {
         ],
       },
     };
-    expect(nativeCheckLines(op("Scan"), info(operations))).toEqual([]);
     expect(scanNoteLines({ properties: {} }, operations)).toEqual([
       'note: the header of `2024_CSN_Report_Categories.csv` reads as data ("1", "1,353,175", "20.91%"); skip_lines=2 gives the header "Rank", "Category", " # of Reports ", "Percentage".',
     ]);
   });
 
-  test("records repeated across sources are named at the aggregate", () => {
-    const [line] = nativeCheckLines(
-      op("Aggregate"),
-      info({
-        repeatedRecords: {
-          rows: 49,
-          of: 90,
-          records: 21,
-          sources: 17,
-          ignoring: ["source"],
-          example: "Philadelphia, 28438",
-        },
-      })
-    );
-    expect(line).toBe(
-      '49 of 90 input rows are 21 records each listed once by 17 different sources apart from "source", e.g. "Philadelphia, 28438"; the aggregate counts every copy.'
-    );
-  });
-
-  test("joins have no check: dropping or repeating rows may be intended", () => {
-    const join = { join: { left: { rows: 100, unmatchedRows: 30 }, right: { maxMultiplicity: 3 } } };
-    expect(nativeCheckLines(op("Join"), info(join, 150))).toEqual([]);
-  });
-
-  test("steps inside a process function", () => {
-    const lines = nativeCheckLines(
-      op("Process"),
-      info({
-        process: {
-          reads: [{ line: 3, file: "a.csv", rows: 2 }],
-          events: [
-            { line: 6, op: "filter", in: [15602], out: 0, issue: "empty" },
-            { line: 8, op: "merge", how: "left", in: [153, 95], out: 0, issue: "empty" },
-          ],
-        },
-      })
-    );
-    expect(lines).toEqual([
-      "inside the function, line 6: a row selection kept 0 of 15602 rows.",
-      "inside the function, line 8: a merge of 153 and 95 rows returned 0 rows.",
-    ]);
-  });
-
-  test("no violation, no line", () => {
-    expect(nativeCheckLines(op("Filter"), info({ keptRows: 3 }))).toEqual([]);
-    expect(nativeCheckLines(op("Scan"), info({ scan: { sources: [{ path: "/a.csv" }] } }))).toEqual([]);
-  });
-
-  test("registered event locations disambiguate definition cells", () => {
-    expect(
-      nativeCheckLines(
-        op("Process"),
-        info({
-          process: {
-            events: [{ cell: 2, line: 4, op: "filter", in: [8], out: 0, issue: "empty" }],
-          },
-        })
-      )
-    ).toEqual(["inside the function, definition cell 2, line 4: a row selection kept 0 of 8 rows."]);
-  });
-});
-
-describe("scanNoteLines", () => {
   test("a header cell shaped like its column's values suggests a headerless read", () => {
     // biomedical-hard-7: the first gene became the column name and 15 of 16 rows remained.
     const operations = {

@@ -21,7 +21,7 @@ import { observationFormat } from "./observation-format";
 import type { AgentSettings, RetrievalSettings, RetrievalView } from "../../types/agent";
 import type { NativeObservationOptions } from "./evidence";
 
-export const RETRIEVAL_VIEWS: readonly RetrievalView[] = ["full", "sample", "sample_stats"];
+export const RETRIEVAL_VIEWS: readonly RetrievalView[] = ["full", "sample_stats"];
 export const FULL_RESULT_CHAR_LIMIT = 5000;
 export const RESULT_TRANSPORT_CHAR_LIMIT = 100_000;
 /** The engine truncates each transported cell to this many characters. */
@@ -67,7 +67,6 @@ export function retrievalOptions(settings: Partial<AgentSettings>, view: Retriev
 export function flowObservationOptions(settings: Partial<AgentSettings>): NativeObservationOptions {
   return {
     ...observationFormat(settings),
-    view: "sample",
     data: false,
     flow: true,
     maxChars: settings.maxOperatorResultCharLimit ?? 2000,

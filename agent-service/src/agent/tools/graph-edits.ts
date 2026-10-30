@@ -167,7 +167,6 @@ export async function planRegisteredGraphEdit(
     namespace: original.nativeNamespace,
     operators: originalViews,
     profileCollection: context.settings?.nativeProfileCollection,
-    profileScope: context.settings?.nativeProfileScope === "full" ? "full" : undefined,
   });
   const nodes = new Map(Object.entries(staged.operators));
   const pending = new Set(nodes.keys());
@@ -193,7 +192,7 @@ export async function planRegisteredGraphEdit(
   const util = new WorkflowUtilService(context.metadataStore, draft);
   for (const id of ordered) {
     const view = nodes.get(id)!;
-    if (context.settings?.nativeChecks || context.settings?.flowEvidence) view.lineage = nativeLineage(draft, view);
+    if (context.settings?.flowEvidence) view.lineage = nativeLineage(draft, view);
     if (context.settings?.pandasRound) view.pandasRound = true;
     const compiled = compileNativeOp(view, id);
     const old = draft.getOperator(id);
@@ -451,11 +450,6 @@ export async function planGraphEdit(
       // An existing operator keeps the profile setting it was compiled with.
       const normalized = normalizeStatement(parsed, statement.functions, {
         profileCollection: existing?.profileCollection ?? context.settings?.nativeProfileCollection,
-        profileScope: existing
-          ? existing.profileScope
-          : context.settings?.nativeProfileScope === "full"
-            ? "full"
-            : undefined,
       });
       if (!normalized.view) throw new Error(normalized.error?.message ?? "Invalid operator definition.");
       const inputs = normalized.view.inputs;
@@ -572,7 +566,7 @@ export async function planGraphEdit(
     const util = new WorkflowUtilService(context.metadataStore, draft);
     for (const id of ordered) {
       const view = nodes.get(id)!;
-      if (context.settings?.nativeChecks || context.settings?.flowEvidence) {
+      if (context.settings?.flowEvidence) {
         view.lineage = nativeLineage(draft, view);
         validationViews.get(id)!.lineage = view.lineage;
       }

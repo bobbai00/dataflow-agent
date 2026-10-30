@@ -15,38 +15,25 @@ import argparse
 
 
 def campaign_arms():
-    """Retain historical arms and add a matched 2x2 evidence-exposure matrix."""
+    """The matched evidence-exposure arms and the leaner variants of the default one."""
+    # Full retrieval and collection stay fixed; only what the model may see
+    # changes.
     arms = {
-        f"{view}_flow{flow}": {
-            "retrievalViews": ["full", "sample", "sample_stats"] if view == "adaptive" else [view],
+        f"evidence_data1_flow{flow}": {
+            "retrievalViews": ["sample_stats", "full"],
+            "dataEvidence": True,
             "flowEvidence": bool(flow),
-            "dataEvidence": view in ["sample_stats", "adaptive"],
         }
-        for view in ["full", "sample", "sample_stats", "adaptive"] for flow in [0, 1]
+        for flow in [0, 1]
     }
-    # Historical twins profile every row exactly instead of a bounded prefix.
-    arms.update({f"{name}_fullstats": {**arm, "nativeProfileScope": "full"}
-                 for name, arm in list(arms.items())})
-    # Full retrieval, collection, and profiling scope stay fixed; only what the
-    # model may see changes. Keep these names separate from historical arms.
-    arms.update({
-        f"evidence_data{data}_flow{flow}": {
-            "retrievalViews": ["sample_stats" if data else "sample", "full"],
-            "dataEvidence": bool(data),
-            "flowEvidence": bool(flow),
-            "nativeProfileScope": "full",
-        }
-        for data in [0, 1] for flow in [0, 1]
-    })
     # A full-only baseline for the same matrix: results are read only in full,
     # so evidence_data1_flow{0,1} add exactly the statistics view, and the flow
-    # arm adds exactly flow evidence. Collection and profiling stay matched.
+    # arm adds exactly flow evidence. Collection stays matched.
     arms.update({
         f"evidence_full_flow{flow}": {
             "retrievalViews": ["full"],
             "dataEvidence": False,
             "flowEvidence": bool(flow),
-            "nativeProfileScope": "full",
         }
         for flow in [0, 1]
     })

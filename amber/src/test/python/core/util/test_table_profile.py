@@ -73,7 +73,7 @@ def test_empty_input_keeps_schema_and_undefined_ratios():
     assert result["structure"]["allNullColumns"] == []
 
 
-def test_multiple_yields_accumulate_distinct_values_and_cross_chunk_duplicates():
+def test_multiple_yields_accumulate_distinct_values_and_all_null_rows():
     frame = pd.DataFrame({"x": pd.Series([1, 2, None], dtype="Int64")})
     profile, partial = collect(frame, complete=False)
     assert not partial["coverage"]["complete"]
@@ -83,7 +83,6 @@ def test_multiple_yields_accumulate_distinct_values_and_cross_chunk_duplicates()
     assert result["rowCount"] == 6 and result["coverage"]["yields"] == 2
     assert result["columns"]["x"]["distinctCount"] == 3
     assert result["columns"]["x"]["nullCount"] == 2
-    assert result["structure"]["duplicateRows"] == 2
     assert result["structure"]["allNullRows"] == 2
 
 
@@ -95,32 +94,15 @@ def test_frequency_top_k_keeps_other_count_and_explicit_truncation():
     assert result["columns"]["x"]["distinctCount"] == 3
 
 
-def test_distinct_overflow_is_unknown_not_sum_or_an_invented_exact_top_list():
-    _, result = collect(pd.DataFrame({"x": [1, 2, 3, 1]}), limits=ProfileLimits(distinct_limit=2))
-    col = result["columns"]["x"]
-    assert col["distinctCount"] is None and col["frequencies"] is None
-    assert col["uniquenessRatio"] is None
-    assert col["min"] == scalar("int64", "1") and col["max"] == scalar("int64", "3")
-    assert "distinct_limit" in col["omissions"]
-
-
-def test_row_limit_is_partial_even_after_successful_completion():
-    _, result = collect(pd.DataFrame({"x": list(range(12))}), limits=ProfileLimits(max_rows=4))
-    assert result["rowCount"] == 12 and result["coverage"]["rowsProcessed"] == 4
-    assert not result["coverage"]["complete"]
-    assert "row_budget" in result["omissions"]
-    assert result["columns"]["x"]["nonnullCount"] == 4
-
-
-def test_column_and_cell_caps_are_reported_without_fabricated_structure():
+def test_column_cap_is_reported_without_fabricated_structure():
     _, result = collect(
-        pd.DataFrame({"a": [None] * 4, "b": [None] * 4, "c": [1] * 4}), limits=ProfileLimits(max_columns=2, max_cells=4)
+        pd.DataFrame({"a": [None] * 4, "b": [None] * 4, "c": [1] * 4}), limits=ProfileLimits(max_columns=2)
     )
     assert result["columnCount"] == 3 and len(result["columns"]) == 2
-    assert result["coverage"]["rowsProcessed"] == 2
+    assert result["coverage"]["rowsProcessed"] == 4
     assert result["structure"]["allNullRows"] is None
     assert result["structure"]["duplicateRows"] is None
-    assert "column_budget" in result["omissions"] and "cell_budget" in result["omissions"]
+    assert "column_budget" in result["omissions"]
 
 
 def test_schema_change_invalidates_metrics_instead_of_overwriting_earlier_yield():
@@ -128,13 +110,6 @@ def test_schema_change_invalidates_metrics_instead_of_overwriting_earlier_yield(
     assert result["rowCount"] == 2 and not result["coverage"]["complete"]
     assert result["status"] == "unavailable" and "schema_changed" in result["omissions"]
     assert result["columns"] == {}
-
-
-def test_long_values_are_not_truncated_into_false_distinctness():
-    _, result = collect(pd.DataFrame({"x": ["prefix-a", "prefix-b"]}), limits=ProfileLimits(max_value_chars=6))
-    assert result["columns"]["x"]["distinctCount"] is None
-    assert result["columns"]["x"]["frequencies"] is None
-    assert "value_budget" in result["columns"]["x"]["omissions"]
 
 
 def test_timestamp_range_boolean_values_and_literal_null_string():
@@ -169,7 +144,7 @@ def test_metadata_identity_and_serialized_bytes_are_bounded():
 def test_payload_budget_preserves_small_frequencies_and_exact_counts():
     frame = pd.DataFrame({f"value{i}": [f"value-{j:03d}" for j in range(100)] for i in range(12)})
     frame["eligible"] = ["Yes"] * 80 + ["No"] * 20
-    profile, original = collect(frame, limits=ProfileLimits(max_payload_bytes=12000, max_seconds=10))
+    profile, original = collect(frame, limits=ProfileLimits(max_payload_bytes=12000))
     payload = profile.encode()
     result = json.loads(payload)
     assert len(payload.encode()) <= 12000
@@ -237,18 +212,8 @@ def test_optional_witnesses_cannot_displace_native_counters(kind):
     assert profile.snapshot() == original
 
 
-def test_collection_time_budget_stops_optional_work_not_execution():
-    # The collector checks its clock before each bounded row block.
-    ticks = iter([0.0, 1.0, 1.0, 1.0])
-    profile = ProfileAccumulator("w", {}, limits=ProfileLimits(max_seconds=0.1), clock=lambda: next(ticks, 1.0))
-    profile.add(pd.DataFrame({"a": [1, 2], "b": [3, 4]}))
-    profile.finish()
-    result = profile.snapshot()
-    assert not result["coverage"]["complete"] and "time_budget" in result["omissions"]
-
-
 def test_profile_snapshot_timing_excludes_accumulation_and_serialization():
-    ticks = iter([0.0, 0.01, 0.03, 1.0, 1.02])
+    ticks = iter([0.0, 0.03, 1.0, 1.02])
     profile = ProfileAccumulator("w", {}, clock=lambda: next(ticks, 2.0))
     profile.add(pd.DataFrame({"x": [1]}))
     profile.finish()
@@ -276,18 +241,18 @@ def test_unsupported_cells_and_profiler_failures_remain_metadata_only():
     assert "unsupported_type" in result["columns"]["nested"]["omissions"]
 
 
-def test_schema_inference_obeys_row_and_column_limits(monkeypatch):
+def test_schema_inference_obeys_the_column_limit(monkeypatch):
     original = pd.api.types.infer_dtype
     seen = []
 
-    def bounded(values, **kwargs):
+    def counted(values, **kwargs):
         seen.append(len(values))
         return original(values, **kwargs)
 
-    monkeypatch.setattr(pd.api.types, "infer_dtype", bounded)
+    monkeypatch.setattr(pd.api.types, "infer_dtype", counted)
     frame = pd.DataFrame({f"c{i}": ["x"] * 1000 for i in range(20)})
-    _, result = collect(frame, limits=ProfileLimits(max_rows=4, max_columns=2))
-    assert len(seen) <= 2 and max(seen, default=0) <= 4
+    _, result = collect(frame, limits=ProfileLimits(max_columns=2))
+    assert len(seen) <= 2
     assert result["columnCount"] == 20 and not result["schemaComplete"]
     assert len(result["schema"]) == 2
 
@@ -305,14 +270,6 @@ def test_nonfinite_values_do_not_leave_a_misleading_full_range():
     assert result["columns"]["x"]["min"] is None
     assert result["columns"]["x"]["max"] is None
     assert "nonfinite_value" in result["columns"]["x"]["omissions"]
-
-
-def test_values_after_inference_prefix_are_validated_without_coercion():
-    # The bounded schema probe sees integers, but must not truncate 1.5 to 1.
-    _, result = collect(pd.DataFrame({"x": pd.Series([1] * 128 + [1.5], dtype=object)}))
-    assert result["columns"]["x"]["distinctCount"] is None
-    assert result["columns"]["x"]["min"] is None
-    assert "unsupported_type" in result["columns"]["x"]["omissions"]
 
 
 def test_negative_and_positive_zero_are_one_value():
@@ -397,7 +354,7 @@ def test_scan_findings_outlast_value_dictionaries():
         },
     }
     frame = pd.DataFrame({f"c{j}": [f"value {j}-{i}-{'w' * 40}" for i in range(240)] for j in range(35)})
-    profile = ProfileAccumulator("worker-0", metadata, limits=ProfileLimits(max_seconds=10))
+    profile = ProfileAccumulator("worker-0", metadata)
     profile.add(frame)
     profile.finish()
     payload = profile.encode()
@@ -424,7 +381,7 @@ def test_wide_scan_preserves_compact_source_identity_when_statistics_overflow():
         "operations": {"scan": {"sources": [source], "selectedFiles": 1}},
     }
     frame = pd.DataFrame({f"column_{j}": [f"value_{j}_{i}" for i in range(153)] for j in range(179)})
-    profile = ProfileAccumulator("worker-0", metadata, limits=ProfileLimits(max_seconds=10))
+    profile = ProfileAccumulator("worker-0", metadata)
     profile.add(frame)
     profile.finish()
     original = profile.snapshot()
@@ -443,7 +400,7 @@ def test_source_identity_outlasts_unavailable_statistics():
     profile = ProfileAccumulator(
         "worker-0",
         {"operatorType": "Scan", "operations": {"scan": {"sources": [source]}}},
-        limits=ProfileLimits(max_payload_bytes=1600, max_seconds=10),
+        limits=ProfileLimits(max_payload_bytes=1600),
     )
     profile.add(pd.DataFrame({f"column_{i}": [i] for i in range(100)}))
     profile.finish()
@@ -455,61 +412,10 @@ def test_source_identity_outlasts_unavailable_statistics():
     assert not result["coverage"]["complete"]
 
 
-def collect_full(*frames, limits=None):
-    profile = ProfileAccumulator(
-        "worker-0",
-        {"operatorId": "source", "operatorRevision": "0123456789abcdef", "profileScope": "full"},
-        limits=limits,
-    )
-    for frame in frames:
-        profile.add(frame)
-    profile.finish()
-    return profile, json.loads(profile.encode())
-
-
-EQUIVALENCE_FRAMES = [
-    pd.DataFrame(
-        {
-            "id": pd.Series([9007199254740993, None, 9007199254740993], dtype="Int64"),
-            "name": pd.Series(["a", "b", None], dtype="string"),
-            "nothing": pd.Series([None] * 3, dtype="Float64"),
-        }
-    ),
-    pd.DataFrame(
-        {
-            "when": pd.to_datetime(["2026-01-02T00:00:00Z", "2026-01-01T00:00:00Z", None]),
-            "local": pd.to_datetime(["2026-01-02 08:00", None, "2025-12-31 23:00"]),
-            "flag": pd.Series([True, None, False], dtype="boolean"),
-            "text": ["NULL", "NA", ""],
-        }
-    ),
-    pd.DataFrame({"x": pd.Series([-0.0, 0.0, 1.5, None], dtype="float64")}),
-    pd.DataFrame(
-        {"a": [1, 1, 2, None, None, 3], "b": ["x", "x", "y", None, None, "x"], "tie": ["q", "p", "q", "p", "r", "s"]}
-    ),
-]
-
-
-@pytest.mark.parametrize("index", range(len(EQUIVALENCE_FRAMES)))
-def test_full_scope_matches_the_bounded_profile_where_that_covers_every_row(index):
-    frame = EQUIVALENCE_FRAMES[index]
-    _, bounded = collect(frame, limits=ProfileLimits(max_seconds=10))
-    _, full = collect_full(frame)
-    assert bounded["coverage"]["complete"] and full["coverage"] == bounded["coverage"]
-    assert full["schema"] == bounded["schema"]
-    for name, b in bounded["columns"].items():
-        f = full["columns"][name]
-        for field in ("type", "rowsProcessed", "nullCount", "nonnullCount", "min", "max", "frequencies", "mergeValues"):
-            assert f[field] == b[field], (name, field)
-        assert f["distinctCount"] == b["distinctCount"], name
-    assert full["structure"] == bounded["structure"]
-    assert full["algorithm"]["scope"] == "full" and bounded["algorithm"]["scope"] == "bounded"
-
-
-def test_full_scope_ignores_row_cell_and_time_budgets():
+def test_counts_values_and_ranges_cover_every_row():
     frame = pd.DataFrame({"k": [f"g{i % 7}" for i in range(5000)], "v": [float(i % 11) for i in range(5000)]})
     frame.loc[::10, "v"] = None
-    _, result = collect_full(frame, limits=ProfileLimits(max_rows=10, max_cells=10, max_seconds=0.0))
+    _, result = collect(frame)
     assert result["coverage"] == {"scope": "worker", "complete": True, "rowsProcessed": 5000, "yields": 1}
     v = result["columns"]["v"]
     assert v["nullCount"] == int(frame["v"].isna().sum()) and v["distinctCount"] == frame["v"].nunique()
@@ -519,9 +425,9 @@ def test_full_scope_ignores_row_cell_and_time_budgets():
     assert not [o for o in result["omissions"] if o.endswith("_budget")]
 
 
-def test_full_scope_counts_distinct_values_beyond_the_value_list_limit():
+def test_distinct_counts_are_exact_beyond_the_value_list_limit():
     frame = pd.DataFrame({"id": range(1000), "group": [i % 3 for i in range(1000)]})
-    _, result = collect_full(frame)
+    _, result = collect(frame)
     ids = result["columns"]["id"]
     assert ids["distinctCount"] == 1000 and ids["uniquenessRatio"] == 1.0
     assert ids["frequencies"] is None and ids["mergeValues"] is None
@@ -531,9 +437,9 @@ def test_full_scope_counts_distinct_values_beyond_the_value_list_limit():
     assert result["columns"]["group"]["frequencies"]["truncated"] is False
 
 
-def test_full_scope_duplicate_rows_are_exact_and_skip_hashing_with_a_unique_column(monkeypatch):
+def test_duplicate_rows_are_exact_and_skip_hashing_with_a_unique_column(monkeypatch):
     rows = pd.DataFrame({"a": [1.0, 1.0, -0.0, 0.0, None, None, 2.0], "b": ["x", "x", "y", "y", None, None, "z"]})
-    _, result = collect_full(rows)
+    _, result = collect(rows)
     assert result["structure"]["duplicateRows"] == int(rows.duplicated().sum()) == 3
     assert result["structure"]["allNullRows"] == 2
 
@@ -542,41 +448,39 @@ def test_full_scope_duplicate_rows_are_exact_and_skip_hashing_with_a_unique_colu
 
     monkeypatch.setattr(pd.DataFrame, "duplicated", refuse)
     keyed = rows.assign(key=range(len(rows)))
-    _, result = collect_full(keyed)
+    _, result = collect(keyed)
     assert result["structure"]["duplicateRows"] == 0
 
 
-def test_full_scope_infers_types_from_every_value():
+def test_types_are_inferred_from_every_value():
     frame = pd.DataFrame(
         {
             "late": pd.Series([None] * 200 + ["a", "b", "a"], dtype=object),
             "mixed": pd.Series([1] * 128 + [1.5], dtype=object).reindex(range(203)),
         }
     )
-    _, bounded = collect(frame, limits=ProfileLimits(max_seconds=10))
-    _, full = collect_full(frame)
-    assert bounded["columns"]["late"]["type"] == "unknown"
-    assert full["columns"]["late"]["type"] == "str" and full["columns"]["late"]["distinctCount"] == 2
-    assert full["columns"]["mixed"]["type"] == "unsupported"
-    assert full["columns"]["mixed"]["min"] is None and "unsupported_type" in full["columns"]["mixed"]["omissions"]
+    _, result = collect(frame)
+    assert result["columns"]["late"]["type"] == "str" and result["columns"]["late"]["distinctCount"] == 2
+    assert result["columns"]["mixed"]["type"] == "unsupported"
+    assert result["columns"]["mixed"]["min"] is None and "unsupported_type" in result["columns"]["mixed"]["omissions"]
 
 
-def test_full_scope_keeps_counts_for_values_it_cannot_list():
+def test_counts_are_kept_for_values_that_cannot_be_listed():
     frame = pd.DataFrame({"long": ["prefix-a", "prefix-b", "prefix-a"], "inf": [1.0, float("inf"), 2.0]})
-    _, result = collect_full(frame, limits=ProfileLimits(max_value_chars=6))
+    _, result = collect(frame, limits=ProfileLimits(max_value_chars=6))
     assert result["columns"]["long"]["distinctCount"] == 2 and result["columns"]["long"]["frequencies"] is None
     assert "value_budget" in result["columns"]["long"]["omissions"]
     assert result["columns"]["inf"]["distinctCount"] == 3 and result["columns"]["inf"]["min"] is None
     assert "nonfinite_value" in result["columns"]["inf"]["omissions"]
-    _, nested = collect_full(pd.DataFrame({"nested": [[1], [2]]}))
+    _, nested = collect(pd.DataFrame({"nested": [[1], [2]]}))
     assert nested["columns"]["nested"]["distinctCount"] is None
     assert "unsupported_type" in nested["columns"]["nested"]["omissions"]
 
 
-def test_full_scope_across_yields_stays_exact_where_it_can():
+def test_counts_across_yields_stay_exact_where_they_can():
     first = pd.DataFrame({"g": ["a", "b", None], "id": range(0, 3)})
     second = pd.DataFrame({"g": ["a", "c", "a"], "id": range(3, 6)})
-    _, result = collect_full(first, second)
+    _, result = collect(first, second)
     g = result["columns"]["g"]
     assert g["nullCount"] == 1 and g["distinctCount"] == 3
     assert {e["value"]["value"]: e["count"] for e in g["mergeValues"]} == {"a": 3, "b": 1, "c": 1}
