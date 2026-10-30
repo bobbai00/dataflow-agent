@@ -93,7 +93,7 @@ request's own calls follow the block as in any transcript. LongDS's
 
 ## Code
 
-- `agent-service/src/agent/table-context.ts`: the session's requests and the
+- `agent-service/src/agent/task-catalog.ts`: the session's requests and the
   task catalog (`renderTaskCatalog`). `TexeraAgent.sendMessage` renders it,
   and `contextSteps` puts it before the request in place of the earlier ones.
 - `agent-service/src/agent/native/turn-receipt.ts`, `tools/dataflow-action-runtime.ts`:

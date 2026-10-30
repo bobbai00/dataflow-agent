@@ -658,8 +658,6 @@ export function describeOperator(
     issues?: string[];
     stale?: boolean;
     definitionLimit?: boolean;
-    /** Column entries listed; 0 lists every column. */
-    columnsShown?: number;
     /** The result is the one an earlier task saved for this copy's original. */
     savedBy?: number;
     namespace?: import("./registered").RegisteredNamespace;
@@ -734,7 +732,7 @@ export function describeOperator(
         : state === "failed"
           ? "failed"
           : "not run",
-    columns: columnEntries(schema, options.columnsShown ?? COLUMNS_SHOWN),
+    columns: columnEntries(schema, COLUMNS_SHOWN),
     ...(options.usedBy ? { usedBy: options.usedBy } : {}),
     ...(options.scope?.length ? { scope: [...options.scope] } : {}),
     ...(options.issues ? { issues: options.issues } : {}),

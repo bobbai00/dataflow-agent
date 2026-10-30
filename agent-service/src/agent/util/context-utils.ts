@@ -69,11 +69,6 @@ export interface AssembleContextOptions extends ObservationFormatOptions {
   eventStepSink?: (eventIndex: number, step: ReActStep) => void;
   /** Event-owned requests from dataflow batches, reconstructed from receipts. */
   batchObservationsByStep?: ReadonlyMap<string, ReadonlySet<string>>;
-  /** Per-operator detail in each `# Catalog` turn entry: "ids" (id + verb),
-   *  "brief" (+ summary and shape, default), "schema" (+ column inventory).
-   *  Capped by design: a full snapshot per turn is O(turns x operators), which
-   *  was the $12.39 NFL blowup (323 operators re-rendered every step). */
-  catalogDetail?: "ids" | "brief" | "schema";
   /** DELTA context-window budget, in *tokens* (estimated via `estimateTokens`).
    *  Bounds the assembled trajectory user-message — the true model window minus
    *  the ~constant system prompt + response headroom, which the caller folds

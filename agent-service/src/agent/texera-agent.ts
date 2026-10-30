@@ -19,7 +19,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
-import { renderTaskCatalog, sessionRequests } from "./table-context";
+import { renderTaskCatalog, sessionRequests } from "./task-catalog";
 
 import { asSchema, type ModelMessage } from "ai";
 import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
