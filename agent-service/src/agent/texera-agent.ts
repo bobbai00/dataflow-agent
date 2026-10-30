@@ -19,8 +19,7 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { observationFormatPatch, type ObservationFormatOptions } from "./native/observation-format";
-import { sessionRequests } from "./request-catalog";
-import { renderTableContext, renderTaskCatalog } from "./table-context";
+import { renderTaskCatalog, sessionRequests } from "./table-context";
 
 import { asSchema, type ModelMessage } from "ai";
 import { readInputBudget, budgetContextAssembler } from "./llm-drivers/input-budget";
@@ -66,7 +65,6 @@ import { writtenOperatorId } from "./util/context-utils";
 import { withCurrentLayout } from "./util/auto-layout";
 import { isTransientModelError } from "./llm-drivers/request-timeout";
 import { asDataflowActionsResult, type DataflowActionsResult } from "./tools/dataflow-actions";
-import { renderAnswer } from "./native/answer";
 import { hasCurrentResult, namedOperatorIds, namedResultsFeedback } from "./native/named-results";
 import { createDataflowTool, mergeDataflowCalls, prepareDataflowCall } from "./tools/turn-tool";
 import { nativeAssignmentText } from "./native/catalog";
@@ -272,12 +270,6 @@ const MODEL_RETRIES_PER_TURN = Number(process.env.MODEL_RETRIES_PER_TURN ?? 2);
 /** Backoff before retry n is n times this many milliseconds. */
 const MODEL_RETRY_BACKOFF_MS = 3000;
 
-/** The correction for a text reply when the answer is an answer statement. */
-const ANSWER_STATEMENT_FEEDBACK =
-  "That reply was text, so it was not taken as the answer: in this session the final answer is an answer statement. " +
-  "Send it in a dataflow call: `answer <id>` returns that table, or `answer <key>=<id>, <key>=<id>` returns one object with a key per table, " +
-  "rendered from the computed results as the JSON the request asks for.";
-
 export class TexeraAgent {
   readonly agentId: string;
   readonly agentName: string;
@@ -312,19 +304,12 @@ export class TexeraAgent {
 
   private currentMessageId: string | undefined = undefined;
   /**
-   * Earlier requests (by global request number) a request's context shows,
-   * when its sender chose them; requests without a choice show the whole
-   * path. Kept per request, so each request's context stays what it was.
-   */
-  private contextRequestsByMessage = new Map<string, ReadonlySet<number>>();
-  /**
-   * The table context a request's sender asked for (sendMessage
-   * `contextTables`), rendered once as the request starts. It is shown with
-   * that request only: the request's stored text stays as it was sent.
+   * The task catalog a request's sender asked for (sendMessage
+   * `contextTasks`), rendered once as the request starts. It stands for the
+   * earlier requests and is shown with that request only: the request's
+   * stored text stays as it was sent.
    */
   private contextBlockByMessage = new Map<string, string>();
-  /** The reply an answer statement rendered, by message (AgentSettings.answerStatement). */
-  private answerByMessage = new Map<string, string>();
 
   /** Content string last produced by the (possibly-async) context assembler on
    *  the prepareStep path. Lets the synchronous `getNextStepContext` preview
@@ -565,14 +550,11 @@ export class TexeraAgent {
       dataEvidence: this.settings.dataEvidence === true,
       flowEvidence: this.settings.flowEvidence === true,
       operatorDoc: this.settings.operatorDoc === true,
-      answerStatement: this.settings.answerStatement === true,
       retrievalViews: availableRetrievalViews(this.settings),
       fullResultCharLimit: this.settings.fullResultCharLimit,
       maxOperatorResultCharLimit: this.settings.maxOperatorResultCharLimit,
       maxResultRows: this.settings.maxResultRows,
       multiRequest: this.settings.multiRequest,
-      catalogSource: this.settings.catalogSource,
-      catalogRecent: this.settings.catalogRecent,
     });
     this.systemPrompt = withSessionInstructions(this.systemPrompt, this.settings.instructions);
     this.settings.systemPrompt = this.systemPrompt;
@@ -601,7 +583,6 @@ export class TexeraAgent {
     return {
       [TOOL_NAME_DATAFLOW]: createDataflowTool(
         availableRetrievalViews(this.settings),
-        this.settings.answerStatement === true,
         this.settings.optionalPython === true
       ),
     };
@@ -667,29 +648,22 @@ export class TexeraAgent {
   }
 
   /**
-   * The steps the model's context is built from: the visible path, less the
-   * earlier requests the current request's sender left out of its context
-   * (sendMessage `contextRequests`). The bootstrap step and the current
-   * request always stay. Each step renders from its own snapshot, so leaving
-   * requests out changes nothing about the ones kept.
+   * The steps the model's context is built from: the visible path, or, for a
+   * request whose sender gave the earlier tasks it builds on (sendMessage
+   * `contextTasks`), the bootstrap step and the request's own steps, with the
+   * task catalog in place of the earlier requests. Each step renders from its
+   * own snapshot, so leaving requests out changes nothing about the ones kept.
    */
   private contextSteps(): ReActStep[] {
     const steps = this.getVisibleReActSteps();
     const current = steps[steps.length - 1]?.messageId;
-    const chosen = current ? this.contextRequestsByMessage.get(current) : undefined;
-    if (!chosen) return steps;
-    const numbers = this.turnNumberMap();
     const block = current ? this.contextBlockByMessage.get(current) : undefined;
+    if (block === undefined) return steps;
     return steps
-      .filter(
-        step =>
-          TexeraAgent.isInitializationStep(step) ||
-          step.messageId === current ||
-          chosen.has(numbers.get(step.messageId) ?? -1)
-      )
+      .filter(step => TexeraAgent.isInitializationStep(step) || step.messageId === current)
       .map(step =>
         // The block goes before the current request's own text, in this context only.
-        block && step.messageId === current && step.role === "user" && step.isBegin
+        step.messageId === current && step.role === "user" && step.isBegin
           ? { ...step, content: `${block}\n\n${step.content}` }
           : step
       );
@@ -887,16 +861,12 @@ export class TexeraAgent {
       flowEvidence?: boolean;
       operatorDoc?: boolean;
       instructions?: string;
-      answerStatement?: boolean;
       nativeChecks?: boolean;
       contextWindowTokens?: number;
       compactionStrategy?: CompactionStrategy;
       deckSampleRatio?: number;
       maxResultRows?: number;
-      userTaskPlacement?: "top" | "bottom";
       multiRequest?: AgentSettings["multiRequest"];
-      catalogSource?: AgentSettings["catalogSource"];
-      catalogRecent?: AgentSettings["catalogRecent"];
     } & RetrievalSettings &
       ObservationFormatOptions
   ): void {
@@ -920,23 +890,17 @@ export class TexeraAgent {
         "Changing profile collection or scope requires a fresh agent and workflow; existing operators retain their compiled setting"
       );
     }
-    // The system prompt and the layout of earlier requests depend on these,
-    // so they are decided before the first request and kept for the session.
-    const sessionLayout = ["multiRequest", "catalogSource", "catalogRecent"] as const;
-    for (const key of sessionLayout)
-      if (updates[key] !== undefined && updates[key] !== this.settings[key] && this.turnOrder().length > 0)
-        throw new NativeCatalogSettingsError(`${key} is decided before the first request of a session`);
+    // The system prompt depends on it, so it is decided before the first
+    // request and kept for the session.
+    if (
+      updates.multiRequest !== undefined &&
+      updates.multiRequest !== this.settings.multiRequest &&
+      this.turnOrder().length > 0
+    )
+      throw new NativeCatalogSettingsError("multiRequest is decided before the first request of a session");
     let promptNeedsRebuild = false;
     if (updates.multiRequest !== undefined && updates.multiRequest !== this.settings.multiRequest) {
       this.settings.multiRequest = updates.multiRequest;
-      promptNeedsRebuild = true;
-    }
-    if (updates.catalogSource !== undefined && updates.catalogSource !== this.settings.catalogSource) {
-      this.settings.catalogSource = updates.catalogSource;
-      promptNeedsRebuild = true;
-    }
-    if (updates.catalogRecent !== undefined && updates.catalogRecent !== this.settings.catalogRecent) {
-      this.settings.catalogRecent = updates.catalogRecent;
       promptNeedsRebuild = true;
     }
     const formatUpdates = observationFormatPatch(updates);
@@ -974,10 +938,6 @@ export class TexeraAgent {
       this.settings.instructions = updates.instructions;
       promptNeedsRebuild = true;
     }
-    if (updates.answerStatement !== undefined && updates.answerStatement !== this.settings.answerStatement) {
-      this.settings.answerStatement = updates.answerStatement;
-      promptNeedsRebuild = true;
-    }
 
     if (updates.maxOperatorResultCharLimit !== undefined) {
       this.settings.maxOperatorResultCharLimit = updates.maxOperatorResultCharLimit;
@@ -1006,10 +966,6 @@ export class TexeraAgent {
     if (updates.deckSampleRatio !== undefined) {
       this.settings.deckSampleRatio = updates.deckSampleRatio;
       // Pure render-time setting — compress-deck row-sample fraction.
-    }
-    if (updates.userTaskPlacement !== undefined) {
-      // Pure render-time: where the `# User Task` block goes.
-      this.settings.userTaskPlacement = updates.userTaskPlacement;
     }
 
     // An agent that has not been initialized yet has no prompt at all; the
@@ -1109,9 +1065,6 @@ export class TexeraAgent {
     userMessage: string,
     messageSource?: "chat" | "feedback" | "action",
     options: {
-      contextRequests?: readonly number[];
-      contextTables?: readonly string[];
-      contextUpstream?: boolean;
       contextTasks?: readonly number[];
       /** A recorded canvas action this turn responds to; no new message is recorded. */
       respondTo?: ReActStep;
@@ -1128,7 +1081,6 @@ export class TexeraAgent {
       startedAt: Date.now(),
     });
     let turnEnd: Pick<TraceTurnEnd, "status" | "error"> = { status: "ok" };
-    if (options.contextRequests) this.contextRequestsByMessage.set(messageId, new Set(options.contextRequests));
     let stepIndex = 0;
     // Failed/stopped turns still consumed model responses. Preserve their
     // reported usage; absent provider fields remain unknown rather than zero.
@@ -1136,32 +1088,23 @@ export class TexeraAgent {
 
     await this.refreshWorkflowFromBackend();
 
-    if (options.contextTables || options.contextTasks) {
-      // No earlier request stays in view; one block, rendered now from the
-      // graph, stands for them: the earlier tasks with the ones the request
-      // builds on in detail, or the earlier tables with the named ones in full.
+    if (options.contextTasks) {
+      // No earlier request stays in view; the task catalog, rendered now from
+      // the graph, stands for them, with the tasks the request builds on in detail.
       const earlier = sessionRequests(
         this.getVisibleReActSteps().filter(step => !TexeraAgent.isInitializationStep(step)),
         this.turnNumberMap()
       );
-      const block = options.contextTables
-        ? renderTableContext({
-            storage: this.snapshotStorage,
-            requests: earlier,
-            head: this.head,
-            tables: options.contextTables,
-            upstream: options.contextUpstream,
-            options: observationFormatPatch(this.settings),
-          })
-        : renderTaskCatalog({
-            storage: this.snapshotStorage,
-            requests: earlier,
-            head: this.head,
-            tasks: options.contextTasks!,
-            options: observationFormatPatch(this.settings),
-          });
-      this.contextBlockByMessage.set(messageId, block);
-      this.contextRequestsByMessage.set(messageId, new Set());
+      this.contextBlockByMessage.set(
+        messageId,
+        renderTaskCatalog({
+          storage: this.snapshotStorage,
+          requests: earlier,
+          head: this.head,
+          tasks: options.contextTasks,
+          options: observationFormatPatch(this.settings),
+        })
+      );
     }
 
     this.abortController = new AbortController();
@@ -1214,9 +1157,7 @@ export class TexeraAgent {
       let protocolFeedbackSteps = 0;
       let budgetFeedbackSteps = 0;
       let repeatedFailureFeedbackSteps = 0;
-      // A text reply where the answer is an answer statement is sent back once.
-      let answerCorrected = false;
-      // So is a reply naming tables that still have no result after the agent computed them.
+      // A reply naming tables that still have no result after the agent computed them is sent back once.
       let namedResultsCorrected = false;
       let failureStreak = 0;
       let lastFailure: RepeatedFailure | undefined;
@@ -1229,13 +1170,6 @@ export class TexeraAgent {
           maxSteps,
           requireShownResult: true,
           resultShown: () => this.resultShownFor(messageId),
-          ...(this.settings.answerStatement === true
-            ? {
-                answered: () => this.answerByMessage.has(messageId),
-                // Sent back only while a correction is left; otherwise a reply stands as before.
-                answerByStatement: !answerCorrected && protocolFeedbackSteps < 2,
-              }
-            : {}),
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
             // Stop before another request, after the failed step is fully saved.
@@ -1291,7 +1225,6 @@ export class TexeraAgent {
               workflowState: this.workflowState,
               snapshotStorage: this.snapshotStorage,
               settings: this.settings,
-              turnNumberByMessageId: this.turnNumberMap(),
             });
             lastPreparedMessages = processed;
             this.lastRenderedContext = processed
@@ -1468,10 +1401,9 @@ export class TexeraAgent {
             // The reply may hand over tables by naming them; compute the named
             // ones that have no result, and send the reply back once if one
             // still has none.
-            const missing =
-              !this.answerByMessage.has(messageId) && !this.abortController?.signal.aborted
-                ? await this.completeNamedResults(result.text)
-                : undefined;
+            const missing = !this.abortController?.signal.aborted
+              ? await this.completeNamedResults(result.text)
+              : undefined;
             if (missing && !namedResultsCorrected && protocolFeedbackSteps < 2) {
               namedResultsCorrected = true;
               partials.push(result);
@@ -1518,10 +1450,7 @@ export class TexeraAgent {
               partials.push(error.partial);
               const feedback = error.cut
                 ? "That reply was cut off at the output limit before it finished, so it was not taken as the answer. Reply again with the final answer only, briefly, or make one more call if a result is still missing."
-                : error.answerStatement
-                  ? ANSWER_STATEMENT_FEEDBACK
-                  : this.lapseFeedback();
-              if (error.answerStatement) answerCorrected = true;
+                : this.lapseFeedback();
               const feedbackId = this.generateStepId();
               this.addStep({
                 id: feedbackId,
@@ -1534,7 +1463,7 @@ export class TexeraAgent {
                 isBegin: false,
                 isEnd: true,
                 messageSource: "correction",
-                correction: error.cut ? "cut-off" : error.answerStatement ? "answer-statement" : "missing-action",
+                correction: error.cut ? "cut-off" : "missing-action",
               });
               this.head = feedbackId;
               protocolFeedbackSteps++;
@@ -1563,26 +1492,6 @@ export class TexeraAgent {
         }
       };
       const result = await runDriverWithRetry(currentUserMessage);
-
-      const answer = this.answerByMessage.get(messageId);
-      if (answer !== undefined) {
-        // The answer statement's rendering is the request's reply, recorded as
-        // the final step like a reply without the tool.
-        const answerStepId = this.generateStepId();
-        this.addStep({
-          id: answerStepId,
-          parentId: this.head,
-          messageId,
-          stepId: ++stepIndex,
-          timestamp: Date.now(),
-          role: "agent",
-          content: answer,
-          isBegin: false,
-          isEnd: true,
-        });
-        this.head = answerStepId;
-        return { response: answer, messages: result.messages, usage: result.usage, stopped: false };
-      }
 
       const msgSteps = this.reActStepsByMessageId.get(messageId);
       if (msgSteps && msgSteps.length > 0) {
@@ -1680,7 +1589,6 @@ export class TexeraAgent {
       workflowState: this.workflowState,
       snapshotStorage: this.snapshotStorage,
       settings: this.settings,
-      turnNumberByMessageId: this.turnNumberMap(),
     });
     // An async assembler can't be awaited in this sync preview — return the
     // content last rendered on the prepareStep path.
@@ -2220,8 +2128,7 @@ export class TexeraAgent {
     if (results.some(result => !result)) return;
     const merged = mergeDataflowCalls(
       calls.map(tc => tc.input),
-      availableRetrievalViews(this.settings),
-      this.settings.answerStatement === true
+      availableRetrievalViews(this.settings)
     );
     if (!merged) return;
     const replace = (target: DataflowActionsResult, source: DataflowActionsResult) => {
@@ -2255,29 +2162,8 @@ export class TexeraAgent {
     return (
       "That reply was text, so nothing was computed and no result has been shown yet. The engine reads the task's files; " +
       `call the dataflow tool, for example ${starter}. ` +
-      (this.settings.answerStatement === true
-        ? "Compute in further calls, and give the final answer with an answer statement."
-        : "Compute in further calls, and reply without the tool only to give the final answer, after show result has displayed what it rests on.")
+      "Compute in further calls, and reply without the tool only to give the final answer, after show result has displayed what it rests on."
     );
-  }
-
-  /** A call's answer statement renders its tables as the request's reply
-   * (AgentSettings.answerStatement); the turn ends after this step. A call
-   * whose other statements failed, or whose tables cannot be rendered whole,
-   * answers nothing, and its receipt says why. */
-  private renderAnswerStatement(result: DataflowActionsResult, stepId: string): void {
-    const statement = result.turn?.statements.find(item => item.kind === "answer");
-    if (!statement?.answer || !statement.ids) return;
-    const failed = result.actions.find(item => item.status === "error");
-    const rendering = failed
-      ? { ok: false as const, error: "a statement of this call failed; fix it, then answer." }
-      : renderAnswer({ ids: statement.ids, ...statement.answer }, id =>
-          this.snapshotStorage.getOperatorResult(stepId, id)
-        );
-    if (rendering.ok) {
-      result.answer = rendering.text;
-      if (this.currentMessageId) this.answerByMessage.set(this.currentMessageId, rendering.text);
-    } else result.answerError = rendering.error;
   }
 
   private async runPostStepExecution(
@@ -2315,7 +2201,6 @@ export class TexeraAgent {
             if (step) this.stepCallback?.(step);
           },
         });
-        this.renderAnswerStatement(result, stepId);
       }
       const step = this.stepsById.get(stepId);
       if (step) {

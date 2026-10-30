@@ -115,25 +115,9 @@ for (const key of ["dataEvidence", "flowEvidence"]) {
   });
 }
 
-test("a catalog shows functions in full or by docstring, and keeps 0 to 50 recent requests", () => {
-  for (const value of ["full", "docstring"])
-    expect(() => validateNativeSettings({ catalogSource: value })).not.toThrow();
-  expect(() => validateNativeSettings({ catalogSource: "none" })).toThrow(
-    'catalogSource must be "full" or "docstring"'
-  );
-  for (const value of [0, 5, 50]) expect(() => validateNativeSettings({ catalogRecent: value })).not.toThrow();
-  for (const value of [-1, 2.5, 51, "5"])
-    expect(() => validateNativeSettings({ catalogRecent: value })).toThrow(
-      "catalogRecent must be an integer between 0 and 50"
-    );
-});
-
-test("multiRequest is off, transcript or catalog", () => {
+test("multiRequest is off or transcript", () => {
   const key: string = "multiRequest";
-  for (const value of ["off", "transcript", "catalog"])
-    expect(() => validateNativeSettings({ [key]: value })).not.toThrow();
-  for (const value of ["on", true, "dependencies"])
-    expect(() => validateNativeSettings({ [key]: value })).toThrow(
-      'multiRequest must be "off", "transcript" or "catalog"'
-    );
+  for (const value of ["off", "transcript"]) expect(() => validateNativeSettings({ [key]: value })).not.toThrow();
+  for (const value of ["on", true, "dependencies", "catalog"])
+    expect(() => validateNativeSettings({ [key]: value })).toThrow('multiRequest must be "off" or "transcript"');
 });

@@ -50,45 +50,18 @@ def session_key(task):
 
 
 # ---------------------------------------------------------------------------
-# Context selection: which earlier requests a request's context shows
-
-
-def oracle_selection(gold, turn):
-    """The earlier requests the benchmark says `turn` depends on (gold.json
-    depends_tasks), plus request 1, whose text holds the session's data files
-    and answer rules and which is upstream of 99% of Lite turns. The agent
-    never sees the gold, only which of its own earlier requests stay in view.
-    None for the first request, which has nothing earlier."""
-    if turn <= 1:
-        return None
-    depends = next(t.get("depends_tasks", []) for t in gold["turns"] if t["turn_id"] == turn)
-    return sorted({1} | {int(task) for task in depends if 1 <= int(task) < turn})
-
-
-def selection_note(selected, turn):
-    """The line both agents' requests end with when earlier requests are left
-    out, so neither mistakes the omission for missing state; "" when the
-    selection holds every earlier request."""
-    if selected is None or len(selected) >= turn - 1:
-        return ""
-    shown = ", ".join(str(task) for task in selected)
-    return (f"\n\n(Context: of the earlier tasks, this conversation shows task{'s' if len(selected) > 1 else ''} "
-            f"{shown}; the others are left out of it, and what they computed still exists.)")
+# The earlier tasks a request builds on
 
 
 def dependency_note(gold, turn):
-    """The line a request ends with when the agent is told which earlier tasks
-    it builds on (gold.json depends_tasks, as annotated) while still seeing
-    every earlier request; "" when the request depends on none."""
+    """The line a request ends with that names the earlier tasks it builds on
+    (gold.json depends_tasks, as annotated); "" when it depends on none."""
     depends = next((t.get("depends_tasks") or [] for t in gold["turns"] if t["turn_id"] == turn), [])
     tasks = sorted({int(task) for task in depends if 1 <= int(task) < turn})
     if not tasks:
         return ""
     named = str(tasks[0]) if len(tasks) == 1 else ", ".join(map(str, tasks[:-1])) + f" and {tasks[-1]}"
     return f"\n\n(Context: this request builds on earlier task{'s' if len(tasks) > 1 else ''} {named}.)"
-
-
-SELECTIONS = {"oracle": oracle_selection}
 
 
 # ---------------------------------------------------------------------------

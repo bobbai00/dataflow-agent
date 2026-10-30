@@ -76,7 +76,7 @@ import type {
 import { AgentState } from "./types/agent";
 
 export function buildContextAssembler(): ContextAssembler {
-  return ({ visibleSteps, workflowState, snapshotStorage, settings, turnNumberByMessageId }) =>
+  return ({ visibleSteps, workflowState, snapshotStorage, settings }) =>
     assembleContext(visibleSteps, workflowState, snapshotStorage, {
       ...observationFormat(settings),
       nativeEvidence: {
@@ -96,14 +96,6 @@ export function buildContextAssembler(): ContextAssembler {
       deckSampleRatio: settings.deckSampleRatio,
       maxResultRows: settings.maxResultRows,
       maxOperatorResultCharLimit: settings.maxOperatorResultCharLimit,
-      // Request placement in multi-request sessions (cache).
-      userTaskPlacement: settings.userTaskPlacement,
-      // Global request numbers for the renderer.
-      turnNumberByMessageId,
-      // Earlier requests as catalog entries ("catalog") or as the transcript.
-      multiRequest: settings.multiRequest,
-      catalogSource: settings.catalogSource,
-      catalogRecent: settings.catalogRecent,
     });
 }
 
@@ -150,16 +142,12 @@ function applyInitialSettings(
     flowEvidence: settings.flowEvidence,
     operatorDoc: settings.operatorDoc,
     instructions: settings.instructions,
-    answerStatement: settings.answerStatement,
     nativeChecks: settings.nativeChecks,
     contextWindowTokens: settings.contextWindowTokens,
     compactionStrategy: settings.compactionStrategy,
     deckSampleRatio: settings.deckSampleRatio,
     maxResultRows: settings.maxResultRows,
-    userTaskPlacement: (settings as any).userTaskPlacement,
-    multiRequest: (settings as any).multiRequest,
-    catalogSource: (settings as any).catalogSource,
-    catalogRecent: (settings as any).catalogRecent,
+    multiRequest: settings.multiRequest,
   });
 }
 
@@ -261,8 +249,8 @@ const OBSERVATION_SETTINGS_SCHEMA = {
   answerOnlyReply: t.Optional(t.Boolean()),
 };
 
-/** Every setting a client can give: the keys of a create request's `settings`.
- * PATCH takes them all but the few fixed when the agent is created. */
+/** Every setting a client can give: the keys of a create request's
+ * `settings`, and of a PATCH. */
 const AGENT_SETTINGS_SCHEMA = t.Object({
   maxOperatorResultCharLimit: t.Optional(t.Number()),
   executionTimeoutMinutes: t.Optional(t.Number()),
@@ -281,17 +269,13 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
   flowEvidence: t.Optional(t.Boolean()),
   operatorDoc: t.Optional(t.Boolean()),
   instructions: t.Optional(t.String({ maxLength: 20000 })),
-  answerStatement: t.Optional(t.Boolean()),
   nativeChecks: t.Optional(t.Boolean()),
   contextMode: t.Optional(t.Literal("delta")),
   contextWindowTokens: t.Optional(t.Number()),
   compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
   deckSampleRatio: t.Optional(t.Number()),
   maxResultRows: t.Optional(t.Number()),
-  userTaskPlacement: t.Optional(t.Union([t.Literal("top"), t.Literal("bottom")])),
-  multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
-  catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
-  catalogRecent: t.Optional(t.Integer()),
+  multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript")])),
 });
 const SETTING_KEYS: ReadonlySet<string> = new Set(Object.keys(AGENT_SETTINGS_SCHEMA.properties));
 
@@ -310,7 +294,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     flowEvidence: agentSettings.flowEvidence,
     operatorDoc: agentSettings.operatorDoc,
     instructions: agentSettings.instructions,
-    answerStatement: agentSettings.answerStatement,
     nativeChecks: agentSettings.nativeChecks,
     contextMode: "delta",
     contextWindowTokens: agentSettings.contextWindowTokens,
@@ -318,8 +301,6 @@ function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
     deckSampleRatio: agentSettings.deckSampleRatio,
     maxResultRows: agentSettings.maxResultRows,
     multiRequest: agentSettings.multiRequest,
-    catalogSource: agentSettings.catalogSource,
-    catalogRecent: agentSettings.catalogRecent,
   };
 }
 
@@ -977,24 +958,16 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     "/:id/message",
     async ({ params: { id }, body, set }) => {
       const agent = getAgent(id);
-      const { content, messageSource, contextRequests, contextTables, contextUpstream, contextTasks } = body as {
+      const { content, messageSource, contextTasks } = body as {
         content: string;
         messageSource?: "chat" | "feedback";
-        contextRequests?: number[];
-        contextTables?: string[];
-        contextUpstream?: boolean;
         contextTasks?: number[];
       };
       if (agent.getState() !== AgentState.AVAILABLE) {
         set.status = 409;
         return { error: `agent is ${agent.getState()} — one turn at a time` };
       }
-      const result = await agent.sendMessage(content, messageSource, {
-        contextRequests,
-        contextTables,
-        contextUpstream,
-        contextTasks,
-      });
+      const result = await agent.sendMessage(content, messageSource, { contextTasks });
       const steps = agent.getReActSteps();
       const endStep = [...steps].reverse().find(s => s.role === "agent" && s.isEnd);
       const lastWithContent = [...steps].reverse().find(s => s.role === "agent" && (s.content ?? "").trim().length > 0);
@@ -1011,14 +984,8 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       body: t.Object({
         content: t.String(),
         messageSource: t.Optional(t.Union([t.Literal("chat"), t.Literal("feedback")])),
-        // Earlier requests, by number from 1, that this request's context shows; all when absent.
-        contextRequests: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
-        // Earlier tables this request builds on; the context then shows them, and lists the rest, instead of earlier requests.
-        contextTables: t.Optional(t.Array(t.String())),
-        // With contextTables: also show what the named tables are built from, back to the files.
-        contextUpstream: t.Optional(t.Boolean()),
-        // Instead of contextTables: the earlier tasks this request builds on. The context then lists every
-        // earlier task by its request, dataflow changes and answer, with these in detail, instead of earlier requests.
+        // The earlier tasks, by number from 1, this request builds on. The context then lists every earlier
+        // task by its request, dataflow changes and answer, with these in detail, instead of earlier requests.
         contextTasks: t.Optional(t.Array(t.Integer({ minimum: 1 }))),
       }),
     }
@@ -1146,15 +1113,12 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
         flowEvidence: settings.flowEvidence,
         operatorDoc: settings.operatorDoc,
         instructions: settings.instructions,
-        answerStatement: settings.answerStatement,
         nativeChecks: settings.nativeChecks,
         contextWindowTokens: settings.contextWindowTokens,
         compactionStrategy: settings.compactionStrategy,
         deckSampleRatio: settings.deckSampleRatio,
         maxResultRows: settings.maxResultRows,
         multiRequest: settings.multiRequest,
-        catalogSource: settings.catalogSource,
-        catalogRecent: settings.catalogRecent,
       });
 
       // Settings can change context assembly — re-broadcast the preview so
@@ -1165,38 +1129,10 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       return settingsToApi(agent);
     },
     {
-      // Before the body schema, which refuses a setting fixed at creation: a
-      // key that is no setting at all is named as such.
+      // Before the body schema, so that a key that is no setting at all is
+      // refused by name.
       transform: ({ body }) => refuseUnknownSettings(body, SETTING_KEYS),
-      body: t.Object({
-        maxOperatorResultCharLimit: t.Optional(t.Number()),
-        executionTimeoutMinutes: t.Optional(t.Number()),
-        maxSteps: t.Optional(t.Number()),
-        ...OBSERVATION_SETTINGS_SCHEMA,
-        nativeProfileCollection: t.Optional(t.Boolean()),
-        nativeProfileScope: t.Optional(t.Union([t.Literal("prefix"), t.Literal("full")])),
-        dataEvidence: t.Optional(t.Boolean()),
-        retrievalViews: t.Optional(
-          t.Array(t.Union([t.Literal("full"), t.Literal("sample"), t.Literal("sample_stats")]), {
-            minItems: 1,
-            maxItems: 3,
-          })
-        ),
-        fullResultCharLimit: t.Optional(t.Integer({ minimum: 128, maximum: 100000 })),
-        flowEvidence: t.Optional(t.Boolean()),
-        operatorDoc: t.Optional(t.Boolean()),
-        instructions: t.Optional(t.String({ maxLength: 20000 })),
-        answerStatement: t.Optional(t.Boolean()),
-        nativeChecks: t.Optional(t.Boolean()),
-        contextMode: t.Optional(t.Literal("delta")),
-        contextWindowTokens: t.Optional(t.Number()),
-        compactionStrategy: t.Optional(t.Union([t.Literal("sliding"), t.Literal("compress")])),
-        deckSampleRatio: t.Optional(t.Number()),
-        maxResultRows: t.Optional(t.Number()),
-        multiRequest: t.Optional(t.Union([t.Literal("off"), t.Literal("transcript"), t.Literal("catalog")])),
-        catalogSource: t.Optional(t.Union([t.Literal("full"), t.Literal("docstring")])),
-        catalogRecent: t.Optional(t.Integer()),
-      }),
+      body: AGENT_SETTINGS_SCHEMA,
     }
   );
 

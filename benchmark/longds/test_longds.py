@@ -183,8 +183,8 @@ class JudgeTests(unittest.TestCase):
 def make_run(root):
     """A one-request run folder as run_session.py writes it."""
     save(root / "prepared" / "gold.json", {"turns": [TURN]})
-    run = root / "runs" / "s__catalog__r1"
-    save(run / "protocol.json", {"prepared": str(root / "prepared"), "arm": "catalog", "model": "gpt-5.6-luna"})
+    run = root / "runs" / "s__catalog-gold__r1"
+    save(run / "protocol.json", {"prepared": str(root / "prepared"), "arm": "catalog-gold", "model": "gpt-5.6-luna"})
     steps = [call_step(RULES, "set a: scan(files='x.csv')"), reply_step('{"n": 3}')]
     record = request_record(1, "q", steps, "gpt-5.6-luna", 1.0, watchdog=False)
     save(run / "records.json", [record])

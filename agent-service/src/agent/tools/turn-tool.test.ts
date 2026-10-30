@@ -59,7 +59,7 @@ test("the tool takes two strings and prepares the call's actions with its statem
 });
 
 test("with optional python only statements are required, and a call without python runs", async () => {
-  const tool = createDataflowTool(views, false, true);
+  const tool = createDataflowTool(views, true);
   const schema = asSchema(tool.inputSchema).jsonSchema as any;
   expect(tool.strict).toBe(true);
   expect(Object.keys(schema.properties)).toEqual(["python", "statements"]);

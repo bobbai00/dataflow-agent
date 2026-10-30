@@ -1238,8 +1238,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
         return `${name} answered before computing anything and was asked to compute first.`;
       case "cut-off":
         return `${name}'s reply was cut off and was asked to finish it.`;
-      case "answer-statement":
-        return `${name} was asked to give its answer as an answer statement.`;
       case "step-budget":
         return `${name} was told how many steps remain in this turn.`;
       case "repeated-failure":

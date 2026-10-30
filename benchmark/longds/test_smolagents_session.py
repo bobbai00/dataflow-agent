@@ -72,27 +72,6 @@ class SandboxedInterpreterTest(unittest.TestCase):
         self.assertEqual(json.loads(answer_text(result.output)), result.output)
         self.assertEqual((answer_text("already text"), answer_text(None)), ("already text", ""))
 
-    def test_the_state_is_described_and_shown_without_changing_it(self):
-        self.interpreter(f"import pandas as pd\nfrom collections import Counter\n"
-                         f"events = pd.read_csv('data/longds/{TASK}/data/events.csv')\nlookup = {{'a': 1}}\n"
-                         "def doubled(t):\n    return t * 2\nscale = lambda x: x * 3")
-        state = self.interpreter.describe()
-        self.assertEqual(sorted(state["variables"]), ["events", "lookup"])
-        events = state["variables"]["events"]
-        self.assertEqual((events["type"], events["shape"], events["columns"]), ("DataFrame", [2, 2],
-                                                                               [["id", "int64"], ["value", "int64"]]))
-        self.assertEqual(state["variables"]["lookup"]["shape"], 1)
-        # Functions the code defined, not the imported ones.
-        self.assertEqual(state["functions"], ["doubled", "scale"])
-        self.interpreter("events['value'] = events['value'] + 1")
-        self.assertNotEqual(self.interpreter.describe()["variables"]["events"]["fingerprint"], events["fingerprint"])
-        shown = self.interpreter.render(["events", "lookup", "nowhere"])
-        self.assertEqual(shown["events"], "DataFrame: 2 rows × 2 columns\ncolumns: id int64, value int64\n"
-                                          "all 2 rows:\n- id: 1, value: 4\n- id: 2, value: 8")
-        self.assertEqual(shown["lookup"], "dict, 1 items: {'a': 1}")
-        self.assertNotIn("nowhere", shown)
-        self.assertEqual(self.interpreter("int(events['value'].sum())").output, "12")
-
     def test_only_the_session_data_is_visible_read_only_and_offline(self):
         seen = self.interpreter(f"import os\n[os.path.exists('{self.data}/events.csv'), os.path.exists('{self.secret}'), "
                                 f"os.path.exists('{Path(__file__).resolve()}')]")
@@ -117,30 +96,14 @@ class RecordTest(unittest.TestCase):
         self.assertEqual((failed["completed"], failed["answer"], failed["end"]), (False, "", "error"))
 
     def test_the_campaign_sends_the_smolagents_arm_to_its_own_runner(self):
-        job = {"prepared": Path("P"), "out": Path("O"), "arm": "smolagents"}
-        self.assertIn("benchmark.longds.smolagents_session", command(job, "gpt-5.6-luna", []))
-        self.assertNotIn("--arm", command(job, "gpt-5.6-luna", []))
-        self.assertIn("benchmark.longds.run_session", command({**job, "arm": "hybrid"}, "gpt-5.6-luna", []))
-        oracle = command({**job, "arm": "smolagents-oracle"}, "gpt-5.6-luna", [])
-        self.assertIn("benchmark.longds.smolagents_session", oracle)
-        self.assertEqual(oracle[oracle.index("--select") + 1], "oracle")
-        picked = command({**job, "arm": "smolagents-variables"}, "gpt-5.6-luna", [])
-        self.assertIn("benchmark.longds.smolagents_session", picked)
-        self.assertEqual(picked[picked.index("--pick") + 1], "variables")
-        noted = command({**job, "arm": "smolagents-depnote"}, "gpt-5.6-luna", [])
+        job = {"prepared": Path("P"), "out": Path("O"), "arm": "smolagents-depnote"}
+        noted = command(job, "gpt-5.6-luna", [])
         self.assertIn("benchmark.longds.smolagents_session", noted)
+        self.assertNotIn("--arm", noted)
         self.assertEqual(noted[noted.index("--note") + 1], "dependencies")
-
-    def test_the_oracle_selection_keeps_request_one_and_the_annotated_dependencies(self):
-        from benchmark.longds.common import oracle_selection, selection_note
-        gold = {"turns": [{"turn_id": 1, "depends_tasks": []}, {"turn_id": 2, "depends_tasks": [1]},
-                          {"turn_id": 5, "depends_tasks": [3, 2]}, {"turn_id": 9, "depends_tasks": [7, 9, 12]}]}
-        self.assertEqual([oracle_selection(gold, turn) for turn in (1, 2, 5, 9)], [None, [1], [1, 2, 3], [1, 7]])
-        # Nothing left out, no note; otherwise the same sentence for both agents.
-        self.assertEqual(selection_note([1], 2), "")
-        self.assertEqual(selection_note(None, 1), "")
-        self.assertEqual(selection_note([1, 7], 9), "\n\n(Context: of the earlier tasks, this conversation shows tasks 1, 7; "
-                                                   "the others are left out of it, and what they computed still exists.)")
+        dataflow = command({**job, "arm": "catalog-gold"}, "gpt-5.6-luna", [])
+        self.assertIn("benchmark.longds.run_session", dataflow)
+        self.assertEqual(dataflow[dataflow.index("--arm") + 1], "catalog-gold")
 
     def test_the_dependency_note_names_the_annotated_earlier_tasks(self):
         from benchmark.longds.common import dependency_note

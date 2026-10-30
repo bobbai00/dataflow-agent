@@ -183,6 +183,10 @@ describe(`POST ${API}/agents`, () => {
       "topValues",
       "dataEvidenceCharLimit",
       "flowEvidenceCharLimit",
+      "answerStatement",
+      "userTaskPlacement",
+      "catalogSource",
+      "catalogRecent",
       "nativeTransport",
       "columnStats",
       "maxStep",
@@ -373,6 +377,16 @@ describe("Agent control routes", () => {
     const res = await getJson(`${API}/agents/${created.id}/operator-results`);
     expect(res.status).toBe(200);
     expect(await readJson<unknown>(res)).toEqual({ results: {} });
+  });
+
+  test("POST /:id/message refuses a field it does not take, by name, before the turn starts", async () => {
+    const created = await readJson<{ id: string }>(await createAgent());
+    for (const field of ["contextRequests", "contextTables", "contextUpstream"]) {
+      const res = await postJson(`${API}/agents/${created.id}/message`, { content: "Count the rows.", [field]: [1] });
+      expect(res.status).toBe(400);
+      expect(JSON.parse((await readJson<any>(res)).error).property).toBe(`/${field}`);
+    }
+    expect((await readJson<any>(await getJson(`${API}/agents/${created.id}/react-steps`))).steps).toHaveLength(0);
   });
 });
 

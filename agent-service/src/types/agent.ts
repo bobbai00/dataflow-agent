@@ -113,10 +113,9 @@ export interface ReActStep {
    *  feedback, and it is not the user's words. */
   messageSource?: "chat" | "feedback" | "action" | "correction";
   /** On a "correction" step: what the service noted. A step budget running
-   *  out; the same failure repeating; a reply that computed nothing, was cut
-   *  off at the output limit, or gave its answer as text instead of an answer
-   *  statement. */
-  correction?: "step-budget" | "repeated-failure" | "missing-action" | "cut-off" | "answer-statement";
+   *  out; the same failure repeating; a reply that computed nothing or was cut
+   *  off at the output limit. */
+  correction?: "step-budget" | "repeated-failure" | "missing-action" | "cut-off";
   /** Per-tool-call operator access, derived from tool inputs/outputs at
    *  step-record time (see `computeOperatorAccess`). Absent on steps with
    *  no tool calls. */
@@ -153,8 +152,7 @@ export interface UserActionInfo {
  *     delta for the fresh suffix (rolling compaction).
  */
 export type CompactionStrategy = "sliding" | "compress";
-export type MultiRequestMode = "off" | "transcript" | "catalog";
-export type CatalogSource = "full" | "docstring";
+export type MultiRequestMode = "off" | "transcript";
 
 export interface AgentSettings extends RetrievalSettings, ObservationFormatSettings {
   systemPrompt: string;
@@ -201,54 +199,20 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   /** Instructions for this session, appended to the system prompt: rules of
    *  engagement beyond the standard prompt. Empty by default. */
   instructions: string;
-  /** The final answer is an `answer` statement, which renders named tables
-   *  as the reply verbatim and ends the request. */
-  answerStatement: boolean;
   /** `check:` lines under every executed operator whose own assumptions the
    *  engine found violated on the full tables (records repeated across
    *  sources, row effects inside a process function). A scan's header
    *  findings are notes shown in every setting. Off by default. */
   nativeChecks: boolean;
   /**
-   * Where the `# User Task` block goes.
-   *
-   * "top" (default, legacy) puts the newest request first. That is fine for a
-   * single request but destroys prompt caching across turns in a multi-turn
-   * session: the request is the FIRST thing in the message, so every new turn
-   * changes byte 13 and invalidates the identical history below it. Measured on
-   * a 42-turn LongDS task: consecutive turns shared only 13 leading characters
-   * of a 233 KB prompt, and cache hits collapsed to the system prompt alone.
-   *
-   * "bottom" moves the request under the history, so the history is a stable
-   * prefix across turns and only the (small) tail changes. Also puts the live
-   * request closest to the generation point, which is where recency helps.
-   */
-  userTaskPlacement: "top" | "bottom";
-  /**
    * Sessions that answer several requests. "off" (default): one request, as
-   * before. "transcript": a later request follows the whole earlier transcript.
-   * "catalog": each earlier request appears as its request and one catalog
-   * entry (`agent/request-catalog.ts`) in place of its calls. Both multi-request
-   * values add the prompt's working-across-requests section, and their receipts
-   * name each registered function's signature and note a column a Python step
-   * left 0 or null in every row. Decided before the first request: the system
-   * prompt depends on it, as on the two catalog settings below.
+   * before. "transcript": a later request follows the whole earlier transcript,
+   * the prompt gains its working-across-requests section, and receipts name
+   * each registered function's signature and note a column a Python step left
+   * 0 or null in every row. Decided before the first request: the system
+   * prompt depends on it.
    */
   multiRequest: MultiRequestMode;
-  /**
-   * How a catalog entry shows the functions its request registered or changed.
-   * "full" (default): signature, the docstring's first line, then the source.
-   * "docstring": signature and docstring; the source only for a function with
-   * no docstring, and `show function` reads any source on demand.
-   */
-  catalogSource: CatalogSource;
-  /**
-   * Earlier requests a catalog session keeps as their full transcript: the
-   * most recent K to 2K-1. Older ones become entries K at a time, so the
-   * cached prefix changes once every K requests rather than at every one.
-   * 0 (default): every earlier request is an entry.
-   */
-  catalogRecent: number;
 }
 
 export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
@@ -267,7 +231,6 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   flowEvidence: false,
   operatorDoc: false,
   instructions: "",
-  answerStatement: false,
   nativeChecks: false,
   contextWindowTokens: 0,
   compactionStrategy: "compress",
@@ -275,10 +238,7 @@ export const DEFAULT_AGENT_SETTINGS: Omit<AgentSettings, "systemPrompt"> = {
   // Sample rows per `show result`: three keep a pattern or both ends in view
   // at about half the tokens of five (2026-10-11 cost study).
   maxResultRows: 3,
-  userTaskPlacement: "top",
   multiRequest: "off",
-  catalogSource: "full",
-  catalogRecent: 0,
 };
 
 export interface UserInfo {
@@ -308,20 +268,13 @@ export interface AgentSettingsApi extends RetrievalSettings, Partial<Observation
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   instructions?: string;
-  answerStatement?: boolean;
   nativeChecks?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
   deckSampleRatio?: number;
   maxResultRows?: number;
-  /** Where the `# User Task` block goes (see AgentSettings.userTaskPlacement). */
-  userTaskPlacement?: "top" | "bottom";
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
-  /** Catalog entries' functions (see AgentSettings.catalogSource). */
-  catalogSource?: CatalogSource;
-  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
-  catalogRecent?: number;
 }
 
 export interface AgentInfo {
@@ -353,7 +306,6 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   flowEvidence?: boolean;
   operatorDoc?: boolean;
   instructions?: string;
-  answerStatement?: boolean;
   nativeChecks?: boolean;
   contextWindowTokens?: number;
   compactionStrategy?: CompactionStrategy;
@@ -361,8 +313,4 @@ export interface UpdateAgentSettingsRequest extends RetrievalSettings, Partial<O
   maxResultRows?: number;
   /** Sessions with several requests (see AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
-  /** Catalog entries' functions (see AgentSettings.catalogSource). */
-  catalogSource?: CatalogSource;
-  /** Recent requests kept as transcript (see AgentSettings.catalogRecent). */
-  catalogRecent?: number;
 }

@@ -26,7 +26,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { CatalogSource, MultiRequestMode, RetrievalSettings } from "../types/agent";
+import type { MultiRequestMode, RetrievalSettings } from "../types/agent";
 import { observationFormat, type ObservationFormatOptions } from "./native/observation-format";
 import { registeredCatalogText } from "./native/registered";
 import { availableRetrievalViews, EVIDENCE_CHAR_LIMIT, FULL_RESULT_CHAR_LIMIT } from "./native/retrieval";
@@ -61,12 +61,6 @@ export interface NativePromptLayoutOptions extends RetrievalSettings, Observatio
   flowEvidence?: boolean;
   /** Several requests in one session (AgentSettings.multiRequest). */
   multiRequest?: MultiRequestMode;
-  /** Catalog entries' functions (AgentSettings.catalogSource). */
-  catalogSource?: CatalogSource;
-  /** Recent requests a catalog keeps as transcript (AgentSettings.catalogRecent). */
-  catalogRecent?: number;
-  /** The final answer is an `answer` statement (AgentSettings.answerStatement). */
-  answerStatement?: boolean;
   /** Every operator carries a one-line doc; the examples show one (AgentSettings.operatorDoc). */
   operatorDoc?: boolean;
 }
@@ -76,13 +70,6 @@ function operatorDocText(operatorDoc: boolean | undefined): string {
   return operatorDoc
     ? "Give every operator, built-in or Python, a one-line `doc='...'` that says what it does and why the Dataflow needs it, in the task's terms: its population, units, or formula when they matter. `set` replaces the whole operator, so restate its doc; a changed doc alone re-runs nothing. A tool result names operators set without one."
     : "Add optional `doc='...'` to any task-specific operator, built-in or Python, when its population, units, or formula is not clear from the declaration. Routine operators need no boilerplate.";
-}
-
-/** How the final answer is given: a reply without the tool, or an answer statement. */
-function finalAnswerText(answerStatement: boolean | undefined): string {
-  return answerStatement
-    ? "Never answer from memory. Give the final answer with an answer statement in a `dataflow` call: `answer <id>` returns that table, and `answer <key>=<id>, <key>=<id>` returns one object with a key per table. A table of one row and one column becomes its value, a one-row table an object, and any other table a list of all its rows, so aggregate or limit first, and build a table for every value the request asks for. The rendering is returned verbatim as your final answer, as the JSON the request asks for, and ends the request; a reply without the tool is not an answer."
-    : "Never answer from memory: a reply without the tool is your final answer, so reply without it only after `show result` has displayed what the answer rests on. That reply is returned verbatim, in the user's requested format.";
 }
 
 const nativeFragment = (name: string) =>
@@ -134,20 +121,9 @@ export function buildRegisteredNativeSystemPrompt(options: NativePromptLayoutOpt
     PYTHON_FIELD: format.optionalPython
       ? "`python` (definitions, left out when there are none)"
       : '`python` (definitions, or `""`)',
-    FINAL_ANSWER: finalAnswerText(options.answerStatement),
     REPLY_CONTENT: format.answerOnlyReply
       ? "it holds only what that format asks for, with no account of the steps or checks behind it."
       : "it may span lines and contain Markdown.",
-    CONTEXT_LAYOUT:
-      multiRequest === "catalog"
-        ? ((options.catalogRecent ?? 0) > 0
-            ? "Your context contains the calls and observations of this task and of the most recent earlier tasks. Each older task appears as its request and a catalog entry: "
-            : "Your context contains this task's calls and observations. Each earlier task appears as its request and a catalog entry: ") +
-          (options.catalogSource === "docstring"
-            ? "the functions it registered or changed, with their signatures and docstrings (source only for a function without one; `show function` reads any source)"
-            : "the functions it registered or changed, with their signatures and source") +
-          "; the operators it created, changed, or deleted, with results and columns as it left them; the results it showed; and its answer. Entries carry no records; `show result` an earlier table when you need its values. Each observation describes the graph at that time; later edits may have made its results stale."
-        : "Your context contains earlier calls and observations. Each observation describes the graph at that time; later edits may have made its results stale.",
     // Only sessions with several requests; a single request's prompt is unchanged.
     MULTI_REQUEST: multiRequest === "off" ? "" : nativeFragment("native-multi-request.md"),
     OPERATOR_CATALOG: registeredCatalogText(undefined, "index"),

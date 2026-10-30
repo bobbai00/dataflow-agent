@@ -12,18 +12,17 @@
 # limitations under the License.
 """Run sessions x arms x repetitions, a few at a time.
 
-The arms `smolagents`, `smolagents-oracle`, `smolagents-depnote` and
-`smolagents-variables` run the script-agent baseline (smolagents_session.py;
-KRAMABENCH_ROOT names a KramaBench checkout at the pinned revision); every
-other arm is a dataflow agent (run_session.py).
+The arm `smolagents-depnote` runs the script-agent baseline
+(smolagents_session.py; KRAMABENCH_ROOT names a KramaBench checkout at the
+pinned revision); the other arms, `catalog-gold` and `transcript-depnote`, are
+dataflow agents (run_session.py).
 
 Jobs are ordered repetition by repetition, so every arm of a session runs
 under similar load, and a job whose run folder exists is skipped (a crashed
 session is rerun from its first request after its folder is moved aside).
 
 Usage (from the repository root, inside the stack's environment):
-    python -m benchmark.longds.campaign --root R --sessions <key> <key> \\
-        --arms off transcript catalog --reps 3 --parallel 6
+    python -m benchmark.longds.campaign --root R --sessions <key> <key> --reps 3 --parallel 6
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -41,14 +40,8 @@ def jobs(root, sessions, arms, reps):
 def command(job, model, extra):
     """The script agent has its own runner; every other arm is a dataflow agent."""
     common = ["--prepared", str(job["prepared"]), "--out", str(job["out"]), "--model", model, *extra]
-    if job["arm"] == "smolagents":
-        return [sys.executable, "-m", "benchmark.longds.smolagents_session", *common]
-    if job["arm"] == "smolagents-oracle":
-        return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--select", "oracle", *common]
     if job["arm"] == "smolagents-depnote":
         return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--note", "dependencies", *common]
-    if job["arm"] == "smolagents-variables":
-        return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--pick", "variables", *common]
     return [sys.executable, "-m", "benchmark.longds.run_session", "--arm", job["arm"], *common]
 
 
@@ -65,7 +58,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", type=Path, required=True, help="holds prepared/; runs/ and logs/ are written")
     parser.add_argument("--sessions", nargs="+", required=True, help="prepared session keys")
-    parser.add_argument("--arms", nargs="+", default=["off", "transcript", "catalog"])
+    parser.add_argument("--arms", nargs="+", default=["catalog-gold", "transcript-depnote", "smolagents-depnote"])
     parser.add_argument("--reps", type=int, default=1)
     parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--model", default="gpt-5.6-luna")

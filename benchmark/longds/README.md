@@ -26,23 +26,26 @@ variant with the current result. One native agent serves a whole session, with
 one workflow and one computing unit, so later requests read the Dataflow and
 functions that earlier ones left.
 
-The arm fixes the agent's multi-request settings
-([design](../../docs/native-multi-request-design.md)):
+Every request ends with a line that names the earlier tasks it builds on (the
+benchmark's annotated dependencies). The arm fixes what a request sees of the
+earlier ones:
 
-| arm | earlier requests in context | prompt section 5, signatures, constant-column notes |
+| arm | runner | earlier requests in context |
 |---|---|---|
-| `off` | their full transcript (stable's single-request agent) | no |
-| `transcript` | their full transcript | yes |
-| `catalog` | request text plus one catalog entry each | yes |
-| `catalog-compact` | as `catalog`; documented functions by signature and docstring | yes |
-| `hybrid` | as `catalog-compact`, but the 5 to 9 most recent requests as transcript | yes |
+| `catalog-gold` | `run_session` | the task catalog: every earlier task by its request, dataflow changes and answer, the ones it builds on in detail |
+| `transcript-depnote` | `run_session` | their full transcript |
+| `smolagents-depnote` | `smolagents_session` | their full transcript |
 
-The script-agent baseline is the arm `smolagents` (`smolagents_session.py`): smolagents'
-`CodeAgent` set up as KramaBench's `code_agent.py` sets it up (no tools, its authorized
-imports, stock system prompt, 20 steps a request), continued across the session's
-requests, sent the same prepared requests, its code run in smolagents' interpreter inside
-a sandbox that sees the session's data read-only and has no network. `KRAMABENCH_ROOT`
-names a KramaBench checkout at the revision this repository pins.
+Both dataflow arms set `multiRequest: "transcript"`: prompt section 5, function
+signatures in receipts and notes on constant columns
+([design](../../docs/native-multi-request-design.md)).
+
+The script-agent baseline (`smolagents_session.py`) is smolagents' `CodeAgent` set up as
+KramaBench's `code_agent.py` sets it up (no tools, its authorized imports, stock system
+prompt, 20 steps a request), continued across the session's requests, sent the same
+prepared requests, its code run in smolagents' interpreter inside a sandbox that sees the
+session's data read-only and has no network. `KRAMABENCH_ROOT` names a KramaBench
+checkout at the revision this repository pins.
 
 ## Inputs
 
@@ -59,7 +62,7 @@ steps that call the agent or the judge:
 ```bash
 python -m benchmark.longds.prepare --out R/prepared sports/nfl_big_data_bowl_2023/task1
 python -m benchmark.longds.campaign --root R --sessions sports__nfl_big_data_bowl_2023__task1 \
-    --arms off transcript catalog --reps 3 --parallel 6
+    --reps 3 --parallel 6
 python -m benchmark.longds.judge --runs R/runs       # deepseek-v4-pro via OpenRouter
 python -m benchmark.longds.report --runs R/runs --json R/summary.json
 ```

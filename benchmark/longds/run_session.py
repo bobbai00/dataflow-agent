@@ -13,34 +13,15 @@
 """Run one LongDS session: every request, in order, to one native agent.
 
 One agent, one workflow and one computing unit serve the whole session, so
-later requests build on the Dataflow and functions earlier ones left. The arm
-fixes the agent's multi-request settings:
-- off: the single-request agent, sent each request in turn (earlier requests
-  stay in its transcript);
-- transcript: the same layout, with the multi-request prompt section, function
-  signatures in receipts, and notes on constant columns;
-- catalog: as transcript, but each earlier request appears as its request and
-  one catalog entry;
-- catalog-compact: as catalog, with entries listing documented functions by
-  signature and docstring instead of source;
-- hybrid: as catalog-compact, keeping the 5 to 9 most recent requests as
-  transcript; hybrid-k3 keeps the 3 to 5 most recent;
-- transcript-oracle: as transcript, each request showing only the earlier
-  requests the oracle selection names;
-- transcript-depnote: as transcript, each request ending with a line that
-  names the earlier tasks it builds on (gold depends_tasks);
-- tables-model: a model picks the earlier tables each request builds on, and
-  the request sees them in full and every other table in one line instead of
-  the earlier requests; tables-upstream also shows what the picked tables are
-  built from, back to the files (smolagents_session's `--pick variables` is
-  its script counterpart);
-- tables-gold: as tables-upstream, the picks being the result tables of the
-  earlier tasks the request builds on (gold depends_tasks), and the request
-  ending with the line that names those tasks;
+later requests build on the Dataflow and functions earlier ones left. The
+agent has the multi-request prompt section, function signatures in receipts
+and notes on constant columns (`multiRequest: "transcript"`), and every
+request ends with a line that names the earlier tasks it builds on (gold
+depends_tasks). The arm fixes what a request sees of the earlier ones:
+- transcript-depnote: the whole earlier transcript;
 - catalog-gold: instead of the earlier requests, every earlier task by its
-  request, dataflow changes and answer, the ones the request builds on (gold
-  depends_tasks) in detail, and the line that names them; catalog-gold-answer
-  also gives the final answer as an answer statement, rendered from tables.
+  request, dataflow changes and answer, with the ones the request builds on
+  in detail (the agent's task catalog).
 
 Every request is sent once; a request that ends without an answer is recorded
 as incomplete and the session goes on. The stack comes from the environment
@@ -53,7 +34,7 @@ per request tNN/record.json and tNN/steps.json.gz, and records.json.
 
 Usage (from the repository root, inside the stack's environment):
     python -m benchmark.longds.run_session --prepared R/prepared/<key> \\
-        --out R/runs/<key>__catalog__r1 --arm catalog --model gpt-5.6-luna
+        --out R/runs/<key>__catalog-gold__r1 --arm catalog-gold --model gpt-5.6-luna
 """
 import argparse
 from datetime import datetime, timezone
@@ -66,40 +47,15 @@ import time
 
 import requests
 
-from benchmark.longds.common import ROOT, SELECTIONS, dependency_note, load, save, selection_note
-from benchmark.longds.selection import dataflow_tasks, render_index, request_text, select_tables
+from benchmark.longds.common import ROOT, dependency_note, load, save
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule, final_reply, normalize_usage
 
 ARMS = {
-    "off": {"multiRequest": "off"},
-    "transcript": {"multiRequest": "transcript"},
-    "catalog": {"multiRequest": "catalog"},
-    "catalog-compact": {"multiRequest": "catalog", "catalogSource": "docstring"},
-    "hybrid": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 5},
-    "hybrid-k3": {"multiRequest": "catalog", "catalogSource": "docstring", "catalogRecent": 3},
-    "transcript-oracle": {"multiRequest": "transcript"},
     "transcript-depnote": {"multiRequest": "transcript"},
-    "tables-model": {"multiRequest": "transcript"},
-    "tables-upstream": {"multiRequest": "transcript"},
-    "tables-gold": {"multiRequest": "transcript"},
     "catalog-gold": {"multiRequest": "transcript"},
-    "catalog-gold-answer": {"multiRequest": "transcript", "answerStatement": True},
 }
-# Arms whose requests show only some earlier requests (common.SELECTIONS).
-SELECT = {"transcript-oracle": "oracle"}
-# Arms whose requests keep every earlier request and are told which earlier
-# tasks they build on (common.dependency_note).
-DEPENDENCY_NOTE = {"transcript-depnote", "tables-gold", "catalog-gold", "catalog-gold-answer"}
-# Arms whose requests name the earlier tables they build on, picked by a model
-# from the dataflow index (selection.py); the agent then shows those tables in
-# full and lists the rest, instead of the earlier requests.
-SELECT_TABLES = {"tables-model", "tables-upstream"}
-# Of those, the arms whose block also shows the picked tables' upstream.
-UPSTREAM = {"tables-upstream", "tables-gold"}
-# Arms whose picks are the result tables of the annotated dependencies (gold_tables).
-GOLD_TABLES = {"tables-gold"}
 # Arms whose requests see the task catalog, the annotated dependencies in detail (gold_dependencies).
-CATALOG_TASKS = {"catalog-gold", "catalog-gold-answer"}
+CATALOG_TASKS = {"catalog-gold"}
 # Everything else is stable's default (delta context, native message layout,
 # sample+stats retrieval, full-table profiles).
 BASE_SETTINGS = {"contextMode": "delta"}
@@ -161,18 +117,14 @@ class Session:
             time.sleep(2)
         return False
 
-    def ask(self, content, minutes, context_requests=None, context_tables=None, context_upstream=False, context_tasks=None):
+    def ask(self, content, minutes, context_tasks=None):
         """Send one request and return the steps it added. A request still
         running after `minutes` is stopped: its steps so far are its record.
-        `context_requests` names the earlier requests its context shows;
-        `context_tables` the earlier tables it builds on; `context_tasks` the
-        earlier tasks it builds on, for the task catalog."""
+        `context_tasks` names the earlier tasks it builds on, for the task
+        catalog."""
         before = {step["id"] for step in self.get("/react-steps")["steps"]}
         watchdog = False
-        body = {"content": content, **({"contextRequests": context_requests} if context_requests is not None else {}),
-                **({"contextTables": context_tables} if context_tables is not None else {}),
-                **({"contextUpstream": True} if context_upstream and context_tables is not None else {}),
-                **({"contextTasks": context_tasks} if context_tasks is not None else {})}
+        body = {"content": content, **({"contextTasks": context_tasks} if context_tasks is not None else {})}
         try:
             checked(self.http.post(self.base + "/message", json=body, timeout=(30, minutes * 60)))
         except requests.exceptions.ReadTimeout:
@@ -232,50 +184,15 @@ def gold_dependencies(gold, turn):
     return sorted({int(d) for d in depends if 1 <= int(d) < turn})
 
 
-def gold_tables(gold, turn, history):
-    """The tables a request builds on when its dependencies are given: for each
-    earlier task gold.json says it depends on, the tables that task made and no
-    other table of that task reads (its results). Their upstream comes with
-    them, so intermediates are shown as definitions only."""
-    tasks = dataflow_tasks(history)
-    picks = []
-    for task in gold_dependencies(gold, turn):
-        made = (tasks.get(task) or {}).get("tables", [])
-        read = {name for _, _, inputs, _ in made for name in inputs}
-        picks += [oid for oid, *_ in made if oid not in read]
-    return picks, {"tables": picks, "source": "gold result tables"}
-
-
-def table_picker(model):
-    """The model call that picks a request's tables from the dataflow index,
-    through the stack's gateway; returns the tables and the call's record."""
-    from openai import OpenAI
-    client = OpenAI(base_url=os.environ["LITELLM_BASE_URL"].rstrip("/") + "/v1",
-                    api_key=os.environ["LITELLM_MASTER_KEY"], max_retries=3, timeout=600)
-    pricing = current_price_schedule(model)
-
-    def pick(index, request):
-        tables, usage, raw = select_tables(client, model, index, request)
-        usage = {**usage, "cache_creation_tokens": 0}
-        return tables, {"tables": tables, "usage": usage, "cost_usd": cost_for_usage(usage, pricing), "reply": raw[:500]}
-    return pick
-
-
 def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
     out.mkdir(parents=True, exist_ok=False)
     prompts = load(prepared / "prompts.json")[:turns]
     settings = {**BASE_SETTINGS, **ARMS[arm]}
-    select = SELECTIONS[SELECT[arm]] if arm in SELECT else None
-    gold = load(prepared / "gold.json") if select or arm in DEPENDENCY_NOTE or arm in GOLD_TABLES or arm in CATALOG_TASKS else None
-    picker = table_picker(model) if arm in SELECT_TABLES else None
-    texts = {p["turn_id"]: request_text(p["prompt"]) for p in prompts}
-    history, answers = {}, {}
+    gold = load(prepared / "gold.json")
     save(out / "protocol.json", {
         "prepared": str(prepared.resolve()), "arm": arm, "model": model, "settings": settings,
-        "selection": SELECT.get(arm) or ("gold result tables, with upstream" if arm in GOLD_TABLES else None)
-        or ("gold tasks in the task catalog" if arm in CATALOG_TASKS else None) or (
-            ("model tables, with upstream" if arm in UPSTREAM else "model tables") if arm in SELECT_TABLES else None),
-        "note": "gold dependencies" if arm in DEPENDENCY_NOTE else None,
+        "selection": "gold tasks in the task catalog" if arm in CATALOG_TASKS else None,
+        "note": "gold dependencies",
         "turns": len(prompts), "spend_limit_usd": spend_limit, "question_minutes": minutes,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_status": subprocess.check_output(["git", "status", "--short", "--", "agent-service", "benchmark"],
@@ -292,32 +209,19 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
                 break
             started = time.monotonic()
             turn = entry["turn_id"]
-            selected = select(gold, turn) if select else None
-            prompt = entry["prompt"] + selection_note(selected, turn)
-            if arm in DEPENDENCY_NOTE:
-                prompt += dependency_note(gold, turn)
-            tables = picked = None
-            if arm in GOLD_TABLES and turn > 1:
-                tables, picked = gold_tables(gold, turn, history)
-            if picker and turn > 1:
-                tables, picked = picker(render_index("dataflow", texts, answers, turn, dataflow_tasks(history)), texts[turn])
+            prompt = entry["prompt"] + dependency_note(gold, turn)
             tasks = gold_dependencies(gold, turn) if arm in CATALOG_TASKS and turn > 1 else None
-            steps, watchdog = session.ask(prompt, minutes, selected, tables, arm in UPSTREAM, tasks)
+            steps, watchdog = session.ask(prompt, minutes, tasks)
             record = request_record(turn, prompt, steps, model, time.monotonic() - started, watchdog)
-            if selected is not None:
-                record["context_requests"] = selected
-            if picked is not None:
-                record["context_tables"] = picked
             if tasks is not None:
                 record["context_tasks"] = tasks
-            history[turn], answers[turn] = steps, record["answer"]
             folder = out / f"t{entry['turn_id']:02d}"
             save(folder / "record.json", record)
             with gzip.open(folder / "steps.json.gz", "wt") as stream:
                 json.dump(steps, stream)
             records.append(record)
             save(out / "records.json", records)
-            spent += (record["cost_usd"] or 0.0) + ((record.get("context_tables") or {}).get("cost_usd") or 0.0)
+            spent += record["cost_usd"] or 0.0
             print(json.dumps({"turn": entry["turn_id"], "completed": record["completed"], "end": record["end"],
                               "calls": record["llm_calls"], "cost_usd": record["cost_usd"],
                               "seconds": record["elapsed_seconds"]}), flush=True)

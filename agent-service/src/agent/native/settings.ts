@@ -63,7 +63,6 @@ export function validateNativeSettings(settings: object = {}): void {
     "dataEvidence",
     "flowEvidence",
     "operatorDoc",
-    "answerStatement",
     "nativeProfileCollection",
     "nativeChecks",
   ] as const) {
@@ -75,14 +74,6 @@ export function validateNativeSettings(settings: object = {}): void {
   if (scope !== undefined && scope !== "prefix" && scope !== "full")
     throw new NativeCatalogSettingsError('nativeProfileScope must be "prefix" or "full"');
   const multiRequest = (settings as Record<string, unknown>).multiRequest;
-  if (multiRequest !== undefined && !["off", "transcript", "catalog"].includes(String(multiRequest)))
-    throw new NativeCatalogSettingsError('multiRequest must be "off", "transcript" or "catalog"');
-  const { catalogSource, catalogRecent } = settings as Record<string, unknown>;
-  if (catalogSource !== undefined && catalogSource !== "full" && catalogSource !== "docstring")
-    throw new NativeCatalogSettingsError('catalogSource must be "full" or "docstring"');
-  if (
-    catalogRecent !== undefined &&
-    (!Number.isInteger(catalogRecent) || Number(catalogRecent) < 0 || Number(catalogRecent) > 50)
-  )
-    throw new NativeCatalogSettingsError("catalogRecent must be an integer between 0 and 50");
+  if (multiRequest !== undefined && !["off", "transcript"].includes(String(multiRequest)))
+    throw new NativeCatalogSettingsError('multiRequest must be "off" or "transcript"');
 }

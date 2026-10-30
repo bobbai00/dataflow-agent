@@ -69,10 +69,7 @@ function session(replies: Reply[]) {
     agentId: "user-actions",
     modelType: "test",
     driver: new VercelToolUseDriver({ model, maxRetries: 0 }),
-    contextAssembler: input =>
-      assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {
-        turnNumberByMessageId: agent.turnNumberMap(),
-      }),
+    contextAssembler: input => assembleContext(input.visibleSteps, input.workflowState, input.snapshotStorage, {}),
   });
   agent.updateSettings({ maxSteps: 10 });
   (agent as any).executePostStepChanges = async () => {

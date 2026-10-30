@@ -83,8 +83,7 @@ function toolFields(input: unknown): Record<string, unknown> | undefined {
 /** Parse a call into the action list the agent runs; a rejected call runs nothing. */
 export function prepareDataflowCall(
   input: unknown,
-  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
-  answer = false
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
 ): DataflowActionsResult {
   const fields = toolFields(input);
   if (!fields) return rejectedActions("dataflow takes an object with the strings python and statements.");
@@ -92,7 +91,7 @@ export function prepareDataflowCall(
   // before its arguments were complete; it did not forget its statements. (A
   // provider that skips the schema may still send definitions alone.)
   if (fields.statements === undefined && !fields.python) return rejectedActions(CUT_OFF_CALL);
-  const parsed = parseTurn(fields, { views, answer });
+  const parsed = parseTurn(fields, { views });
   if (!parsed.ok) return rejectedActions(parsed.error, { statements: [], ignoredProse: [] });
   const { statements, ignoredProse, actions } = parsed.turn;
   return prepareActions(actions, views, { statements, ignoredProse });
@@ -103,27 +102,18 @@ export function prepareDataflowCall(
  * run in call order. Undefined when a call is not a well-formed dataflow call. */
 export function mergeDataflowCalls(
   inputs: readonly unknown[],
-  views: readonly RetrievalView[] = RETRIEVAL_VIEWS,
-  answer = false
+  views: readonly RetrievalView[] = RETRIEVAL_VIEWS
 ): DataflowActionsResult | undefined {
   const fields = inputs.map(toolFields);
   if (fields.some(field => !field)) return undefined;
-  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views, answer);
+  return prepareDataflowCall(mergeTurnFields(fields as Record<string, unknown>[]), views);
 }
-
-/** With answer statements, the final answer is a statement of this tool, not a reply without it. */
-export const DATAFLOW_TOOL_DESCRIPTION_ANSWER =
-  "Edit, compute and read the Dataflow, and give the final answer with an answer statement.";
 
 export function createDataflowTool(
   views: readonly RetrievalView[] = availableRetrievalViews(),
-  answer = false,
   optionalPython = false
 ) {
   const schema = structuredClone(DATAFLOW_TOOL_SCHEMA) as any;
-  if (answer)
-    schema.properties.statements.description =
-      'Statements, one per line: set <id>: <op>(...), delete <id>, execute <id>, show result|schema|operator|function|builtin ..., answer <id> | answer <key>=<id>, ...; "" when the call only defines functions.';
   // An empty `python` costs output tokens on every call that defines nothing.
   if (optionalPython) {
     schema.properties.python.description =
@@ -131,9 +121,9 @@ export function createDataflowTool(
     schema.required = ["statements"];
   }
   return tool({
-    description: answer ? DATAFLOW_TOOL_DESCRIPTION_ANSWER : DATAFLOW_TOOL_DESCRIPTION,
+    description: DATAFLOW_TOOL_DESCRIPTION,
     strict: true,
     inputSchema: jsonSchema<DataflowToolInput>(schema),
-    execute: async input => prepareDataflowCall(input, views, answer),
+    execute: async input => prepareDataflowCall(input, views),
   });
 }

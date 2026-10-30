@@ -29,8 +29,6 @@ export interface ContextAssemblerInput {
   workflowState: WorkflowState;
   snapshotStorage: WorkflowSnapshotStorage;
   settings: AgentSettings;
-  /** GLOBAL turn number per messageId (ask order over the whole session). */
-  turnNumberByMessageId?: Map<string, number>;
 }
 
 /**
@@ -97,12 +95,6 @@ export interface DriverRunTurnInput {
   requireShownResult?: boolean;
   /** Whether a result of this task has been displayed (a retrieval succeeded). */
   resultShown?: () => boolean;
-  /** Answer statements (AgentSettings.answerStatement): whether one has
-   *  rendered this request's reply, which ends the turn after its step. */
-  answered?: () => boolean;
-  /** A reply without the tool is sent back once with the answer-statement
-   *  correction, instead of being taken as the answer. */
-  answerByStatement?: boolean;
   abortSignal?: AbortSignal;
   prepareStep: DriverPrepareStep;
   onStepFinish: (args: DriverStepFinish) => Promise<void>;
@@ -123,9 +115,7 @@ export class MissingAnswerActionError extends Error {
     readonly partial: DriverRunTurnResult,
     readonly canContinue: boolean,
     /** The last reply was cut off at the output limit, so it is not an answer. */
-    readonly cut = false,
-    /** The last reply was text where the answer is an `answer` statement. */
-    readonly answerStatement = false
+    readonly cut = false
   ) {
     super(
       cut
