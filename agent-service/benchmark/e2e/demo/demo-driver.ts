@@ -22,7 +22,7 @@
  *
  *   cd agent-service && bun run benchmark/e2e/demo/demo-driver.ts benchmark/e2e/demo/northwind-lite.json
  *
- * Scenario JSON: { name, workflowName?, agentName?, model?, maxSteps?, allowedOperatorTypes?,
+ * Scenario JSON: { name, workflowName?, agentName?, model?, maxSteps?,
  *                  turns: [ { say: "…" } | { checkout: <1-based turn index whose head to restore> } ] }
  * Env: DEMO_USER / DEMO_PASSWORD (default agent-demo / agent-demo-2026), DEMO_CUID (default 39),
  *      PROBE_MODEL (default claude-haiku-4.5). Agents and workflows are KEPT so the session can be
@@ -67,7 +67,6 @@ const agent = await post("", {
   computingUnitId: CUID,
   settings: {
     maxSteps: sc.maxSteps ?? 60,
-    ...(sc.allowedOperatorTypes ? { allowedOperatorTypes: sc.allowedOperatorTypes } : {}),
   },
 });
 if (!agent.id) {

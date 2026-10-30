@@ -18,7 +18,7 @@
  */
 
 /**
- * Real-browser end-to-end test of how a native-mode agent's work shows in the
+ * Real-browser end-to-end test of how an agent's work shows in the
  * workspace, from a task to feedback:
  *   1. a task: the dataflow builds up on the canvas one action at a time (not
  *      all at once), operators show "Running" while they compute and then

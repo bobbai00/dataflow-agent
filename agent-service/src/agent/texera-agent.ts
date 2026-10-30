@@ -229,7 +229,7 @@ export function computeOperatorAccess(
       access[i] = entry;
       return;
     }
-    // `operatorId` on the operator tools of older traces; `id` on native mode's deleteOperator.
+    // `operatorId` on the operator tools of older traces; `id` on the typed tools' deleteOperator.
     const inputOpId = writtenOperatorId(tc.toolName, tc.input);
     if (result && !result.isError && result.output !== undefined && result.output !== null) {
       const out = typeof result.output === "string" ? result.output : JSON.stringify(result.output);

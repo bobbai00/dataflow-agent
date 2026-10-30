@@ -46,7 +46,7 @@ import { createLogger } from "../../logger";
 import { requestEntries, sessionRequests, type SessionRequest } from "../request-catalog";
 
 /** The operator a tool call wrote: `operatorId` (the operator tools of older
- *  traces) or `id` (native mode's deleteOperator). Undefined for read-only
+ *  traces) or `id` (the typed tools' deleteOperator). Undefined for read-only
  *  tools and for the `dataflow` program, which writes several operators (see
  *  its receipt). */
 export function writtenOperatorId(toolName: string | undefined, input: unknown): string | undefined {
@@ -1021,12 +1021,9 @@ function serializeTaskBody(
               options,
               (id: string) => outputColsFromSnapshot(node.snapshot, id),
               {
-                // Typed operators already carry the consolidated `Inputs:` line
-                // above (formatOperatorAdjacency); repeating it inside the
-                // result was a duplicate on every observation.
                 // The same event owns the failing parameters / UDF code. A
                 // later edit must not rewrite an earlier error's tool frame.
-                ...(op.nativeOp ? { inputsInResult: false, operatorAtEvent: op } : {}),
+                ...(op.nativeOp ? { operatorAtEvent: op } : {}),
                 nativeEvidence: nativeEvidenceAtSnapshot(op.operatorID, node.snapshot, options, sharedUpstream),
               }
             )

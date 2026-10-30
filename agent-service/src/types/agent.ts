@@ -194,20 +194,20 @@ export interface AgentSettings extends RetrievalSettings, ObservationFormatSetti
   dataEvidence: boolean;
   /** Version-matched input/output facts on explicitly observed results. */
   flowEvidence: boolean;
-  /** Native mode: every operator carries a one-line `doc` saying what it does
-   *  and why. The prompt asks for it and its examples show it; an edit that
-   *  sets an operator without one gets a reminder in the tool result. Off by default. */
+  /** Every operator carries a one-line `doc` saying what it does and why. The
+   *  prompt asks for it and its examples show it; an edit that sets an operator
+   *  without one gets a reminder in the tool result. Off by default. */
   operatorDoc: boolean;
   /** Instructions for this session, appended to the system prompt: rules of
-   *  engagement beyond the mode's prompt. Empty by default. */
+   *  engagement beyond the standard prompt. Empty by default. */
   instructions: string;
-  /** Native mode: the final answer is an `answer` statement, which renders
-   *  named tables as the reply verbatim and ends the request. */
+  /** The final answer is an `answer` statement, which renders named tables
+   *  as the reply verbatim and ends the request. */
   answerStatement: boolean;
-  /** Native mode: `check:` lines under every executed operator whose own
-   *  assumptions the engine found violated on the full tables (records
-   *  repeated across sources, row effects inside a process function). A
-   *  scan's header findings are notes shown in every setting. Off by default. */
+  /** `check:` lines under every executed operator whose own assumptions the
+   *  engine found violated on the full tables (records repeated across
+   *  sources, row effects inside a process function). A scan's header
+   *  findings are notes shown in every setting. Off by default. */
   nativeChecks: boolean;
   /**
    * Where the `# User Task` block goes.

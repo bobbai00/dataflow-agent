@@ -1,6 +1,6 @@
 /**
  * Real-browser end-to-end test of running, editing and giving feedback on the
- * operators a native-mode agent builds, from the operator's panel on the canvas.
+ * operators an agent builds, from the operator's panel on the canvas.
  *
  * Drives the Angular UI with Playwright (chromium from frontend/node_modules):
  *   1. the agent builds a small dataflow with a filter

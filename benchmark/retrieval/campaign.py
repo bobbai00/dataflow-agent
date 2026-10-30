@@ -114,7 +114,7 @@ def audit_attempt(path, settings):
     previous, prefix_checks, action_errors, reads = None, 0, 0, 0
     text_replies = 0
     tool_errors = envelope_errors = 0
-    # Native mode answers with a final reply that calls no tool; any earlier
+    # The agent answers with a final reply that calls no tool; any earlier
     # tool-less reply is a lapse.
     agent_steps = [step for step in steps if step.get("role") == "agent"]
     final = agent_steps[-1] if agent_steps else None

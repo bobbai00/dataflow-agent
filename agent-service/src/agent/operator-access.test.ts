@@ -51,7 +51,7 @@ describe("computeOperatorAccess", () => {
     expect(access![3].viewedOperatorIds).toEqual(["filter1"]);
   });
 
-  test("native mode: the dataflow receipt names what landed and what was observed", () => {
+  test("dataflow: the receipt names what landed and what was observed", () => {
     const receipt = (operators: Array<{ id: string; status: string }>, observe: string[]) => ({
       kind: "dataflow-actions",
       protocol: "registered-python-v1",

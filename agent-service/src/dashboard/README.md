@@ -167,8 +167,8 @@ Three-pane layout with a top toolbar that holds the **view-mode knobs**:
 │  ▸ 0  initialize               │  ┌─────┐    ┌────────┐    ┌─────────┐  │
 │  ▸ 1  dataflow                 │  │scan │──▶│ filter │──▶│ project │  │
 │  ▸ 2  dataflow                 │  └─────┘    └────────┘    └─────────┘  │
-│  ▸ 3  executeWorkflow          │                                         │
-│  ▸ 4  finalAnswer  ✓           │ Step detail (bottom right)              │
+│  ▸ 3  dataflow                 │                                         │
+│  ▸ 4  reply  ✓                 │ Step detail (bottom right)              │
 │                                │  Thought / Action / Action Input        │
 │                                │  Tool result (tabular if rows)          │
 │                                │  Token usage chip                       │

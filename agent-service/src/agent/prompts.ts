@@ -45,8 +45,8 @@ export function withSessionInstructions(prompt: string, instructions: string | u
 }
 
 // ============================================================================
-// NATIVE mode: the `dataflow(python, statements)` tool over built-in operators
-// and registered Python functions. Template in prompts/native-registered.md;
+// The `dataflow(python, statements)` tool over built-in operators and
+// registered Python functions. Template in prompts/native-registered.md;
 // the operator index is generated from the definitions the parser validates
 // against, and the worked examples are rendered by the production receipt
 // renderer, so prompt, parser and receipts cannot drift.

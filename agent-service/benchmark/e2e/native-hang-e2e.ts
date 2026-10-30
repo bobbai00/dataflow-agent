@@ -18,10 +18,10 @@
  */
 
 /**
- * Direct (no-LLM) execution of native-mode generated code against the running
- * backends: a 22-file Scan of the KramaBench water data followed by a DuckDB
- * Filter. Used to reproduce and fix the worker-side hang seen in the pilot
- * (`The source did not signal an event for 240 seconds`).
+ * Direct (no-LLM) execution of native operators' generated code against the
+ * running backends: a 22-file Scan of the KramaBench water data followed by a
+ * DuckDB Filter. Used to reproduce and fix the worker-side hang seen in the
+ * pilot (`The source did not signal an event for 240 seconds`).
  *
  *   cd agent-service && bun run benchmark/e2e/native-hang-e2e.ts [variant...]
  *   variants: current | threads1 | arrow   (default: all three)

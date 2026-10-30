@@ -131,7 +131,7 @@ copies each file into a local cache once. See
 
 ### Running and editing operators from the canvas
 
-Selecting an operator a native-mode agent built opens its panel on the canvas,
+Selecting an operator the agent built opens its panel on the canvas,
 with Run, Edit and Feedback; the property editor stays closed for it. Run and
 Edit go through the agent, which applies each as one of its own `dataflow`
 calls. It then records the action as a user step (`messageSource: "action"`):
@@ -180,7 +180,7 @@ Context-tuning matrix configs, all green: `latest` default;
 `bun run e2e:errors` checks the worker's error contract: the exception type
 and a `(line N) \`source\` - ` pointer at the offending statement; the
 agent-service appends the operator code from `operatorProperties` itself.
-Native-mode smokes send `dataflow(python, statements)` calls as debug input,
+Two smokes send `dataflow(python, statements)` calls as debug input,
 with no model request: `bun run benchmark/e2e/registered-python-run.ts`
 (registered-Python probes through the real engine) and
 `bun run benchmark/e2e/registered-evidence-matrix.ts` (the four data/flow
