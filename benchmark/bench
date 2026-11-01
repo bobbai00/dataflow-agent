@@ -36,7 +36,7 @@ export PREPBENCH_REPO
 
 usage() { awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; next } NR > 13 { exit }' "$0"; exit "${1:-0}"; }
 need() { [ -x "$1" ] || { echo "bench: no interpreter at $1 (bench setup kramabench builds it)" >&2; exit 2; }; }
-kb() { need "$KB_PY"; cd "$B" && PYTHONPATH="$B/src" exec "$KB_PY" -m "$@"; }
+kb() { need "$KB_PY"; PYTHONPATH="$B/src" exec "$KB_PY" -m "$@"; }
 
 cmd_test() {
   # The judge key is invalid in tests: a judge-cache miss fails a test instead of paying for a call.
@@ -53,14 +53,14 @@ case "${1:-}" in
   setup)
     shift
     # A fresh clone has no venv yet: setup runs on the system Python and builds the venvs it needs.
-    cd "$B" && PYTHONPATH="$B/src" exec "${BENCH_SETUP_PYTHON:-python3}" -m bobbench.setup "$@" ;;
+    PYTHONPATH="$B/src" exec "${BENCH_SETUP_PYTHON:-python3}" -m bobbench.setup "$@" ;;
   run) shift; kb bobbench.kramabench.cli "$@" ;;
   score)
     shift
     [ "${1:-}" = prepbench ] || { echo "usage: bench score prepbench <out.json> <run>..." >&2; exit 2; }
     shift; need "$KB_PY"
     # PrepBench's src/ holds its `evaluate` package; KramaBench's root (its evaluate.py) stays off the path.
-    cd "$B" && PYTHONPATH="$B/src:$PREPBENCH_REPO/src" exec "$KB_PY" -m bobbench.prepbench.score "$@" ;;
+    PYTHONPATH="$B/src:$PREPBENCH_REPO/src" exec "$KB_PY" -m bobbench.prepbench.score "$@" ;;
   longds)
     shift
     declare -A MODULE=([prepare]=prepare [run]=run_session [smolagents]=smolagents_session [campaign]=campaign
@@ -68,7 +68,8 @@ case "${1:-}" in
     [ -n "${1:-}" ] && [ -n "${MODULE[$1]:-}" ] || { echo "usage: bench longds {prepare|run|smolagents|campaign|judge|report} ..." >&2; exit 2; }
     need "$ROOT_PY"
     m=${MODULE[$1]}; shift
-    # From the repository root: requests name the session data as data/longds/<task>/data/... (the engine's view).
+    # From the repository root, whatever the caller's folder: requests name the session data as
+    # data/longds/<task>/data/... (the engine's view), and relative paths mean the repository root's.
     cd "$REPO" && PYTHONPATH="$B/src" exec "$ROOT_PY" -m "bobbench.longds.$m" "$@" ;;
   report) shift; kb bobbench.report "$@" ;;
   compare) shift; kb bobbench.compare "$@" ;;

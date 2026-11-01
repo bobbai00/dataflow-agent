@@ -290,6 +290,7 @@ def main():
     parser.add_argument("--sessions", nargs="+", metavar="DOMAIN/DATASET/TASK", help="longds: only these Lite sessions")
     parser.add_argument("--dry-run", action="store_true", help="report what would be done; change nothing")
     args = parser.parse_args()
+    args.prepared = args.prepared.resolve()  # the prepare step runs from the repository root
     setup = Setup(args.dry_run)
     if args.what in ("kramabench", "all"):
         setup.kramabench(args.copy_from)

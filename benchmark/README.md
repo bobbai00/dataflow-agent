@@ -81,7 +81,7 @@ With Claude Haiku 5.5, a few cents in all. The launchers run detached, with the 
 `$S/runs/<run>`, log in `$S/logs/<run>.log`. Without task ids they run every task.
 
 ```bash
-S=/var/tmp/texera-stable
+export STACK_DIR=/var/tmp/texera-stable S=/var/tmp/texera-stable    # the launchers read STACK_DIR
 
 # KramaBench, BobFlow
 ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Haiku55 1 2 archeology-easy-6 legal-easy-25
@@ -207,13 +207,14 @@ the cost of one full pass is the mean billed cost per attempt times the task cou
 ```
 <run>/manifest.json            settings, revisions, prices, judge cache hash
 <run>/progress.json            one row per attempt
-<run>/host-resources.jsonl     host CPU, memory and load, every 15 s (profiling/host.py)
+<run>/host-resources.jsonl     load, memory, swap, disk, attempts in flight, every 15 s (profiling/host.py)
 <run>/logs/                    one log per attempt
 <run>/system_scratch/<system>/<task>/
   prompt.txt, response.txt, answer.json, evaluation.json, ground_truth.json, settings.json, provenance.json
   stats.json                   tokens, billed cost and how it was priced, steps, elapsed seconds (profiling/usage.py)
   wire/                        BobFlow: every model request and response; Script ReAct: model-request-trace.jsonl
-  react_steps.json, workflow.json, snapshot.json   BobFlow: the steps and the final dataflow
+  react_steps.json             BobFlow: every step, with the agent's timers (timing) and the engine's (execution_runs)
+  workflow.json, snapshot.json BobFlow: the final dataflow
   attempt-audit.json, metrics-audit.json           the per-attempt checks
   outputs/                     PrepBench: the output tables
 ```

@@ -12,9 +12,13 @@
 # limitations under the License.
 """bench report's counting rules, on small run folders in both layouts."""
 import json
+import os
+import subprocess
+import sys
 
 import pytest
 
+from bobbench.paths import BENCHMARK
 from bobbench.report import cells, kind, merged, render, rows
 
 
@@ -112,3 +116,11 @@ def test_script_react_is_one_arm(tmp_path):
     run = run_folder(tmp_path, "s", [attempt("a-easy-1", arm="smolagents")],
                      {"models": {"Luna": "m"}, "script_settings": {}, "task_ids": ["a-easy-1"]})
     assert cells(rows([run], {}, set()))[0]["arm"] == "smolagents"
+
+
+def test_bench_reads_paths_from_where_it_is_called(tmp_path):
+    run_folder(tmp_path, "r", [attempt("a-easy-1", 1.0, 0.01)])
+    done = subprocess.run([str(BENCHMARK / "bench"), "report", "r", "--json", "out.json"], cwd=tmp_path, text=True,
+                          capture_output=True, env={**os.environ, "BENCH_KB_PYTHON": sys.executable})
+    assert done.returncode == 0, done.stderr
+    assert json.loads((tmp_path / "out.json").read_text())["cells"][0]["accuracy"] == 100.0
