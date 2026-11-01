@@ -1,0 +1,9 @@
+# Settings the agent no longer has (removed in Phase A, families 1-8; refused with HTTP 400 since). The baseline smokes
+# were recorded before their removal, so their settings.json still lists them; every other key must be equal.
+disabledTools maxOperatorResultCellCharLimit dataEvidenceCharLimit flowEvidenceCharLimit operatorResultSerializationMode
+toolTimeoutMs maxOperatorEdits agentMode respondToCanvasRuns answerStatement resultSelection contextMode
+parallelToolCalls includeOperatorProperties attemptReflection thoughtReplay thoughtReplayK agentTurns errorReflection
+errorReflectionThreshold fewShotPrompt toolDialect enableInspectTool enableRenderPrefs enableCodeInSnapshot
+sourceProvenanceHint staticCompaction userTaskPlacement catalogSource catalogRecent toolTimeoutSeconds answerEcho
+catalogRecords cellChars columnsShown definitionChars topValues compactionStrategy contextWindowTokens deckSampleRatio
+nativeChecks nativeProfileScope
