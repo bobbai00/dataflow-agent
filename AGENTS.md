@@ -153,7 +153,7 @@ Historical arms must run their recorded revisions.
 and what a run folder holds.
 
 ```bash
-benchmark/bench setup all                 # datasets, about 18.5 GB
+benchmark/bench setup all                 # datasets, about 12 GB
 benchmark/bench stack up                  # an isolated stack on its own ports, /var/tmp/bobflow-bench
 ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch.sh opt-kb-luna Luna 1 6
 benchmark/bench report /var/tmp/bobflow-bench/runs/opt-kb-luna

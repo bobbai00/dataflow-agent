@@ -135,7 +135,7 @@ AUTH="Authorization: Bearer $TOKEN"
 # A workflow for the agent to build in, and a computing unit to run it on.
 WORKFLOW=$(curl -s -X POST localhost:8080/api/workflow/create -H "$AUTH" -H "$HEADER" \
   -d '{"name":"first dataflow","description":"","content":"{\"operators\":[],\"operatorPositions\":{},\"links\":[],\"commentBoxes\":[],\"settings\":{\"dataTransferBatchSize\":400}}"}' \
-  | json '["wid"]')
+  | json '["workflow"]["wid"]')
 UNIT=$(curl -s -X POST localhost:8888/api/computing-unit/create -H "$AUTH" -H "$HEADER" \
   -d '{"name":"first unit","unitType":"local","cpuLimit":"NaN","memoryLimit":"NaN","gpuLimit":"NaN","jvmMemorySize":"NaN","shmSize":"NaN","uri":"http://localhost:8085"}' \
   | json '["computingUnit"]["cuid"]')
@@ -187,12 +187,14 @@ The paper compares two systems on three benchmarks. BobFlow is the agent above. 
 ### Set up once
 
 ```bash
-benchmark/bench setup all       # adds the datasets, about 18.5 GB
+benchmark/bench setup all       # adds the datasets, about 12 GB
+bin/local-dev.sh down           # one stack per checkout at a time
 benchmark/bench stack up        # builds and starts a Texera just for benchmarks
 ```
 
-The benchmark stack has its own ports, containers and data, so it can run beside the stack from section 2. Its folder is
-`/var/tmp/bobflow-bench`, and `benchmark/bench stack down` stops it.
+The benchmark stack has its own ports, containers and data, and keeps its state in `/var/tmp/bobflow-bench`. It shares this
+checkout's build and results folder with the stack from section 2, so only one of them can run at a time; `bench stack up`
+refuses while the other is up. `benchmark/bench stack down` stops it.
 
 ### Run a few tasks first
 
@@ -294,7 +296,7 @@ With the stack up, these exercise the real system:
 
 | What you see | Why, and what to do |
 |---|---|
-| An agent turn fails with `401` | A provider key in `.env` is missing or invalid. Fix it, then run `bin/local-dev.sh up litellm`, or `benchmark/bench stack up` for the benchmark stack |
+| An agent turn fails with `401` | A provider key in `.env` is missing or invalid. Fix it, then recreate the gateway: `bin/local-dev.sh down litellm && bin/local-dev.sh up litellm`, or `benchmark/bench stack down && benchmark/bench stack up` for the benchmark stack |
 | The first run of a fresh stack fails with `iceberg_namespace_properties_pkey` | Two first executions raced to create the results catalog. It happens once. Run it again, or run `bin/local-dev.sh up computing-unit-master` |
 | A service will not start | `bin/local-dev.sh logs <service>` |
 | A benchmark run fails on missing packages after you ran `uv sync` | `uv sync` removes the extra packages the paper's engine had. Run `benchmark/bench setup base` again |

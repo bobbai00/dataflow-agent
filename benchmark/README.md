@@ -63,8 +63,8 @@ benchmark/bench setup all              # or base, kramabench, prepbench, longds;
 | Target | Adds | Size | Options |
 |---|---|---|---|
 | `kramabench` | wildfire's WeatherEvents csv from Kaggle (no login needed so far; else a token in `~/.kaggle/access_token`) | 1 GB | `--copy-from <KramaBench checkout>` links or copies it |
-| `prepbench` | PrepBench at 993a313 in `~/datasets/prepbench`, staged into `Kramabench/data/prepbench` | 0.5 GB | `--datasets <dir>` clones it to `<dir>/prepbench`; then set `PREPBENCH_REPO=<dir>/prepbench` |
-| `longds` | DataMind at 4b49ef0 (judge prompt only), the Lite sessions' tasks and data from Hugging Face `zjunlp/LongDS` at bf41bb2, a copy of the data in the tree the engine mounts, the prepared sessions | 17 GB | `--sessions DOMAIN/DATASET/TASK ...` takes only those sessions; `--prepared <dir>` |
+| `prepbench` | PrepBench at 993a313 in `~/datasets/prepbench`, staged into `Kramabench/data/prepbench` | 0.3 GB | `--datasets <dir>` clones it to `<dir>/prepbench`; then set `PREPBENCH_REPO=<dir>/prepbench` |
+| `longds` | DataMind at 4b49ef0 (judge prompt only), the Lite sessions' tasks and data from Hugging Face `zjunlp/LongDS` at bf41bb2, a copy of the data in the tree the engine mounts, the prepared sessions | 9 GB | `--sessions DOMAIN/DATASET/TASK ...` takes only those sessions; `--prepared <dir>` |
 
 `Kramabench/data/wildfire/input/ZHVI.csv` is 0 bytes in every paper run: leave it so. Setup reports 5 `legal` sources
 "not found by their exact name": upstream's folder names differ in case, and the prompts' fuzzy search finds them.
@@ -72,8 +72,11 @@ benchmark/bench setup all              # or base, kramabench, prepbench, longds;
 ## The stack
 
 `bench run` and `bench longds run` need a Texera of their own: engine, agent, model gateway. It has its own ports,
-containers and volumes, so it runs beside `bin/local-dev.sh up` without touching it, and its state stays in one folder
-(`STACK_DIR`, default `/var/tmp/bobflow-bench`). Provider keys come from the checkout's `.env`.
+containers and volumes, and its state stays in one folder (`STACK_DIR`, default `/var/tmp/bobflow-bench`). Provider keys
+come from the checkout's `.env`. It runs from this checkout's build and writes results under this checkout
+(`amber/user-resources/workflow-results`), as `bin/local-dev.sh up` does, so one checkout runs one stack at a time:
+`bench stack up` refuses while another stack's services run from the checkout. To keep both up, give the benchmark stack
+its own clone.
 
 ```bash
 benchmark/bench stack up       # write the stack on first use, build, start everything; safe to repeat
