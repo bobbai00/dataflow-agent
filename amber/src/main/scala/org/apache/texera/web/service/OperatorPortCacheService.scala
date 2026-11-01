@@ -22,7 +22,6 @@ package org.apache.texera.web.service
 import org.apache.texera.amber.core.virtualidentity.{ExecutionIdentity, WorkflowIdentity}
 import org.apache.texera.amber.core.workflow.cache.FingerprintUtil
 import org.apache.texera.amber.core.workflow.{CachedOutput, GlobalPortIdentity, PhysicalPlan}
-import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde
 import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde.SerdeOps
 import org.apache.texera.dao.SqlServer
 import org.apache.texera.dao.jooq.generated.Tables.{OPERATOR_PORT_CACHE, OPERATOR_PORT_EXECUTIONS}
@@ -31,7 +30,6 @@ import org.apache.texera.amber.core.storage.DocumentFactory
 
 import java.net.URI
 import scala.jdk.CollectionConverters._
-import scala.util.Try
 
 /**
   * Service for operator port result caching.
@@ -41,8 +39,7 @@ import scala.util.Try
   * - Batch lookup of cached outputs at workflow submission time
   * - Cache entry creation when output ports complete
   * - Fingerprint computation and serialization
-  * - Cache invalidation and lifecycle management
-  * - Manual eviction by logical operator and compile-time mismatch cleanup
+  * - Cache invalidation when the executions that produced entries are cleaned up
   *
   * @param dao OperatorPortCacheDao for database access
   */
@@ -50,18 +47,7 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
   private val context = SqlServer.getInstance().createDSLContext()
 
   /**
-    * Result of cache invalidation by source executions.
-    *
-    * @param deletedRows number of rows removed from operator_port_cache
-    * @param deletedResultUris cached result URIs deleted/cleared during invalidation
-    */
-  case class SourceExecutionInvalidationResult(
-      deletedRows: Int,
-      deletedResultUris: Set[URI]
-  )
-
-  /**
-    * Lookup cached outputs for all materializable ports in the physical plan.
+    * Lookup cached outputs for every output port in the physical plan.
     * Called at workflow submission time by WorkflowExecutionService.
     *
     * For each output port in the plan:
@@ -95,7 +81,8 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
 
   /**
     * Upsert cache entry when an output port completes.
-    * Called by PortCompletedHandler at runtime when a materialized output is produced.
+    * Called by ExecutionCacheService when the controller reports a materialized
+    * output port (PortMaterialized).
     *
     * Steps:
     * 1. Compute fingerprint of upstream subDAG
@@ -132,23 +119,6 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
   }
 
   /**
-    * Invalidate all cache entries for a workflow and remove associated result artifacts.
-    * This is used for manual cache clearing, workflow deletion, and testing.
-    *
-    * Steps:
-    * 1. Collect cached result URIs
-    * 2. Remove operator_port_executions rows referencing those URIs
-    * 3. Delete cache entries
-    * 4. Clear stored result documents (best-effort)
-    *
-    * @param workflowId Workflow ID whose cache entries should be deleted
-    */
-  def invalidateWorkflowCache(workflowId: WorkflowIdentity): Unit = {
-    val cacheEntries = dao.listByWorkflow(workflowId.id, Int.MaxValue, 0)
-    deleteCacheEntriesByPorts(workflowId, cacheEntries)
-  }
-
-  /**
     * Invalidate cache entries produced by the specified executions.
     *
     * This removes cache metadata as well as cache-linked storage artifacts:
@@ -159,82 +129,16 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
     * @return Number of cache rows deleted
     */
   def invalidateCacheBySourceExecutions(executionIds: Seq[ExecutionIdentity]): Int = {
-    invalidateCacheBySourceExecutionsWithArtifacts(executionIds).deletedRows
-  }
-
-  /**
-    * Invalidate cache entries produced by the specified executions and return deleted URI artifacts.
-    *
-    * This helper is used by lifecycle cleanup to avoid re-clearing cached documents.
-    *
-    * @param executionIds Execution IDs whose produced cache entries should be deleted
-    * @return deleted rows and deleted result URIs
-    */
-  def invalidateCacheBySourceExecutionsWithArtifacts(
-      executionIds: Seq[ExecutionIdentity]
-  ): SourceExecutionInvalidationResult = {
     val sourceExecutionIds = executionIds.map(_.id)
     val cacheEntries = dao.listBySourceExecutionIds(sourceExecutionIds)
     if (cacheEntries.isEmpty) {
-      return SourceExecutionInvalidationResult(0, Set.empty)
+      return 0
     }
     val resultUris = cacheEntries.map(_.resultUri).distinct
     deleteOperatorPortResultsByUris(resultUris)
     val deleted = dao.deleteBySourceExecutionIds(sourceExecutionIds)
     clearCachedResultDocuments(resultUris)
-    SourceExecutionInvalidationResult(deleted, resultUris.toSet)
-  }
-
-  /**
-    * Invalidate cache entries for outputs owned by the provided logical operators.
-    * This is used by editor actions that evict cache for selected operators.
-    *
-    * @param workflowId Workflow ID whose cache entries should be deleted
-    * @param logicalOpIds Logical operator IDs whose output caches should be removed
-    * @return Number of cache entries invalidated
-    */
-  def invalidateCacheForLogicalOperators(
-      workflowId: WorkflowIdentity,
-      logicalOpIds: Seq[String]
-  ): Int = {
-    val normalizedIds = logicalOpIds.map(_.trim).filter(_.nonEmpty).toSet
-    if (normalizedIds.isEmpty) {
-      return 0
-    }
-    val cacheEntries = dao.listByWorkflow(workflowId.id, Int.MaxValue, 0)
-    val entriesToDelete = cacheEntries.filter { entry =>
-      val logicalOpIdOpt =
-        Try(GlobalPortIdentitySerde.deserializeFromString(entry.globalPortId))
-          .toOption
-          .map(_.opId.logicalOpId.id)
-      logicalOpIdOpt.exists(normalizedIds.contains)
-    }
-    deleteCacheEntriesByPorts(workflowId, entriesToDelete)
-    entriesToDelete.size
-  }
-
-  /**
-    * Invalidate cache entries whose fingerprints no longer match the current plan.
-    * This supports compile-time invalidation after workflow edits.
-    *
-    * @param workflowId Workflow ID whose cache entries should be checked
-    * @param physicalPlan Latest compiled physical plan
-    * @return Number of cache entries invalidated
-    */
-  def invalidateMismatchedCacheEntries(
-      workflowId: WorkflowIdentity,
-      physicalPlan: PhysicalPlan
-  ): Int = {
-    val cacheEntries = dao.listByWorkflow(workflowId.id, Int.MaxValue, 0)
-    val entriesToDelete = cacheEntries.filter { entry =>
-      val fingerprintHashOpt = Try {
-        val portId = GlobalPortIdentitySerde.deserializeFromString(entry.globalPortId)
-        FingerprintUtil.computeSubdagFingerprint(physicalPlan, portId).subdagHash
-      }.toOption
-      fingerprintHashOpt.forall(_ != entry.subdagHash)
-    }
-    deleteCacheEntriesByKeys(workflowId, entriesToDelete)
-    entriesToDelete.size
+    deleted
   }
 
   /**
@@ -283,57 +187,5 @@ class OperatorPortCacheService(dao: OperatorPortCacheDao) {
         // Document already deleted or unavailable - safe to ignore.
       }
     }
-  }
-
-  /**
-    * Deletes cache entries by port ID, and removes associated result artifacts.
-    */
-  private def deleteCacheEntriesByPorts(
-      workflowId: WorkflowIdentity,
-      entries: Seq[OperatorPortCacheRecord]
-  ): Unit = {
-    if (entries.isEmpty) {
-      return
-    }
-    val resultUris = entries.map(_.resultUri).distinct
-    deleteOperatorPortResultsByUris(resultUris)
-    dao.deleteByGlobalPortIds(workflowId.id, entries.map(_.globalPortId).distinct)
-    clearCachedResultDocuments(resultUris)
-  }
-
-  /**
-    * Deletes cache entries by (port ID, subDAG hash) pair, and removes associated result artifacts.
-    */
-  private def deleteCacheEntriesByKeys(
-      workflowId: WorkflowIdentity,
-      entries: Seq[OperatorPortCacheRecord]
-  ): Unit = {
-    if (entries.isEmpty) {
-      return
-    }
-    val resultUris = entries.map(_.resultUri).distinct
-    deleteOperatorPortResultsByUris(resultUris)
-    dao.deleteByGlobalPortAndHashes(
-      workflowId.id,
-      entries.map(entry => (entry.globalPortId, entry.subdagHash))
-    )
-    clearCachedResultDocuments(resultUris)
-  }
-
-  /**
-    * Future: Cost-aware eviction when storage quota is exceeded.
-    * Phase 3: Lifecycle management research.
-    *
-    * Proposed approach:
-    * - Calculate recompute_cost / storage_cost ratio for each cache entry
-    * - Evict entries with lowest ratio first
-    * - Use runtime_statistics table for cost estimation
-    *
-    * @param quotaBytes Storage quota in bytes
-    */
-  def evictLowValueEntries(quotaBytes: Long): Unit = {
-    throw new UnsupportedOperationException(
-      "Cost-aware eviction not yet implemented (Phase 3: Lifecycle management)"
-    )
   }
 }

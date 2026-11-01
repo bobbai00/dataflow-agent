@@ -43,16 +43,14 @@ class ExecutionStateStoreSpec extends AnyFlatSpec with Matchers {
   // to metadataStore by position-independent name, but ExecutionResultService
   // iterates getAllStores when wiring diff handlers in bulk, so a re-order
   // would shuffle which handler runs against which state.
-  "getAllStores" should "include both cache stores after the execution stores" in {
+  "getAllStores" should "return all five stores in stats/console/breakpoint/metadata/reconfiguration order" in {
     val s = new ExecutionStateStore
     val stores = s.getAllStores.toList
-    stores should have size 7
+    stores should have size 5
     stores(0) should be theSameInstanceAs s.statsStore
     stores(1) should be theSameInstanceAs s.consoleStore
     stores(2) should be theSameInstanceAs s.breakpointStore
     stores(3) should be theSameInstanceAs s.metadataStore
     stores(4) should be theSameInstanceAs s.reconfigurationStore
-    stores(5) should be theSameInstanceAs s.cacheUsageStore
-    stores(6) should be theSameInstanceAs s.cacheEntryUpdateStore
   }
 }

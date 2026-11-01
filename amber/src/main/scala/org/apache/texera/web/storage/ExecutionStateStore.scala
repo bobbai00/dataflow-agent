@@ -56,7 +56,6 @@ class ExecutionStateStore {
   val breakpointStore = new StateStore(ExecutionBreakpointStore())
   val reconfigurationStore = new StateStore(ExecutionReconfigurationStore())
   val cacheUsageStore = new StateStore(ExecutionCacheUsageStore())
-  val cacheEntryUpdateStore = new StateStore(ExecutionCacheEntryUpdateStore())
 
   /**
     * Returns all state stores that should publish websocket updates for an execution.
@@ -67,9 +66,7 @@ class ExecutionStateStore {
       consoleStore,
       breakpointStore,
       metadataStore,
-      reconfigurationStore,
-      cacheUsageStore,
-      cacheEntryUpdateStore
+      reconfigurationStore
     )
   }
 }

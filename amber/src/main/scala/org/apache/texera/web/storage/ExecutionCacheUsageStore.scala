@@ -23,12 +23,9 @@ import org.apache.texera.web.model.websocket.event.CachedPortUsage
 
 /**
   * Holds cached output entries that matched the current execution's workflow fingerprint.
-  *
-  * The store is used to emit websocket updates so the frontend can render cache metadata
-  * (e.g., source execution IDs) without leaking result URIs.
-  * The updatedAt field forces a state change even when the cache list is empty.
+  * The synchronous execution response reads it to mark which inputs and outputs the
+  * execution took from the cache.
   */
 case class ExecutionCacheUsageStore(
-    cachedOutputs: List[CachedPortUsage] = List.empty,
-    updatedAt: Long = System.currentTimeMillis()
+    cachedOutputs: List[CachedPortUsage] = List.empty
 )

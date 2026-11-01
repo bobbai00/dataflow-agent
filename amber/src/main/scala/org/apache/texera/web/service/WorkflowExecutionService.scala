@@ -32,7 +32,6 @@ import org.apache.texera.amber.core.workflow.{CachedOutput, GlobalPortIdentity}
 import org.apache.texera.amber.core.workflow.cache.FingerprintUtil
 import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde.SerdeOps
 import org.apache.texera.web.model.websocket.event.{
-  CacheUsageUpdateEvent,
   CachedPortUsage,
   TexeraWebSocketEvent,
   WorkflowErrorEvent,
@@ -111,16 +110,6 @@ class WorkflowExecutionService(
       outputEvents
     })
   )
-  addSubscription(
-    executionStateStore.cacheUsageStore.registerDiffHandler((_, newState) => {
-      Iterable(CacheUsageUpdateEvent(newState.cachedOutputs))
-    })
-  )
-  addSubscription(
-    executionStateStore.cacheEntryUpdateStore.registerDiffHandler((_, newState) => {
-      newState.lastUpdate.toList
-    })
-  )
 
   workflowContext.workflowSettings = request.workflowSettings
   val wsInput = new WebsocketInput(errorHandler)
@@ -147,8 +136,8 @@ class WorkflowExecutionService(
   /**
     * Lookup cached outputs for the physical plan and return them keyed by GlobalPortIdentity.
     *
-    * This is used both for workflow settings (serialized key map) and for cache
-    * metadata updates sent to the UI.
+    * This is used both for workflow settings (serialized key map) and for the
+    * cache usage the synchronous execution response reports.
     */
   private def computeCachedOutputs(
       physicalPlan: org.apache.texera.amber.core.workflow.PhysicalPlan
@@ -224,8 +213,7 @@ class WorkflowExecutionService(
       client,
       cacheService,
       workflow.context,
-      workflow.physicalPlan,
-      executionStateStore
+      workflow.physicalPlan
     )
     executionRuntimeService = new ExecutionRuntimeService(
       client,

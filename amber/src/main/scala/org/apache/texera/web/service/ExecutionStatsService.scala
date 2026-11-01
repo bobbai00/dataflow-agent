@@ -168,8 +168,7 @@ class ExecutionStatsService(
                 metrics.operatorStatistics.numWorkers,
                 metrics.operatorStatistics.dataProcessingTime,
                 metrics.operatorStatistics.controlProcessingTime,
-                metrics.operatorStatistics.idleTime,
-                metrics.operatorStatistics.resultStatistics.toMap
+                metrics.operatorStatistics.idleTime
               )
           })
         )

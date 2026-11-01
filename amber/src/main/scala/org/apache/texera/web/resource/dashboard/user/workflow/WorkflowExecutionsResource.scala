@@ -28,12 +28,11 @@ import org.apache.texera.amber.core.storage.{
 }
 import org.apache.texera.amber.core.tuple.Tuple
 import org.apache.texera.amber.core.virtualidentity._
-import org.apache.texera.amber.core.workflow.{GlobalPortIdentity, PortIdentity, WorkflowContext}
+import org.apache.texera.amber.core.workflow.{GlobalPortIdentity, PortIdentity}
 import org.apache.texera.amber.engine.architecture.logreplay.{ReplayDestination, ReplayLogRecord}
 import org.apache.texera.amber.engine.common.Utils.{maptoStatusCode, stringToAggregatedState}
 import org.apache.texera.amber.engine.common.storage.SequentialRecordStorage
 import org.apache.texera.amber.util.JSONUtils.objectMapper
-import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde
 import org.apache.texera.amber.util.serde.GlobalPortIdentitySerde.SerdeOps
 import org.apache.texera.auth.{JwtParser, SessionUser}
 import org.apache.texera.dao.SqlServer
@@ -44,7 +43,6 @@ import org.apache.texera.dao.jooq.generated.tables.daos.WorkflowExecutionsDao
 import org.apache.texera.dao.jooq.generated.tables.pojos.{WorkflowExecutions, User => UserPojo}
 import org.apache.texera.web.dao.OperatorPortCacheDao
 import org.apache.texera.web.model.http.request.result.ResultExportRequest
-import org.apache.texera.common.compiler.model.LogicalPlanPojo
 import org.apache.texera.web.resource.dashboard.user.workflow.WorkflowExecutionsResource._
 import org.apache.texera.web.service.{
   ExecutionsMetadataPersistService,
@@ -53,7 +51,6 @@ import org.apache.texera.web.service.{
 }
 import org.jooq.DSLContext
 import play.api.libs.json.Json
-import org.apache.texera.common.compiler.{CompilationErrorHandling, WorkflowCompiler}
 
 import java.net.URI
 import java.sql.Timestamp
@@ -636,23 +633,6 @@ object WorkflowExecutionsResource {
       numWorkers: Int,
       status: Int
   )
-
-  /**
-    * Cache entry metadata returned for a workflow.
-    *
-    * result_uri is intentionally omitted from the payload.
-    */
-  case class WorkflowCacheEntry(
-      globalPortId: String,
-      logicalOpId: String,
-      layerName: String,
-      portId: Int,
-      internal: Boolean,
-      subdagHash: String,
-      tupleCount: Option[Long],
-      sourceExecutionId: Option[Long],
-      updatedAt: Timestamp
-  )
 }
 
 case class ExecutionGroupBookmarkRequest(
@@ -664,20 +644,6 @@ case class ExecutionGroupBookmarkRequest(
 case class ExecutionGroupDeleteRequest(wid: Integer, eIds: Array[Integer])
 
 case class ExecutionRenameRequest(wid: Integer, eId: Integer, executionName: String)
-
-/**
-  * Request payload for evicting cache entries owned by specific logical operators.
-  *
-  * @param logicalOpIds Logical operator IDs whose output caches should be removed
-  */
-case class CacheEvictionRequest(logicalOpIds: List[String])
-
-/**
-  * Response payload for cache invalidation endpoints.
-  *
-  * @param removedCount Number of cache entries removed
-  */
-case class CacheInvalidationResponse(removedCount: Int)
 
 @Produces(Array(MediaType.APPLICATION_JSON, MediaType.APPLICATION_OCTET_STREAM, "application/zip"))
 @Path("/executions")
@@ -865,151 +831,6 @@ class WorkflowExecutionsResource {
       .toList
   }
 
-  /**
-    * Returns cache entries for a workflow, ordered by most recent update.
-    *
-    * @param wid workflow ID
-    * @param sessionUser authenticated user
-    * @param limit max number of entries to return (optional; defaults to all)
-    * @param offset pagination offset (optional)
-    */
-  @GET
-  @Produces(Array(MediaType.APPLICATION_JSON))
-  @Path("/{wid}/cache")
-  @RolesAllowed(Array("REGULAR", "ADMIN"))
-  def retrieveWorkflowCacheEntries(
-      @PathParam("wid") wid: Integer,
-      @Auth sessionUser: SessionUser,
-      @QueryParam("limit") limit: Integer,
-      @QueryParam("offset") offset: Integer
-  ): List[WorkflowCacheEntry] = {
-    validateUserCanAccessWorkflow(sessionUser.getUser.getUid, wid)
-
-    val effectiveLimit =
-      Option(limit).map(_.toInt).filter(_ > 0).getOrElse(Int.MaxValue)
-    val effectiveOffset =
-      Option(offset).map(_.toInt).filter(_ >= 0).getOrElse(0)
-
-    val dao = new OperatorPortCacheDao(SqlServer.getInstance())
-    dao
-      .listByWorkflow(wid.toLong, effectiveLimit, effectiveOffset)
-      .map { record =>
-        val globalPortId =
-          GlobalPortIdentitySerde.deserializeFromString(record.globalPortId)
-        WorkflowCacheEntry(
-          globalPortId = record.globalPortId,
-          logicalOpId = globalPortId.opId.logicalOpId.id,
-          layerName = globalPortId.opId.layerName,
-          portId = globalPortId.portId.id,
-          internal = globalPortId.portId.internal,
-          subdagHash = record.subdagHash,
-          tupleCount = record.tupleCount,
-          sourceExecutionId = record.sourceExecutionId,
-          updatedAt = record.updatedAt
-            .map(odt => Timestamp.from(odt.toInstant))
-            .getOrElse(new Timestamp(0L))
-        )
-      }
-      .toList
-  }
-
-  /**
-    * Removes all cached outputs for a workflow and deletes their stored result documents.
-    *
-    * This also deletes operator_port_executions rows that reference the cached result URIs.
-    * The cleanup is delegated to OperatorPortCacheService for consistency.
-    */
-  @DELETE
-  @Path("/{wid}/cache")
-  @RolesAllowed(Array("REGULAR", "ADMIN"))
-  def deleteWorkflowCacheEntries(
-      @PathParam("wid") wid: Integer,
-      @Auth sessionUser: SessionUser
-  ): Unit = {
-    clearWorkflowCacheEntriesInternal(wid, sessionUser)
-  }
-
-  /**
-    * Clears cached outputs using POST for environments that block DELETE.
-    */
-  @POST
-  @Path("/{wid}/cache/clear")
-  @RolesAllowed(Array("REGULAR", "ADMIN"))
-  def clearWorkflowCacheEntries(
-      @PathParam("wid") wid: Integer,
-      @Auth sessionUser: SessionUser
-  ): Unit = {
-    clearWorkflowCacheEntriesInternal(wid, sessionUser)
-  }
-
-  /**
-    * Evicts cache entries for the specified logical operators.
-    * This removes all cached outputs produced by those operators, regardless of fingerprint.
-    */
-  @POST
-  @Consumes(Array(MediaType.APPLICATION_JSON))
-  @Path("/{wid}/cache/evict")
-  @RolesAllowed(Array("REGULAR", "ADMIN"))
-  def evictWorkflowCacheEntries(
-      request: CacheEvictionRequest,
-      @PathParam("wid") wid: Integer,
-      @Auth sessionUser: SessionUser
-  ): Unit = {
-    validateUserCanWriteWorkflow(sessionUser.getUser.getUid, wid)
-    val logicalOpIds = Option(request.logicalOpIds).getOrElse(List.empty).map(_.trim).filter(_.nonEmpty)
-    if (logicalOpIds.isEmpty) {
-      return
-    }
-    val dao = new OperatorPortCacheDao(SqlServer.getInstance())
-    val cacheService = new OperatorPortCacheService(dao)
-    cacheService.invalidateCacheForLogicalOperators(WorkflowIdentity(wid.toLong), logicalOpIds)
-  }
-
-  /**
-    * Invalidates cache entries whose fingerprints do not match the provided logical plan.
-    * Intended to be called after workflow compilation during editing.
-    */
-  @POST
-  @Consumes(Array(MediaType.APPLICATION_JSON))
-  @Path("/{wid}/cache/invalidate")
-  @RolesAllowed(Array("REGULAR", "ADMIN"))
-  def invalidateWorkflowCacheEntries(
-      request: LogicalPlanPojo,
-      @PathParam("wid") wid: Integer,
-      @Auth sessionUser: SessionUser
-  ): CacheInvalidationResponse = {
-    validateUserCanWriteWorkflow(sessionUser.getUser.getUid, wid)
-    val physicalPlan = try {
-      val workflowContext = new WorkflowContext(workflowId = WorkflowIdentity(wid.toLong))
-      new WorkflowCompiler(workflowContext)
-        .compile(request, CompilationErrorHandling.Strict)
-        .physicalPlan
-        .getOrElse(throw new IllegalStateException("compilation produced no physical plan"))
-    } catch {
-      case err: Throwable =>
-        throw new BadRequestException(s"Failed to compile workflow for cache invalidation: ${err.getMessage}")
-    }
-    val dao = new OperatorPortCacheDao(SqlServer.getInstance())
-    val cacheService = new OperatorPortCacheService(dao)
-    val removedCount =
-      cacheService.invalidateMismatchedCacheEntries(WorkflowIdentity(wid.toLong), physicalPlan)
-    CacheInvalidationResponse(removedCount)
-  }
-
-  /**
-    * Shared handler for cache eviction endpoints.
-    */
-  private def clearWorkflowCacheEntriesInternal(
-      wid: Integer,
-      sessionUser: SessionUser
-  ): Unit = {
-    validateUserCanWriteWorkflow(sessionUser.getUser.getUid, wid)
-
-    val dao = new OperatorPortCacheDao(SqlServer.getInstance())
-    val cacheService = new OperatorPortCacheService(dao)
-    cacheService.invalidateWorkflowCache(WorkflowIdentity(wid.toLong))
-  }
-
   /** Sets a group of executions' bookmarks to the payload passed in the body. */
   @PUT
   @Consumes(Array(MediaType.APPLICATION_JSON))
@@ -1042,12 +863,6 @@ class WorkflowExecutionsResource {
   /** Determine if the user is authorized to access the workflow, if not raise 401 */
   private def validateUserCanAccessWorkflow(uid: Integer, wid: Integer): Unit = {
     if (!WorkflowAccessResource.hasReadAccess(wid, uid))
-      throw new WebApplicationException(Response.Status.UNAUTHORIZED)
-  }
-
-  /** Determine if the user is authorized to modify the workflow, if not raise 401. */
-  private def validateUserCanWriteWorkflow(uid: Integer, wid: Integer): Unit = {
-    if (!WorkflowAccessResource.hasWriteAccess(wid, uid))
       throw new WebApplicationException(Response.Status.UNAUTHORIZED)
   }
 
