@@ -69,6 +69,11 @@ def campaign_arms():
     # ask for that line alone. The strict variant is for non-Claude models.
     arms["evidence_data1_flow0_opt"] = {**arms["evidence_data1_flow0_hygiene"], "answerOnlyReply": True}
     arms["evidence_data1_flow0_opt_strict"] = {**arms["evidence_data1_flow0_opt"], "optionalPython": False}
+    # The optimized arm with whole results by default and no statistics view (2026-10-24: Opus passed 2.6 points more
+    # KramaBench tasks seeing results whole, all on tasks it flips on). No 5-row cut: a large table shows the rows
+    # that fit, as in evidence_full_flow0.
+    arms["evidence_full_flow0_opt"] = {**arms["evidence_data1_flow0_opt"], "retrievalViews": ["full"],
+                                       "dataEvidence": False, "fullPreviewRows": 0}
     return arms
 
 

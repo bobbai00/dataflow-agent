@@ -51,6 +51,18 @@ def current_price_schedule(model):
         # The same model through OpenRouter on Vertex (gemini-3.8-flash-vertex route); OpenRouter reports each
         # response's charge, so these rates only price a response without one.
         "gemini-3.8-flash-vertex": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
+        # The same route with an explicit cache of system prompt, tools and task on short requests
+        # (gemini-3.8-flash-vertex-cached). OpenRouter's reported charge includes the writes; a write is priced here
+        # as input plus 5 minutes of storage at $0.50 per million tokens per hour, as OpenRouter billed it on 2026-10-27.
+        "gemini-3.8-flash-vertex-cached": ((.75, 3.75, .075, .75 + .5 * 5 / 60), "https://openrouter.ai/docs/features/prompt-caching", "2026-10-27"),
+        # Both models on Google AI Studio with our own key (-studio routes): the same standard rates, priced here from
+        # each response's usage (output includes thinking); implicit caching only.
+        "gemini-3.8-flash-studio": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
+        "gemini-4-argon-studio": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-24"),
+        "gemini-4-argon-medium-studio": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-24"),
+        "gemini-3.8-flash-low-studio": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
+        "gemini-3.8-flash-minimal-studio": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
+        "gemini-4-argon-low-studio": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-24"),
     }
     if model not in providers:
         return None
@@ -88,8 +100,14 @@ def normalize_usage(usage):
         return next((int(value) for value in values if value is not None), 0)
     inputs = number(usage.get("prompt_tokens"), usage.get("inputTokens"), usage.get("input_tokens"))
     outputs = number(usage.get("completion_tokens"), usage.get("outputTokens"), usage.get("output_tokens"))
-    return {"input_tokens": inputs, "output_tokens": outputs, "total_tokens": inputs + outputs,
-            **{key: number(*values) for key, values in cache_usage_values(usage).items()},
+    caches = {key: number(*values) for key, values in cache_usage_values(usage).items()}
+    # OpenRouter reports a Gemini context-cache write inside prompt_tokens and again as cached tokens (the request is
+    # then served from the entry it wrote), the entry one token longer than the prompt it covers; the extra token is
+    # not a read.
+    over = caches["cached_tokens"] + caches["cache_creation_tokens"] - inputs
+    if caches["cache_creation_tokens"] and over == 1:
+        caches["cached_tokens"] -= over
+    return {"input_tokens": inputs, "output_tokens": outputs, "total_tokens": inputs + outputs, **caches,
             "reasoning_tokens": number(completion.get("reasoning_tokens"), usage.get("reasoningTokens"))}
 
 

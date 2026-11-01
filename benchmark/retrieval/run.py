@@ -43,7 +43,11 @@ MODEL_TYPES = {"Luna": "gpt-5.6-luna", "Terra": "gpt-5.6-terra", "Sol": "gpt-5.6
                "Haiku45": "claude-haiku-4.5", "Sonnet55": "claude-sonnet-5.5", "Haiku55": "claude-haiku-5.5",
                "Opus55": "claude-opus-5.5", "Sol61": "gpt-6.1-sol",
                "Gemini4Argon": "gemini-4-argon", "Gemini4ArgonMedium": "gemini-4-argon-medium", "Gemini38Flash": "gemini-3.8-flash",
-               "Gemini38FlashVertex": "gemini-3.8-flash-vertex",
+               "Gemini38FlashVertex": "gemini-3.8-flash-vertex", "Gemini38FlashVertexCached": "gemini-3.8-flash-vertex-cached",
+               "Gemini38FlashStudio": "gemini-3.8-flash-studio",
+               "Gemini4ArgonStudio": "gemini-4-argon-studio", "Gemini4ArgonMediumStudio": "gemini-4-argon-medium-studio",
+               "Gemini38FlashLowStudio": "gemini-3.8-flash-low-studio", "Gemini38FlashMinimalStudio": "gemini-3.8-flash-minimal-studio",
+               "Gemini4ArgonLowStudio": "gemini-4-argon-low-studio",
                "Haiku55LowThink": "claude-haiku-5.5-lowthink", "Haiku55NoThink": "claude-haiku-5.5-nothink"}
 
 

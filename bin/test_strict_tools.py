@@ -147,6 +147,23 @@ class StrictToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mapped["properties"]["maxItems"], {"type": "string", "enum": ["maxItems"]})
         self.assertEqual(mapped["properties"]["number"], {"type": "integer", "const": 3})
 
+    async def test_gemini_cached_route_marks_the_task_of_short_requests_only(self):
+        task = [{"role": "system", "content": "Rules."}, {"role": "user", "content": "Task."}]
+        data = request("gemini-3.8-flash-vertex-cached") | {"messages": task}
+        before = copy.deepcopy(data)
+        mapped = await self.adapt(data)
+        self.assertEqual(data, before)
+        self.assertEqual(mapped["messages"][0], task[0])
+        self.assertEqual(mapped["messages"][1], {"role": "user", "content": [
+            {"type": "text", "text": "Task.", "cache_control": {"type": "ephemeral"}}]})
+        self.assertNotIn("maxItems", mapped["tools"][0]["function"]["parameters"]["properties"]["actions"])
+        history = task + [{"role": "assistant", "content": "x" * 40_000}]
+        self.assertEqual((await self.adapt(request("gemini-3.8-flash-vertex-cached") | {"messages": history}))["messages"],
+                         history)
+        self.assertEqual((await self.adapt(request("gemini-3.8-flash-vertex") | {"messages": task}))["messages"], task)
+        self.assertEqual((await self.adapt(request("gemini-3.8-flash-vertex-cached")))["messages"],
+                         request()["messages"])
+
     async def test_already_native_strict_tools_are_supported(self):
         data = request()
         f = data["tools"][0]["function"]

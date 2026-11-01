@@ -170,6 +170,21 @@ model_list:
         provider:
           order: ["google-vertex/global"]
           allow_fallbacks: false
+  # The same route with an explicit cache of the system prompt, tools and task on short requests, for the 2026-10-27
+  # test of whether that removes the optimized setting's cost gap on KramaBench. bin/strict_tools.py sets the
+  # breakpoint (GEMINI_TASK_CACHE says why only on short requests); OpenRouter turns it into a Gemini context cache
+  # that lives 5 minutes from its write. A breakpoint on the system prompt alone does nothing: it is under the
+  # 4,096-token minimum.
+  - model_name: gemini-3.8-flash-vertex-cached
+    litellm_params:
+      model: openrouter/google/gemini-3.8-flash
+      api_base: "os.environ/OPENROUTER_BASE_URL"
+      api_key: "os.environ/OPENROUTER_API_KEY"
+      additional_drop_params: ["temperature", "top_p"]
+      extra_body:
+        provider:
+          order: ["google-vertex/global"]
+          allow_fallbacks: false
   - model_name: gpt-5.2
     litellm_params:
       model: openai/gpt-5.2
@@ -262,6 +277,50 @@ model_list:
           allow_fallbacks: false
         reasoning:
           effort: medium
+  # Gemini 3.8 Flash and Gemini 4 Argon on Google AI Studio with our own key, for runs while OpenRouter credit is
+  # out: temperature and top_p dropped and caching implicit only, as on the OpenRouter routes. The gateway's LiteLLM
+  # treats only "gemini-3" names as Gemini 3+, so for gemini-4-argon it would turn reasoning_effort into a 2.5-style
+  # thinking budget; the -medium route sets Google's thinkingLevel itself.
+  - model_name: gemini-3.8-flash-studio
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+  - model_name: gemini-4-argon-studio
+    litellm_params:
+      model: gemini/gemini-4-argon
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+  - model_name: gemini-4-argon-medium-studio
+    litellm_params:
+      model: gemini/gemini-4-argon
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+      thinkingConfig:
+        thinkingLevel: medium
+  # Lower thinking levels, to find the one that thinks per call as the OpenRouter routes did (Google's own defaults
+  # think several times more per agent call than OpenRouter's requests of the same models).
+  - model_name: gemini-3.8-flash-low-studio
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+      thinkingConfig:
+        thinkingLevel: low
+  - model_name: gemini-3.8-flash-minimal-studio
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+      thinkingConfig:
+        thinkingLevel: minimal
+  - model_name: gemini-4-argon-low-studio
+    litellm_params:
+      model: gemini/gemini-4-argon
+      api_key: os.environ/GEMINI_API_KEY
+      additional_drop_params: ["temperature", "top_p"]
+      thinkingConfig:
+        thinkingLevel: low
   - model_name: claude-opus-5.5
     litellm_params:
       model: anthropic/claude-opus-5-5

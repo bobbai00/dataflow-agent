@@ -101,6 +101,23 @@ class MetricsTests(unittest.TestCase):
             unreported = {k: v for k, v in usage.items() if k != "cost"}
             self.assertAlmostEqual(response_cost(unreported, argon), 2049 * 2e-6 + 2810 * .1e-6 + 77 * 10e-6)
 
+    def test_openrouter_gemini_cache_write_is_counted_once(self):
+        # A Gemini context-cache write through OpenRouter (2026-10-27): the 4,124 written tokens are inside
+        # prompt_tokens and again in cached_tokens, which covers a 4,123-token prompt.
+        usage = {"prompt_tokens": 8247, "completion_tokens": 120,
+                 "prompt_tokens_details": {"cached_tokens": 4124, "cache_write_tokens": 4124}, "cost": 0.0043121}
+        normalized = normalize_usage(usage)
+        self.assertEqual((normalized["cached_tokens"], normalized["cache_creation_tokens"]), (4123, 4124))
+        price = current_price_schedule("gemini-3.8-flash-vertex-cached")
+        self.assertAlmostEqual(response_cost(usage, price), 0.0043121)
+        unreported = {k: v for k, v in usage.items() if k != "cost"}
+        self.assertAlmostEqual(response_cost(unreported, price),
+                               4123 * .075e-6 + 4124 * (.75 + .5 * 5 / 60) * 1e-6 + 120 * 3.75e-6)
+        read = {"prompt_tokens": 5184, "prompt_tokens_details": {"cached_tokens": 4124, "cache_write_tokens": 0}}
+        self.assertEqual(normalize_usage(read)["cached_tokens"], 4124)
+        anthropic = {"prompt_tokens": 1000, "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 400}}
+        self.assertEqual(normalize_usage(anthropic)["cached_tokens"], 600)
+
     def test_script_trace_is_priced_per_response(self):
         price = current_price_schedule("deepseek-v4.1-flash")
         usage = {"prompt_tokens": 1000, "completion_tokens": 200, "prompt_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 0}}

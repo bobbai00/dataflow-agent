@@ -54,7 +54,7 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertEqual(arms[f"{view}_flow{flow}_fullstats"], {
                     **expected, "nativeProfileScope": "full",
                 })
-        self.assertEqual(len(arms), 28)
+        self.assertEqual(len(arms), 29)
 
     def test_lean_arms_change_only_the_record_format_on_the_default_views(self):
         arms = campaign_arms()
@@ -68,6 +68,8 @@ class ConfigurationTests(unittest.TestCase):
                          {**arms["evidence_data1_flow0_hygiene"], "optionalPython": False})
         self.assertEqual(arms["evidence_data1_flow0_opt"], {**arms["evidence_data1_flow0_hygiene"], "answerOnlyReply": True})
         self.assertEqual(arms["evidence_data1_flow0_opt_strict"], {**arms["evidence_data1_flow0_opt"], "optionalPython": False})
+        self.assertEqual(arms["evidence_full_flow0_opt"], {**arms["evidence_data1_flow0_opt"], "retrievalViews": ["full"],
+                                                           "dataEvidence": False, "fullPreviewRows": 0})
 
     def test_full_result_cap_accepts_api_bounds_and_smaller_display_budget(self):
         for value in ["128", "5000", "100000"]:
