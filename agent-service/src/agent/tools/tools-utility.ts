@@ -22,11 +22,3 @@ export const INTERNAL_RESULT_KEYS: ReadonlySet<string> = new Set(["__row_index__
 export function getVisibleResultHeaders(row: Record<string, any>): string[] {
   return Object.keys(row).filter(k => !INTERNAL_RESULT_KEYS.has(k));
 }
-
-export function createErrorResult(error: string): string {
-  return `[ERROR] ${error}`;
-}
-
-export function formatExecuteOperatorResult(operatorId: string): string {
-  return `Executed operator ${operatorId}`;
-}

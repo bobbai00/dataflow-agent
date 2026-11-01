@@ -28,7 +28,7 @@ import { executeDataflowActionBatch } from "../tools/dataflow-action-runtime";
 import { prepareActions, renderDataflowActionsResult } from "../tools/dataflow-actions";
 import { prepareDataflowCall } from "../tools/turn-tool";
 import { TexeraAgent } from "../texera-agent";
-import { columnEntries, DEFINITION_CHARS, describeOperator, operatorBlock } from "./observation-format";
+import { columnEntries, describeOperator, operatorBlock } from "./observation-format";
 import { buildNativeFrames } from "../context/summarize/native-frames";
 import { prepareStructuredExecutionResult } from "./execution-transport";
 import { workflowExecutionPlan } from "./result-versions";
@@ -321,13 +321,10 @@ test("column runs retain type boundaries, leading zeros and physical omitted cou
   ]);
 });
 
-test("operator blocks clip long definitions and never show revisions", () => {
+test("operator blocks never show revisions", () => {
   const op = sourceOp();
-  const source = `set source: scan(files='data/${"t".repeat(DEFINITION_CHARS)}.csv')`;
-  const long = { ...op, nativeOp: { ...op.nativeOp!, source } };
-  const block = operatorBlock(describeOperator(long, info(), { definitionLimit: true }));
-  expect(block).toContain("definition clipped; show operator gives the full text");
-  expect(block).not.toContain("revision");
+  expect(op.nativeOp!.revision).toBeTruthy();
+  expect(operatorBlock(describeOperator(op, info()))).not.toContain("revision");
 });
 
 test("new receipts stay in tool results", () => {

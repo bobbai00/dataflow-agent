@@ -45,6 +45,7 @@ for (const field of ["cache_write_tokens", "cache_creation_tokens"]) {
       systemPrompt: undefined,
       tools: {},
       maxSteps: 1,
+      resultShown: () => true,
       prepareStep: async ({ messages }) => ({ messages }),
       onStepFinish: async step => {
         steps.push(step);
@@ -75,7 +76,6 @@ test("an empty reply ended by the provider's content filter is a provider refusa
       systemPrompt: undefined,
       tools: {},
       maxSteps: 1,
-      requireShownResult: true,
       resultShown: () => true,
       prepareStep: async ({ messages }) => ({ messages }),
       onStepFinish: async () => {},
@@ -106,6 +106,7 @@ test("every model request asks the provider for one tool call per turn", async (
     systemPrompt: "System",
     tools: { dataflow: tool({ description: "Actions", inputSchema: jsonSchema({ type: "object" }) }) },
     maxSteps: 1,
+    resultShown: () => true,
     prepareStep: async ({ messages }) => ({ messages }),
     onStepFinish: async () => {},
   });

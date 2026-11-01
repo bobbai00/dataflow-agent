@@ -18,34 +18,9 @@
  */
 
 import { expect, test } from "bun:test";
-import { compactNativeObservation, shareNativeObservation, type NativeColumnCount } from "./evidence-compaction";
+import { shareNativeObservation } from "./evidence-compaction";
 import type { NativeEvidenceFact, NativeObservation } from "./evidence";
 
-const metric: NativeColumnCount = {
-  column: "x",
-  resultVersion: "version-a",
-  scope: "full=3 rows",
-  rows: 3,
-  nulls: 1,
-  nonnull: 2,
-  distinct: null,
-};
-const data: NativeEvidenceFact = {
-  id: "data.column.x.counts",
-  family: "data",
-  kind: "measurement",
-  priority: 80,
-  text: 'Data measurement: "x" (full=3 rows): null=1/3, nonnull=2; distinct(nonnull)=unknown.',
-  columnCount: metric,
-};
-const flow: NativeEvidenceFact = {
-  id: "flow.filter.column.x",
-  family: "flow",
-  kind: "measurement",
-  priority: 88,
-  text: 'Flow measurement: predicate column "x": input (full=5 rows) null=1/5, distinct(nonnull)=4; output (full=3 rows) null=1/3, distinct(nonnull)=unknown.',
-  coveredCount: metric,
-};
 const upstream: NativeEvidenceFact = {
   id: "flow.upstream.source.version-a",
   family: "flow",
@@ -67,46 +42,6 @@ function frame(facts: NativeEvidenceFact[]): NativeObservation {
     text: facts.map(f => f.text).join("\n"),
   };
 }
-
-test("undisplayed or differently bound flow cannot suppress a data count", () => {
-  for (const changed of [
-    { resultVersion: "version-b" },
-    { scope: "partial prefix=3/3 rows" },
-    { rows: 4 },
-    { nulls: 0 },
-    { nonnull: 3 },
-    { distinct: 2 },
-    { column: "y" },
-  ]) {
-    const other = { ...flow, coveredCount: { ...metric, ...changed } };
-    expect(compactNativeObservation(frame([other, data]), [other, data]).selected).toContain(data.id);
-  }
-  expect(compactNativeObservation(frame([data]), [flow, data]).selected).toContain(data.id);
-});
-
-test("compaction is non-mutating, bounded and does not expand a single-column sentence", () => {
-  const original = frame([data]);
-  const saved = structuredClone(original);
-  const result = compactNativeObservation(original, [data]);
-  expect(original).toEqual(saved);
-  expect(result.text).toBe(original.text);
-  expect(result.text.length).toBeLessThanOrEqual(original.text.length);
-});
-
-test("a displayed exact comparison suppresses its duplicate count only within the same family", () => {
-  // Flow and data are orthogonal: a flow comparison leaves the data count in place.
-  const original = frame([flow, data]);
-  const result = compactNativeObservation(original, [flow, data]);
-  expect(result.text).toBe(original.text);
-  expect(result.selected).toEqual([flow.id, data.id]);
-  expect(original.selected).toEqual([flow.id, data.id]);
-  // The same comparison shown as a data fact does suppress the duplicate count.
-  const sameFamily: NativeEvidenceFact = { ...flow, id: "data.column.x.compare", family: "data" };
-  const compacted = compactNativeObservation(frame([sameFamily, data]), [sameFamily, data]);
-  expect(compacted.text).toBe(sameFamily.text);
-  expect(compacted.selected).toEqual([sameFamily.id]);
-  expect(compacted.omitted).toContainEqual({ id: data.id, reason: "redundant_displayed_fact" });
-});
 
 test("shared references require an actually displayed same-version same-text producer", () => {
   const original = frame([upstream]);

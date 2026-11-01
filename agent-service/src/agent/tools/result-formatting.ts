@@ -57,58 +57,6 @@ export interface FormatOperatorResultOptions {
  *  knows the view is truncated. Defaults chosen to keep an 8-turn run on
  *  a 300-column table well under 100k input tokens. */
 const MAX_DISPLAYED_COLUMNS = 50;
-const CELL_TRUNCATION_MARKER = "...[truncated]...";
-
-function containsCellTruncation(value: unknown): boolean {
-  if (typeof value === "string") return value.includes(CELL_TRUNCATION_MARKER);
-  if (Array.isArray(value)) return value.some(containsCellTruncation);
-  if (value !== null && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some(containsCellTruncation);
-  }
-  return false;
-}
-
-/**
- * NATIVE operators: the engine's error text points into the GENERATED Python
- * (`(line 21) \`d = _con.sql(q).df()\` - BinderException: …`), which the agent
- * never wrote. Rewrite it in the agent's own terms: the typed operator, the
- * engine message without the line pointer and exception class, and for a
- * downstream operator that never ran, the upstream operator that failed.
- *
- *   `(line N) \`…\` - BinderException: Binder Error: X`      → `Filter \`id\` failed: Binder Error: X`
- *   `execution failed — … Execution error: up: (line N) … X` → `not executed — upstream \`up\` failed: X`
- *   `execution failed — … Error: The operation timed out.`   → `not executed — the execution timed out`
- */
-/** Engine type spellings → the vocabulary every Schema line already uses, so
- *  the model reads one type system instead of three (ours, DuckDB's, pandas').
- *  Measured: SQL type words reached the prompt in 54 of 104 tasks. */
-const ENGINE_TYPE_WORDS: Array<[RegExp, string]> = [
-  [/\b(?:VARCHAR|CHAR|TEXT|STRING)\b/g, "str"],
-  [
-    /\b(?:BIGINT|HUGEINT|INTEGER|SMALLINT|TINYINT|UBIGINT|UINTEGER|DOUBLE|FLOAT|REAL|DECIMAL(?:\(\d+,\s*\d+\))?)\b/g,
-    "numeric",
-  ],
-  // DuckDB names an untyped constant `INTEGER_LITERAL` / `VARCHAR_LITERAL`
-  [/\b(?:INTEGER|DECIMAL|DOUBLE)_LITERAL\b/g, "numeric literal"],
-  [/\bVARCHAR_LITERAL\b/g, "str literal"],
-  [/\b(?:int64|float64|int32|float32)\b/g, "numeric"],
-  [/\b(?:TIMESTAMP(?:_[A-Z]+)?|DATETIME|DATE|TIME)\b/g, "datetime"],
-  [/\bdatetime64\[[^\]]*\]/g, "datetime"],
-  [/\bBOOLEAN\b/g, "bool"],
-  [/\b(?:BLOB|BYTEA)\b/g, "binary"],
-];
-
-/** Rewrite one engine message into our terms: our type names, and none of the
- *  engine's own vocabulary for where it went wrong. */
-export function normalizeEngineTypes(msg: string): string {
-  let out = msg;
-  for (const [rx, name] of ENGINE_TYPE_WORDS) out = out.replace(rx, name);
-  return out
-    .replace(/\b(?:Binder|Conversion|Parser|Catalog|Invalid Input) Error: /g, "")
-    .replace(/ in FROM clause/g, "")
-    .replace(/\bReferenced (table|column) /g, "column ")
-    .trim();
-}
 
 /** Whether `operatorId` reads, directly or through other operators, from
  * `rootId`. Walks the native inputs of the workflow as it was at the event
@@ -260,42 +208,6 @@ export function formatOperatorResult(
   }
   const dataString = jsonToTableFormat(sampleRows);
 
-  // A complete table with fewer than five rows is already its own exact
-  // summary. Repeating mean/min/max/top-k stats adds tokens without revealing
-  // anything beyond the visible rows. Keep stats whenever completeness is not
-  // provable: backend truncation, renderer row sampling or wide-column sampling
-  // all hide data the stats may still summarize.
-  const totalRows = opInfo.totalRowCount ?? opInfo.outputTuples;
-  const allRowsHeld = totalRows >= 0 && serializableArray.length === totalRows;
-  const rendererTruncatedRows = sampleRows.length < serializableArray.length;
-  const cellsTruncated = serializableArray.some(containsCellTruncation);
-  // The five structural conditions below already PROVE every value is on screen
-  // (nothing truncated at the backend, the renderer, the column axis, or the
-  // cell level, and the service holds exactly totalRows rows). Under "anomaly"
-  // density that proof is the whole test. The legacy `totalRows < 5` bound is
-  // kept for "full" so the default render stays byte-identical — it was measured
-  // to leave stats on 22.4% of blocks whose sample already showed every row
-  // (e.g. a 7-row table rendering `null=0, distinct=7` beneath all 7 values).
-  const provablyComplete =
-    opInfo.resultMode === "table" &&
-    !isViz &&
-    allRowsHeld &&
-    opInfo.truncated === false &&
-    !rendererTruncatedRows &&
-    !columnsTruncated &&
-    !cellsTruncated;
-  // Suppress the stats block whenever completeness is PROVEN, at any table size.
-  // The five conditions above establish that every cell of every row is on
-  // screen, so `null=`/`distinct=`/`min=`/`max=` are arithmetic over visible
-  // data — the block cannot carry a fact the sample does not already show. The
-  // previous `totalRows < 5` bound made this depend on size rather than proof
-  // and left the block on 22.4% of blocks whose sample was already complete
-  // (e.g. a 7-row table printing `null=0, distinct=7` beneath all seven values).
-  // This is the one lossless trim: A2 measured that trimming stats on
-  // INCOMPLETE tables costs exploration steps, but here there is nothing to
-  // explore.
-  const completeSmallTableVisible = provablyComplete;
-
   const metadataLines = [
     formatInputOutputMetadata(workflowState, operatorId, opInfo, columns, options.resolveInputColumns),
     columnsTruncated
@@ -308,39 +220,6 @@ export function formatOperatorResult(
   return [...metadataLines, dataString].filter(Boolean).join("\n");
 }
 
-/**
- * Estimated FULL serialized size of an operator's output table, in characters.
- *
- * The size-advertising fact for recall scaling: a later turn deciding how many
- * characters of an old result to pull needs to know how big that result is \u2014
- * `includeOutputTableSample: 2000` against a 4k table is the whole thing;
- * against a 400k table it is 0.5%. Only a row SAMPLE is materialized here, so
- * the estimate is mean sample-row TSV length x total row count (+ header).
- * Undefined when there are no rows to measure.
- */
-export function estimateTableChars(opInfo: OperatorInfo): number | undefined {
-  const rows = Array.isArray(opInfo.result) ? opInfo.result : undefined;
-  if (!rows || rows.length === 0) return undefined;
-  const cols = Object.keys(rows[0] ?? {}).filter(c => !c.startsWith("__"));
-  if (cols.length === 0) return undefined;
-  const line = (r: Record<string, unknown>): number =>
-    cols.reduce((n, c) => n + String(r[c] ?? "").length, 0) + cols.length; // + tabs/newline
-  const sampled = rows.slice(0, 50);
-  const mean = sampled.reduce((n, r) => n + line(r as Record<string, unknown>), 0) / sampled.length;
-  const total =
-    typeof opInfo.totalRowCount === "number" && opInfo.totalRowCount > 0 ? opInfo.totalRowCount : rows.length;
-  const header = cols.join("\t").length + 1;
-  return Math.round(header + mean * total);
-}
-
-/** `~48k chars` / `321 chars` \u2014 the human-scale rendering of estimateTableChars. */
-export function formatApproxChars(chars: number): string {
-  return chars >= 10_000
-    ? `~${Math.round(chars / 1000)}k chars`
-    : chars >= 1000
-      ? `~${(chars / 1000).toFixed(1)}k chars`
-      : `~${chars} chars`;
-}
 function formatInputOutputMetadata(
   workflowState: WorkflowState,
   operatorId: string,

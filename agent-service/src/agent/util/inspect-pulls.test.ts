@@ -83,7 +83,7 @@ function pullScenario(): Scenario {
 
 const OPTS = { maxResultRows: 3 } as const;
 
-describe("inspection pulls", () => {
+describe("inspect pulls of older traces", () => {
   test("fresh error inspections never advertise a removed result tool", () => {
     const scenario = pullScenario();
     const inspected = scenario.steps.find(step => step.id === "a2")!;

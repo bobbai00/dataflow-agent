@@ -77,9 +77,6 @@ export function observationFormatPatch(options: ObservationFormatOptions): Obser
 /** Column entries an operator block or a records header lists; a numbered run
  * (`Q6_1..Q6_12`) is one entry. */
 export const COLUMNS_SHOWN = 40;
-/** Characters of a definition in a catalog entry or a provenance block;
- * `show operator` gives it whole. */
-export const DEFINITION_CHARS = 200;
 /** Characters of a text cell in a sample before it is clipped; a full view is
  * not clipped. */
 export const CELL_CHARS = 160;
@@ -657,9 +654,6 @@ export function describeOperator(
     scope?: readonly string[];
     issues?: string[];
     stale?: boolean;
-    definitionLimit?: boolean;
-    /** The result is the one an earlier task saved for this copy's original. */
-    savedBy?: number;
     namespace?: import("./registered").RegisteredNamespace;
   } = {}
 ): OperatorBlock {
@@ -673,11 +667,9 @@ export function describeOperator(
         ? "failed"
         : "not run"
       : ready
-        ? options.savedBy !== undefined
-          ? "saved"
-          : info!.state === "CompletedFromCache" || info!.materialization?.cached
-            ? "cached"
-            : "executed"
+        ? info!.state === "CompletedFromCache" || info!.materialization?.cached
+          ? "cached"
+          : "executed"
         : options.stale
           ? "stale"
           : "not run");
@@ -691,9 +683,7 @@ export function describeOperator(
     id: id || "unconnected",
     ...(names.length > 1 || !id ? { port: names[i] } : {}),
   }));
-  let definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
-  if (definition && options.definitionLimit && definition.length > DEFINITION_CHARS)
-    definition = definition.slice(0, DEFINITION_CHARS) + "… (definition clipped; show operator gives the full text)";
+  const definition = view ? nativeAssignmentText(op.operatorID, view) : undefined;
   const predicate =
     view?.type === "Filter" ? (view.properties.registered as { entry?: unknown } | undefined)?.entry : undefined;
   const registeredName = view?.registeredName ?? (typeof predicate === "string" ? predicate : undefined);
@@ -725,8 +715,7 @@ export function describeOperator(
     inputs,
     ...(options.origin ? { origin: options.origin } : {}),
     result: ready
-      ? shapeText(info!.totalRowCount, Math.max(schema.length, info!.tableProfile?.columnCount ?? 0)) +
-        (options.savedBy !== undefined ? ` (saved by task ${options.savedBy})` : "")
+      ? shapeText(info!.totalRowCount, Math.max(schema.length, info!.tableProfile?.columnCount ?? 0))
       : state === "stale" || (options.stale && state !== "failed")
         ? "stale (execute to recompute)"
         : state === "failed"

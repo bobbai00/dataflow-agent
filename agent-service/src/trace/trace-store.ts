@@ -34,8 +34,9 @@
  * Model inputs are recorded by size and token count only, never by content.
  * Operator results keep a bounded sample; the tables themselves stay in the
  * engine, referenced by execution id. A snapshot stores each operator once, by
- * content hash (a native operator carries its runtime, about 190 KB), so a
- * dataflow of many versions costs little more than one.
+ * content hash (a native operator's code names the shared runtime by
+ * NATIVE_RUNTIME_TOKEN instead of holding it), so a dataflow of many versions
+ * costs little more than one.
  *
  * `stepsOf`, `snapshotsOf`, `snapshotResultsOf` and `lastCheckout` give an
  * agent back after a restart, its version tree as it was, in the shape
@@ -48,7 +49,7 @@ import { dirname, resolve } from "node:path";
 import { createLogger } from "../logger";
 import type { ReActStep, TokenUsage } from "../types/agent";
 import type { ExecutionRunMetrics, OperatorInfo } from "../types/execution";
-import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
+import type { OperatorPredicate } from "../types/workflow";
 import type { RestoredResult, RestoredSnapshot, SnapshotData } from "../agent/workflow-snapshot-storage";
 
 const log = createLogger("TraceStore");

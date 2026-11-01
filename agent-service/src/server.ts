@@ -49,8 +49,6 @@ import {
 } from "./study/seed";
 import type { UserInfo } from "./types/agent";
 import type { WorkflowContent } from "./types/workflow";
-import { authorizeDiagnosticRead } from "./api/diagnostic-auth";
-import { inspectErrorSchema } from "./agent/native/inspect-error-query";
 import { WorkflowSystemMetadata } from "./agent/util/workflow-system-metadata";
 import { env } from "./config/env";
 import { createLogger } from "./logger";
@@ -211,9 +209,7 @@ async function createAgentInstance(
   return { agentId, agent };
 }
 
-/** Render the agent's live settings in the wire shape shared by
- *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
- *  a knob the frontend can set is always a knob it can read back. */
+/** The observation-format settings (see ObservationFormatSettings). */
 const OBSERVATION_SETTINGS_SCHEMA = {
   tableFormat: t.Optional(t.Union([t.Literal("markdown"), t.Literal("tsv")])),
   ...Object.fromEntries(
@@ -251,6 +247,9 @@ const AGENT_SETTINGS_SCHEMA = t.Object({
 });
 const SETTING_KEYS: ReadonlySet<string> = new Set(Object.keys(AGENT_SETTINGS_SCHEMA.properties));
 
+/** Render the agent's live settings in the wire shape shared by
+ *  `GET /:id`, `GET /:id/settings` and `PATCH /:id/settings` — one source so
+ *  a knob the frontend can set is always a knob it can read back. */
 function settingsToApi(agent: TexeraAgent): AgentSettingsApi {
   const agentSettings = agent.getSettings();
   return {
@@ -677,22 +676,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
     };
   })
 
-  .post("/:id/inspect-error", async ({ params: { id }, headers, body, set }) => {
-    const agent = getAgent(id);
-    const authorization = await authorizeDiagnosticRead(headers.authorization, agent.getDelegateConfig());
-    if (!authorization.ok) {
-      set.status = authorization.status;
-      return { error: authorization.error };
-    }
-    const query = inspectErrorSchema.safeParse(body);
-    if (!query.success) {
-      set.status = 400;
-      return { error: "Expected operatorId and optional revision/diagnosticId; no other fields are accepted." };
-    }
-    const inspection = agent.getSnapshotStorage().inspectNativeError(agent.getHead(), query.data);
-    if (!inspection.found) set.status = 404;
-    return inspection;
-  })
   .get("/:id/operator-results", ({ params: { id } }) => {
     const agent = getAgent(id);
     return { results: getOperatorResultSummaries(agent) };
@@ -1036,13 +1019,6 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
       headId: stepId,
       timing: checkoutTiming(started, restored, sent),
     };
-  })
-
-  .get("/:id/operator-types", ({ params: { id } }) => {
-    const agent = getAgent(id);
-    const metadataStore = agent.getMetadataStore();
-    const allTypes = metadataStore.getAllOperatorTypes();
-    return Object.entries(allTypes).map(([type, description]) => ({ type, description }));
   })
 
   .get("/:id/settings", ({ params: { id } }) => settingsToApi(getAgent(id)))

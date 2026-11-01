@@ -20,10 +20,6 @@
 import type { OperatorPredicate } from "../../types/workflow";
 import { inlineCode } from "./observation-format";
 
-/** Successful table budgets never consume the diagnostic detail allowance. */
-export const NATIVE_DIAGNOSTIC_CHARS = 1200;
-export const NATIVE_ERROR_INSPECTION_CHARS = 4000;
-
 export interface NativeDiagnostic {
   version: 1;
   operatorId: string;
@@ -45,12 +41,6 @@ export interface NativeErrorSummary {
   executionId: string | null;
   phase: "attempt" | "execution";
   diagnostic: NativeDiagnostic;
-}
-
-export interface NativeErrorQuery {
-  operatorId: string;
-  revision?: string;
-  diagnosticId?: string;
 }
 
 /** Defense in depth for diagnostic text only; never dump environments/logging
@@ -350,27 +340,6 @@ export function parseNativeDiagnostic(error: string): NativeDiagnostic | undefin
       }
     }
   }
-}
-
-export function formatNativeDiagnostic(diagnostic: NativeDiagnostic): string {
-  // Mandatory identities are never shortened. The bounded detail allowance is
-  // separate from that structural envelope, as with operator/receipt headers.
-  const header = `[${diagnostic.code}; ${diagnostic.stage}; revision ${diagnostic.operatorRevision}]`;
-  const hint = diagnostic.hint ?? REPAIR_HINTS[diagnostic.code];
-  const details = [clipped(sanitizeDiagnosticText(diagnostic.message), 400)];
-  if (hint) details.push(`Hint: ${clipped(sanitizeDiagnosticText(hint), 220)}`);
-  if (diagnostic.field) details.push(`Field: ${clipped(sanitizeDiagnosticText(diagnostic.field), 100)}`);
-  if (diagnostic.source) {
-    const source = diagnostic.source;
-    details.push(
-      `${clipped(sanitizeDiagnosticText(source.entry), 50)} line ${source.line}${source.column === undefined ? "" : ` column ${source.column}`}: ${clipped(sanitizeDiagnosticText(source.excerpt.trim()), 180)}`
-    );
-  }
-  if (diagnostic.retryable !== undefined)
-    details.push(
-      `${diagnostic.stage === "infrastructure" ? "Infrastructure retryable" : "Retryable unchanged"}: ${diagnostic.retryable}`
-    );
-  return `${header} ${clipped(details.join("\n"), NATIVE_DIAGNOSTIC_CHARS)}`;
 }
 
 /** Model-facing issue; identities and the complete diagnostic stay in the trace. */

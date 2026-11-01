@@ -30,8 +30,9 @@
  * model read that as "my code produced nothing" and rewrote it under new
  * names until the step budget died — 5 such turns at ~$0.90 each.
  *
- * These are mode-independent: legacy arms could always self-link via
- * `def process(X)` while editing `X`.
+ * A registered edit refuses a cycle through any chain (registered.ts and
+ * graph-edits.ts reject the final graph); these tests cover the self-link guard
+ * in WorkflowState.addLink itself.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -80,47 +81,5 @@ describe("addLink refuses self-links", () => {
     const ws = stateWith(["src", "a"]);
     expect(ws.addLink(link("src", "a"))).toBe(true);
     expect(ws.getAllLinks().length).toBe(1);
-  });
-});
-
-describe("wouldCreateCycle", () => {
-  test("an operator is trivially its own cycle", () => {
-    expect(stateWith(["src", "a"]).wouldCreateCycle("a", "a")).toBe(true);
-  });
-
-  test("a fresh edge between unrelated operators is fine", () => {
-    const ws = stateWith(["src", "a", "b"], [link("src", "a")]);
-    expect(ws.wouldCreateCycle("a", "b")).toBe(false);
-  });
-
-  test("wiring a DOWNSTREAM operator back as an input closes a cycle", () => {
-    // src -> a -> b ; feeding b into a would close a -> b -> a
-    const ws = stateWith(["src", "a", "b"], [link("src", "a"), link("a", "b")]);
-    expect(ws.wouldCreateCycle("b", "a")).toBe(true);
-  });
-
-  test("detects a cycle several hops out, not just the adjacent one", () => {
-    const ws = stateWith(["src", "a", "b", "c", "d"], [link("src", "a"), link("a", "b"), link("b", "c"), link("c", "d")]);
-    expect(ws.wouldCreateCycle("d", "a")).toBe(true);
-    // and the safe direction stays allowed
-    expect(ws.wouldCreateCycle("a", "d")).toBe(false);
-  });
-
-  test("a diamond does not read as a cycle", () => {
-    // src -> a -> (b, c) -> d : no cycle anywhere
-    const ws = stateWith(
-      ["src", "a", "b", "c", "d"],
-      [link("src", "a"), link("a", "b"), link("a", "c"), link("b", "d"), link("c", "d", "input-1")]
-    );
-    expect(ws.wouldCreateCycle("d", "a")).toBe(true); // d IS downstream of a
-    expect(ws.wouldCreateCycle("b", "c")).toBe(false); // siblings are independent
-  });
-
-  test("terminates on an already-cyclic graph instead of looping forever", () => {
-    // Defensive: a graph that somehow already contains a cycle must not hang
-    // the traversal (the guard runs on every write).
-    const ws = stateWith(["src", "a", "b"], [link("a", "b"), link("b", "a")]);
-    expect(ws.wouldCreateCycle("b", "a")).toBe(true);
-    expect(ws.wouldCreateCycle("src", "a")).toBe(false);
   });
 });

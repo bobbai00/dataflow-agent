@@ -25,15 +25,7 @@ import type {
   Point,
   CommentBox,
   WorkflowSettings,
-  ValidationError,
 } from "../types/workflow";
-
-export type { ValidationError, Validation } from "../types/workflow";
-
-interface ValidationOutput {
-  errors: Record<string, ValidationError>;
-  workflowEmpty: boolean;
-}
 
 const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
   dataTransferBatchSize: 400,
@@ -56,28 +48,13 @@ export class WorkflowState {
   private nativeNamespace: WorkflowContent["nativeNamespace"];
 
   private operatorIdCounter: number = 0;
-  private linkIdCounter: number = 0;
 
   /** The whole content was replaced (a dataflow edit, a checkout, an import): one change, like the others. */
   private readonly contentReplacedSubject = new Subject<void>();
   private readonly operatorAddSubject = new Subject<OperatorPredicate>();
   private readonly operatorDeleteSubject = new Subject<{ deletedOperatorID: string }>();
-  private readonly operatorPropertyChangeSubject = new Subject<{ operator: OperatorPredicate }>();
   private readonly linkAddSubject = new Subject<OperatorLink>();
   private readonly linkDeleteSubject = new Subject<{ deletedLink: OperatorLink }>();
-  private readonly disabledOperatorChangedSubject = new Subject<{
-    newDisabled: string[];
-    newEnabled: string[];
-  }>();
-  private readonly viewResultOperatorChangedSubject = new Subject<{
-    newViewResultOps: string[];
-    newUnviewResultOps: string[];
-  }>();
-
-  private validationErrors: Record<string, ValidationError> = Object.create(null);
-  private workflowEmpty: boolean = true;
-
-  private readonly validationChangedSubject = new Subject<ValidationOutput>();
 
   private subscriptions: Subscription[] = [];
 
@@ -85,20 +62,14 @@ export class WorkflowState {
     return merge(
       this.operatorAddSubject,
       this.operatorDeleteSubject,
-      this.operatorPropertyChangeSubject,
       this.linkAddSubject,
       this.linkDeleteSubject,
-      this.disabledOperatorChangedSubject,
       this.contentReplacedSubject
     );
   }
 
   generateOperatorId(operatorType: string): string {
     return `${operatorType}-operator-${++this.operatorIdCounter}`;
-  }
-
-  generateLinkId(): string {
-    return `link-${++this.linkIdCounter}`;
   }
 
   addOperator(operator: OperatorPredicate, position?: Point): void {
@@ -143,55 +114,6 @@ export class WorkflowState {
     return deleted;
   }
 
-  updateOperatorProperties(operatorId: string, properties: Record<string, any>): boolean {
-    const operator = this.operators.get(operatorId);
-    if (!operator) return false;
-
-    const updatedOperator: OperatorPredicate = {
-      ...operator,
-      operatorProperties: { ...operator.operatorProperties, ...properties },
-    };
-    this.operators.set(operatorId, updatedOperator);
-    this.operatorPropertyChangeSubject.next({ operator: updatedOperator });
-    return true;
-  }
-
-  updateOperatorDisplayName(operatorId: string, displayName: string): boolean {
-    const operator = this.operators.get(operatorId);
-    if (!operator) return false;
-
-    const updatedOperator: OperatorPredicate = {
-      ...operator,
-      customDisplayName: displayName,
-    };
-    this.operators.set(operatorId, updatedOperator);
-    this.operatorPropertyChangeSubject.next({ operator: updatedOperator });
-    return true;
-  }
-
-  updateOperatorInputPorts(operatorId: string, numInputPorts: number): boolean {
-    const operator = this.operators.get(operatorId);
-    if (!operator) return false;
-
-    const newInputPorts: import("../types/workflow").PortDescription[] = [];
-    for (let i = 0; i < numInputPorts; i++) {
-      newInputPorts.push({
-        portID: `input-${i}`,
-        displayName: `Input ${i}`,
-        disallowMultiInputs: true,
-        isDynamicPort: i > 0,
-      });
-    }
-
-    const updatedOperator: OperatorPredicate = {
-      ...operator,
-      inputPorts: newInputPorts,
-    };
-    this.operators.set(operatorId, updatedOperator);
-    this.operatorPropertyChangeSubject.next({ operator: updatedOperator });
-    return true;
-  }
-
   updateOperatorPosition(operatorId: string, position: Point): boolean {
     if (!this.operators.has(operatorId)) {
       return false;
@@ -222,34 +144,6 @@ export class WorkflowState {
     this.links.set(link.linkID, link);
     this.linkAddSubject.next(link);
     return true;
-  }
-
-  /**
-   * Would adding `source -> target` close a cycle? True when `source` is
-   * already reachable FROM `target` (or they are the same operator).
-   *
-   * Cheap DFS over current links; used by the write path to reject a cyclic
-   * wiring with a teaching error instead of shipping a plan the engine will
-   * refuse wholesale.
-   */
-  wouldCreateCycle(sourceOperatorId: string, targetOperatorId: string): boolean {
-    if (sourceOperatorId === targetOperatorId) return true;
-    const downstream = new Map<string, string[]>();
-    for (const l of this.links.values()) {
-      const arr = downstream.get(l.source.operatorID);
-      if (arr) arr.push(l.target.operatorID);
-      else downstream.set(l.source.operatorID, [l.target.operatorID]);
-    }
-    const seen = new Set<string>();
-    const stack = [targetOperatorId];
-    while (stack.length > 0) {
-      const cur = stack.pop()!;
-      if (cur === sourceOperatorId) return true;
-      if (seen.has(cur)) continue;
-      seen.add(cur);
-      for (const next of downstream.get(cur) ?? []) stack.push(next);
-    }
-    return false;
   }
 
   getLink(linkId: string): OperatorLink | undefined {
@@ -349,116 +243,6 @@ export class WorkflowState {
     return { operators: subDagOperators, links: subDagLinks };
   }
 
-  getFrontierOperators(depth: number): string[] {
-    const allOperators = this.getAllOperators();
-    if (allOperators.length === 0) return [];
-
-    const sourceOperatorIds = new Set<string>();
-    for (const link of this.getAllLinks()) {
-      sourceOperatorIds.add(link.source.operatorID);
-    }
-
-    const leaves = allOperators.filter(op => !sourceOperatorIds.has(op.operatorID)).map(op => op.operatorID);
-
-    if (leaves.length === 0) {
-      return allOperators.map(op => op.operatorID);
-    }
-
-    const frontier = new Set<string>(leaves);
-    let currentLevel = new Set<string>(leaves);
-
-    for (let d = 1; d < depth; d++) {
-      const nextLevel = new Set<string>();
-      for (const opId of currentLevel) {
-        for (const link of this.getAllLinks()) {
-          if (link.target.operatorID === opId && !frontier.has(link.source.operatorID)) {
-            nextLevel.add(link.source.operatorID);
-            frontier.add(link.source.operatorID);
-          }
-        }
-      }
-      if (nextLevel.size === 0) break;
-      currentLevel = nextLevel;
-    }
-
-    const frontierArray = Array.from(frontier);
-    const inDegree = new Map<string, number>();
-    const children = new Map<string, string[]>();
-    for (const opId of frontierArray) {
-      inDegree.set(opId, 0);
-      children.set(opId, []);
-    }
-    for (const link of this.getAllLinks()) {
-      if (frontier.has(link.source.operatorID) && frontier.has(link.target.operatorID)) {
-        children.get(link.source.operatorID)!.push(link.target.operatorID);
-        inDegree.set(link.target.operatorID, (inDegree.get(link.target.operatorID) ?? 0) + 1);
-      }
-    }
-
-    const queue: string[] = frontierArray.filter(opId => (inDegree.get(opId) ?? 0) === 0);
-    const sorted: string[] = [];
-    while (queue.length > 0) {
-      const node = queue.shift()!;
-      sorted.push(node);
-      for (const child of children.get(node) ?? []) {
-        const newDeg = (inDegree.get(child) ?? 1) - 1;
-        inDegree.set(child, newDeg);
-        if (newDeg === 0) queue.push(child);
-      }
-    }
-
-    if (sorted.length < frontierArray.length) {
-      for (const opId of frontierArray) {
-        if (!sorted.includes(opId)) sorted.push(opId);
-      }
-    }
-
-    return sorted;
-  }
-
-  getValidationChangedStream(): Observable<ValidationOutput> {
-    return this.validationChangedSubject.asObservable();
-  }
-
-  getValidationOutput(): ValidationOutput {
-    return {
-      errors: { ...this.validationErrors },
-      workflowEmpty: this.workflowEmpty,
-    };
-  }
-
-  setValidationError(operatorId: string, error: ValidationError): void {
-    this.validationErrors[operatorId] = error;
-    this.emitValidationChanged();
-  }
-
-  clearValidationError(operatorId: string): void {
-    delete this.validationErrors[operatorId];
-    this.emitValidationChanged();
-  }
-
-  setAllValidationErrors(errors: Record<string, ValidationError>): void {
-    this.validationErrors = Object.assign(Object.create(null), errors);
-    this.updateWorkflowEmptyState();
-    this.emitValidationChanged();
-  }
-
-  private updateWorkflowEmptyState(): void {
-    const operators = this.getAllOperators();
-    this.workflowEmpty = operators.length === 0;
-
-    if (!this.workflowEmpty) {
-      this.workflowEmpty = operators.every(op => op.isDisabled);
-    }
-  }
-
-  private emitValidationChanged(): void {
-    this.validationChangedSubject.next({
-      errors: { ...this.validationErrors },
-      workflowEmpty: this.workflowEmpty,
-    });
-  }
-
   getWorkflowContent(): WorkflowContent {
     const positionsObj: { [key: string]: Point } = Object.fromEntries(this.operatorPositions);
 
@@ -508,8 +292,6 @@ export class WorkflowState {
     this.commentBoxes = [];
     this.settings = { ...DEFAULT_WORKFLOW_SETTINGS };
     this.nativeNamespace = undefined;
-    this.validationErrors = Object.create(null);
-    this.workflowEmpty = true;
   }
 
   destroy(): void {
@@ -520,12 +302,8 @@ export class WorkflowState {
 
     this.operatorAddSubject.complete();
     this.operatorDeleteSubject.complete();
-    this.operatorPropertyChangeSubject.complete();
     this.linkAddSubject.complete();
     this.linkDeleteSubject.complete();
-    this.disabledOperatorChangedSubject.complete();
-    this.viewResultOperatorChangedSubject.complete();
-    this.validationChangedSubject.complete();
 
     this.reset();
   }

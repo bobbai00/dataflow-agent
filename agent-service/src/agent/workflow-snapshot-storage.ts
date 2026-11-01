@@ -22,13 +22,8 @@ import type { OperatorInfo } from "../types/execution";
 import type { OperatorPredicate, WorkflowContent } from "../types/workflow";
 import { bindResultVersion, freezeSnapshotValue, isSnapshotValue, producingExecution } from "./native/result-versions";
 import { selectNativeObservation, type NativeObservation, type NativeObservationOptions } from "./native/evidence";
-import {
-  captureNativeDiagnostic,
-  diagnosticSummary,
-  renderNativeErrorInspection,
-  type NativeDiagnosticRecord,
-} from "./native/diagnostic-record";
-import type { NativeErrorQuery, NativeErrorSummary } from "./native/diagnostics";
+import { captureNativeDiagnostic, diagnosticSummary, type NativeDiagnosticRecord } from "./native/diagnostic-record";
+import type { NativeErrorSummary } from "./native/diagnostics";
 import { resolveNativeDiagnostic } from "./native/diagnostics";
 import { ResultSpill, type SpillRange } from "./result-spill";
 
@@ -52,9 +47,9 @@ export interface SnapshotListener {
 /**
  * One per-operator result inside a snapshot. `sourceStepId` is the ReAct
  * step whose action originally produced this value — preserved as the
- * entry is copied forward through descendant snapshots, so
- * `getResolvedOperatorResult` reports provenance regardless of how many
- * inherit hops the entry has travelled. Only `setOperatorResult` writes
+ * entry is copied forward through descendant snapshots, so provenance
+ * holds regardless of how many inherit hops the entry has travelled.
+ * Only `setOperatorResult` writes
  * entries, and only on snapshots owned by a real ReAct step, so the field
  * is always a real id (the root snapshot's results map is empty).
  *
@@ -168,7 +163,7 @@ export interface SnapshotData {
    * Undefined marks pre-feature/imported snapshots without an exposure record. */
   nativeObservations?: Readonly<Record<string, NativeObservation>>;
   /** Private event-owned diagnostics. Never inherited or added to the ordinary
-   * unauthenticated snapshot response; expanded reads use inspectError. */
+   * unauthenticated snapshot response. */
   nativeDiagnostics?: Readonly<Record<string, NativeDiagnosticRecord>>;
   /** When the snapshot was made (epoch ms): for a version, when its action happened. */
   createdAt: number;
@@ -226,9 +221,9 @@ function createEmptyWorkflow(): WorkflowContent {
  * ReAct tree (found via `getAncestorPath`), falling back to the empty
  * root.
  *
-
- * Snapshots are full states (workflow + results), not deltas: on
- * `createSnapshot` the new node inherits the parent's results, then
+ * Each snapshot reads as a full state (workflow + results), not a delta:
+ * on `createSnapshot` the new node inherits the parent's results (sharing
+ * every unchanged part with the parent rather than copying it), then
  * writes during the owning step override entries on top.
  *
  * **Tight-accuracy invariant.** Inheritance is *selective*: a parent
@@ -458,24 +453,6 @@ export class WorkflowSnapshotStorage {
     return recorded;
   }
 
-  /** Advance the owning snapshot while an ordered action batch is running.
-   * Only the unfinished leaf may change. Previously returned action outputs
-   * are separate frozen values; ancestors are never rewritten. */
-  updatePendingWorkflow(reactStepId: string, workflow: WorkflowContent): void {
-    const id = this.snapshotByReactStepId.get(reactStepId);
-    if (!id) throw new Error(`No snapshot owned by ReAct step ${reactStepId}`);
-    const snapshot = this.snapshots.get(id)!;
-    if (snapshot.nativeObservations !== undefined || this.parents.has(id))
-      throw new Error("Cannot change a completed snapshot");
-    const stale = computeStaleResultOps(snapshot.workflow, workflow);
-    const present = new Set(workflow.operators.map(op => op.operatorID));
-    for (const operatorId of snapshot.results.keys())
-      if (stale.has(operatorId) || !present.has(operatorId)) snapshot.results.delete(operatorId);
-    const owned = copyWorkflow(workflow, snapshot.workflow);
-    snapshot.workflow = freezeSnapshotValue(owned);
-    this.listener?.onSnapshot(snapshot);
-  }
-
   /**
    * Record one operator's result earned by the action at `reactStepId`.
    * The write lands on the snapshot owned by `reactStepId`; descendant
@@ -588,52 +565,6 @@ export class WorkflowSnapshotStorage {
     return freezeSnapshotValue(diagnosticSummary(record));
   }
 
-  inspectNativeError(
-    reactStepId: string | undefined,
-    query: NativeErrorQuery
-  ): {
-    found: boolean;
-    text: string;
-    summary?: NativeErrorSummary;
-  } {
-    const current = this.getOperatorResult(reactStepId, query.operatorId)?.nativeError;
-    let selected: NativeDiagnosticRecord | undefined;
-    const matches = (record: NativeDiagnosticRecord) =>
-      record.operatorId === query.operatorId &&
-      (query.revision === undefined || record.operatorRevision === query.revision);
-    if (query.diagnosticId || (!query.revision && current)) {
-      const id = query.diagnosticId ?? current!.diagnosticId;
-      for (const snapshot of this.snapshots.values()) {
-        const record = snapshot.nativeDiagnostics?.[id];
-        if (record && matches(record)) {
-          selected = record;
-          break;
-        }
-      }
-    } else if (query.revision && reactStepId) {
-      // Revision-only lookup follows the active branch. An explicit diagnostic
-      // ID can identify another retained branch without ambiguous rerun lookup.
-      for (const stepId of [...this.getAncestorPath(reactStepId)].reverse()) {
-        const owned = this.snapshotByReactStepId.get(stepId);
-        if (!owned) continue;
-        selected = Object.values(this.snapshots.get(owned)!.nativeDiagnostics ?? {})
-          .reverse()
-          .find(matches);
-        if (selected) break;
-      }
-    }
-    if (!selected)
-      return {
-        found: false,
-        text: "[ERROR] No matching retained diagnostic. Without revision/diagnosticId, only the current error is inspected; repaired results do not imply a current failure.",
-      };
-    return {
-      found: true,
-      text: renderNativeErrorInspection(selected, selected.diagnosticId !== current?.diagnosticId),
-      summary: diagnosticSummary(selected),
-    };
-  }
-
   // ── readers ──────────────────────────────────────────────────────────
 
   /** Does `reactStepId` own its own snapshot? (i.e. is it action-bearing.)
@@ -677,19 +608,6 @@ export class WorkflowSnapshotStorage {
   /** Operator result visible at `reactStepId` for `operatorId`. */
   getOperatorResult(reactStepId: string | undefined, operatorId: string): OperatorInfo | undefined {
     return this.getAssociatedSnapshot(reactStepId).results.get(operatorId)?.info;
-  }
-
-  /** Operator result + the step that originally earned it. Provenance is
-   *  preserved through inheritance — an inherited entry reports the
-   *  ancestor that first wrote it, not the snapshot inheriting it.
-   *  Returns `undefined` if no such result exists on the active branch. */
-  getResolvedOperatorResult(
-    reactStepId: string | undefined,
-    operatorId: string
-  ): ResolvedSnapshotEntry<OperatorInfo> | undefined {
-    const entry = this.getAssociatedSnapshot(reactStepId).results.get(operatorId);
-    if (!entry) return undefined;
-    return { value: entry.info, sourceStepId: entry.sourceStepId };
   }
 
   /** Map of every operator's most-recent result visible at `reactStepId`.
@@ -885,18 +803,6 @@ export class WorkflowSnapshotStorage {
     this.versionCounter = 0;
     this.versionsInUse.clear();
     this.rootSnapshotId = this.allocateRoot();
-  }
-
-  /** Drop snapshots whose owning step is not in `liveStepIds`. The empty
-   *  root is always preserved. */
-  pruneOrphans(liveStepIds: Set<string>): void {
-    for (const [reactStepId] of [...this.snapshotByReactStepId])
-      if (!liveStepIds.has(reactStepId)) this.snapshotByReactStepId.delete(reactStepId);
-    // A step's earlier versions go with it.
-    for (const [snapshotId, snapshot] of [...this.snapshots])
-      if (snapshot.reactStepId !== undefined && !liveStepIds.has(snapshot.reactStepId))
-        this.snapshots.delete(snapshotId);
-    this.recountParents();
   }
 
   private recountParents(): void {
@@ -1225,7 +1131,9 @@ export function describeChange(
  * tests and the empty-root → first-snapshot transition.
  *
  * Exported so unit tests can exercise the predicate / link / transitivity
- * branches in isolation; `createSnapshot` is the sole production caller.
+ * branches in isolation. Production callers: the storage's own result
+ * inheritance (new snapshots, versions and imports) and the edit receipt's
+ * `invalidated_results` (`planRegisteredGraphEdit`).
  */
 export function computeStaleResultOps(prev: WorkflowContent, curr: WorkflowContent): Set<string> {
   const stale = new Set<string>();
