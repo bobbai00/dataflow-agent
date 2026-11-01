@@ -11,8 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # The benchmark stack: Texera's services, the agent and the model gateways of this checkout, with their own ports,
-# containers, volumes and state under $STACK_DIR (default /var/tmp/bobflow-bench). It runs beside `bin/local-dev.sh up`
-# without touching it. Provider keys come from the checkout's .env.
+# containers, volumes and state under $STACK_DIR (default /var/tmp/bobflow-bench). Provider keys come from the
+# checkout's .env. Only one stack per checkout can run at a time: they would share its build and its results folder
+# ($TEXERA_HOME/amber/user-resources/workflow-results), so `up` refuses while another stack runs from this checkout.
 #
 # Usage: [STACK_DIR=<dir>] bench stack up       write the stack on first use, build, start everything (safe to repeat)
 #        [STACK_DIR=<dir>] bench stack status   what is running
@@ -36,9 +37,25 @@ stop_port() {
 
 profile() { set -a; . "$S/profile.sh"; set +a; }
 
+# JVMs that run from this checkout's build but belong to another stack (bin/local-dev.sh up, or another STACK_DIR).
+other_stacks() {
+  local pid
+  for pid in $(pgrep -u "$(id -u)" java || true); do
+    tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -qF -e "$REPO/target/" -e "$REPO/amber/target/" || continue
+    tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -qx "TEXERA_LOCAL_DEV_DIR=$S" && continue
+    echo "$pid"
+  done
+}
+
 up() {
   [ -f "$REPO/.env" ] || { echo "no $REPO/.env: cp .env.example .env, then add the provider keys" >&2; exit 2; }
   [ -x "$REPO/.venv/bin/python" ] || { echo "no $REPO/.venv: run benchmark/bench setup first" >&2; exit 2; }
+  if [ -n "$(other_stacks)" ]; then
+    echo "another stack's services run from this checkout (JVM pids: $(other_stacks | tr '\n' ' '))." >&2
+    echo "Two stacks on one checkout share its build and its results folder. Stop the other one first," >&2
+    echo "for the default stack: bin/local-dev.sh down" >&2
+    exit 2
+  fi
   python3 -I "$HERE/stack/render.py" --stack-dir "$S"
   [ -d "$REPO/agent-service/node_modules" ] || (cd "$REPO/agent-service" && bun install --frozen-lockfile)
   local_dev up --build --skip=frontend,agent-service
