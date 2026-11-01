@@ -720,7 +720,6 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-texera-internal-do-not-share
 # The LLM proxy (POST /api/chat/<route>, GET /api/models) is served by the
 # access-control-service (:9096), matching agent-service/.env.example.
 export LLM_ENDPOINT="${LLM_ENDPOINT:-http://localhost:9096}"
-export LLM_API_KEY="${LLM_API_KEY:-dummy}"
 
 # --------- texera version (dynamic) ---------
 # The sbt-native-packager dist directory and jar names embed the project
@@ -2311,8 +2310,11 @@ svc_source_hash() {
 # there for why the second of slack is needed. A missing path is a quiet no-op.
 _stamp_backdate() {
     [[ -f "${1:-}" ]] || return 0
-    # GNU coreutils, then BSD/macOS `-A` (adjust the timestamps by -1 second).
-    touch -d '1 second ago' "$1" 2>/dev/null \
+    # GNU coreutils: with -r, a relative -d shifts the file's own mtime (a bare
+    # `-d '1 second ago'` is relative to now, which made a marker copied from
+    # an older stamp hide every edit). Then BSD/macOS `-A` (adjust the
+    # timestamps by -1 second).
+    touch -r "$1" -d '-1 second' "$1" 2>/dev/null \
         || touch -A -01 "$1" 2>/dev/null \
         || true
 }

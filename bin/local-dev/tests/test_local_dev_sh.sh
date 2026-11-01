@@ -862,6 +862,9 @@ else
     : > "$_sd/stamp"
     : > "$_sd/src/Same.scala"
     touch -r "$_sd/stamp" "$_sd/src/Same.scala"   # exactly the stamp's mtime
+    # The stamp is older than the check that reads it: a marker backdated
+    # relative to now instead of to the stamp would hide Same.scala.
+    sleep 2
 
     # The bug itself, characterised: comparing against the stamp misses it.
     naive=$(find "$_sd/src" -name '*.scala' -newer "$_sd/stamp" -print 2>/dev/null)

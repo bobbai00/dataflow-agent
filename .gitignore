@@ -151,10 +151,6 @@ agent-service/CLAUDE.md
 /data/
 /log/
 /de421.bsp
-/fetaqa
-/fetaqa/
-/kramabench/
-/llm-training-set-v1-kramabench/
 /texera.egg-info/
 /amber/uv.lock
 
