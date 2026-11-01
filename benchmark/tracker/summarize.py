@@ -51,6 +51,7 @@ def rests(run: Path):
 
 
 def write(path: Path, header, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as sink:
         writer = csv.writer(sink)
         writer.writerow(header)

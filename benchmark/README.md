@@ -55,10 +55,10 @@ benchmark/bench setup all --dry-run    # what is there, what would be fetched
 benchmark/bench setup all              # or kramabench, prepbench, longds; safe to run again
 ```
 
-Every target first makes what all benchmarks need: the submodule at the pinned commit, `envs/kramabench/.venv` (Python
-3.10.9), `envs/scriptreact/.venv` (3.12.12), the checkout's `.venv` (3.12.12; `uv sync --all-extras`, then the packages
-of `envs/engine/requirements.txt` that the lock lacks) and the engine's Python protos. The engine runs the model's code
-on `.venv`, so **a later `uv sync` removes packages the paper's runs had**: run `bench setup` again after one.
+Every target first makes what all benchmarks need (7.5 GB): the submodule at the pinned commit, `envs/kramabench/.venv`
+(Python 3.10.9), `envs/scriptreact/.venv` (3.12.12), the checkout's `.venv` (3.12.12; `uv sync --all-extras`, then the
+packages of `envs/engine/requirements.txt` that the lock lacks) and the engine's Python protos. The engine runs the
+model's code on `.venv`, so **a later `uv sync` removes packages the paper's runs had**: run `bench setup` again after one.
 
 | Target | Adds | Size | Options |
 |---|---|---|---|

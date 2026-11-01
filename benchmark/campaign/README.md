@@ -56,8 +56,12 @@ benchmark/campaign/start-smol-gateway.sh               # smolagents gateway on :
 echo $S/runs/<run> >> $S/runs.txt; setsid -f python3 -I benchmark/campaign/guard.py   # memory guard (pause-only)
 ```
 
-The pgroonga index rejects workflows over ~1.8 MB (MeCab), so it is dropped. A gateway reads its config only at
-start: restart one only between runs.
+The pgroonga index rejects workflows over ~1.8 MB (MeCab), so it is dropped. A gateway reads its config and keys only at
+start: restart one only between runs. After changing a key in `infra.env`:
+
+```bash
+docker compose -p <project> --env-file $S/infra.env -f $S/compose.json -f $S/empty-overlay.yml up -d --force-recreate litellm
+```
 
 ## 4. Launch runs
 
