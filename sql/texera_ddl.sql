@@ -580,13 +580,16 @@ BEGIN
                '(COALESCE(name, '''') || '' '' || COALESCE(description, ''''))'
              ELSE
                'COALESCE(name, '''')'
-           END AS index_column
+           END AS index_column,
+           -- A native dataflow's content runs to megabytes, and MeCab refuses a text
+           -- that long ("too long sentence"), which fails the save. Bigrams have no limit.
+           CASE WHEN tablename = 'workflow' THEN 'TokenBigram' ELSE 'TokenMecab' END AS tokenizer
     FROM (VALUES ('workflow'), ('user'), ('project'), ('dataset'), ('dataset_version')) AS t(tablename)
   LOOP
     -- Create PGroonga index with proper TokenFilterStem usage
     EXECUTE format(
-      'CREATE INDEX idx_%s_pgroonga ON %I USING pgroonga (%s) WITH (tokenizer = ''TokenMecab''%s);',
-      r.tablename, r.tablename, r.index_column, stem_filter
+      'CREATE INDEX idx_%s_pgroonga ON %I USING pgroonga (%s) WITH (tokenizer = %L%s);',
+      r.tablename, r.tablename, r.index_column, r.tokenizer, stem_filter
     );
   END LOOP;
 END $$;

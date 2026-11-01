@@ -68,6 +68,11 @@
         <sqlFile path="sql/updates/31.sql"/>
     </changeSet>
 
+    <!-- Workflow search index: bigrams, so a native dataflow of several MB can be saved -->
+    <changeSet id="32" author="bobbai00">
+        <sqlFile path="sql/updates/32.sql"/>
+    </changeSet>
+
     <!-- example changeSet
     <changeSet id="1" author="author">
         <sqlFile path="sql/updates/1.sql"/>
