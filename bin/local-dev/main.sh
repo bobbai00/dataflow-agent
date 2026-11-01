@@ -2728,6 +2728,11 @@ cmd_status() {
 }
 
 cmd_up() {
+    # Without this file the agent looks for the file service and the computing-unit
+    # manager on texera-web's port. The example holds the right endpoints.
+    if [[ ! -f "$REPO_ROOT/agent-service/.env" && -f "$REPO_ROOT/agent-service/.env.example" ]]; then
+        cp "$REPO_ROOT/agent-service/.env.example" "$REPO_ROOT/agent-service/.env"
+    fi
     SKIP_LIST=""
     FRESH=false
     BUILD=auto       # auto (skip if no source change) | force | no
