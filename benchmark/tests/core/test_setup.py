@@ -16,7 +16,8 @@ import subprocess
 import pytest
 
 import bobbench.setup
-from bobbench.setup import Setup, WEATHER
+from bobbench.paths import ENVS
+from bobbench.setup import Setup, WEATHER, pinned
 
 
 def git(*args, cwd=None):
@@ -118,3 +119,58 @@ def test_a_failed_weather_download_is_a_note_and_setup_goes_on(kramabench, tmp_p
     setup = Setup(dry_run=False)
     setup.weather(None)
     assert len(setup.notes) == 1 and "wildfire-hard-19" in setup.notes[0]
+
+
+def test_the_engine_gets_only_what_it_lacks_and_is_then_exact(tmp_path, monkeypatch):
+    envs = tmp_path / "envs"
+    (envs / "engine").mkdir(parents=True)
+    (envs / "engine" / "requirements.txt").write_text("# why\nastropy==8.0.1\nbs4==4.15\nnumpy==2.0\n")
+    repo = tmp_path / "repo"
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "python").touch()
+    (repo / "amber" / "src" / "main" / "python" / "proto").mkdir(parents=True)
+    monkeypatch.setattr(bobbench.setup, "ENVS", envs)
+    monkeypatch.setattr(bobbench.setup, "REPO", repo)
+    frozen = [{"bs4==4.12", "numpy==2.0"}, {"astropy==8.0.1", "bs4==4.15", "numpy==2.0"}]
+    monkeypatch.setattr(bobbench.setup, "installed", lambda python: frozen.pop(0))
+    ran = []
+    setup = Setup(dry_run=False)
+    monkeypatch.setattr(setup, "run", lambda command, **options: ran.append([str(part) for part in command]))
+    setup.engine()
+    assert len(ran) == 1 and ran[0][:3] == ["uv", "pip", "install"] and "--no-deps" in ran[0]
+    assert ran[0][-2:] == ["astropy==8.0.1", "bs4==4.15"] and setup.notes == []
+
+
+def test_engine_packages_beyond_the_paper_are_reported_not_removed(tmp_path, monkeypatch):
+    envs = tmp_path / "envs"
+    (envs / "engine").mkdir(parents=True)
+    (envs / "engine" / "requirements.txt").write_text("numpy==2.0\n")
+    repo = tmp_path / "repo"
+    (repo / ".venv" / "bin").mkdir(parents=True)
+    (repo / ".venv" / "bin" / "python").touch()
+    (repo / "amber" / "src" / "main" / "python" / "proto").mkdir(parents=True)
+    monkeypatch.setattr(bobbench.setup, "ENVS", envs)
+    monkeypatch.setattr(bobbench.setup, "REPO", repo)
+    monkeypatch.setattr(bobbench.setup, "installed", lambda python: {"numpy==2.0", "extra==1"})
+    setup = Setup(dry_run=False)
+    monkeypatch.setattr(setup, "run", lambda command, **options: pytest.fail("nothing to install"))
+    setup.engine()
+    assert len(setup.notes) == 1 and "extra==1" in setup.notes[0]
+
+
+def test_a_venv_that_left_its_requirements_is_reported(tmp_path, monkeypatch):
+    envs = tmp_path / "envs"
+    (envs / "kramabench" / ".venv" / "bin").mkdir(parents=True)
+    (envs / "kramabench" / ".venv" / "bin" / "python").touch()
+    (envs / "kramabench" / "requirements.txt").write_text("numpy==2.0\n")
+    monkeypatch.setattr(bobbench.setup, "ENVS", envs)
+    monkeypatch.setattr(bobbench.setup, "installed", lambda python: {"numpy==2.1"})
+    setup = Setup(dry_run=False)
+    setup.venv("kramabench")
+    assert len(setup.notes) == 1 and "numpy==2.0" in setup.notes[0] and "numpy==2.1" in setup.notes[0]
+
+
+@pytest.mark.parametrize("name", ["kramabench", "scriptreact", "engine"])
+def test_every_interpreter_is_pinned_exactly(name):
+    lines = pinned(ENVS / name / "requirements.txt")
+    assert len(lines) > 200 and all(line.count("==") == 1 and " " not in line for line in lines)

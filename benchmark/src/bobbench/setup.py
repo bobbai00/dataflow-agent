@@ -12,10 +12,12 @@
 # limitations under the License.
 """bench setup: what a fresh clone needs to run the paper's benchmarks, step by step and idempotent.
 
-- kramabench: the KramaBench submodule at the pinned commit; the runners' venv (envs/kramabench) and Script ReAct's
-  locked interpreter (envs/scriptreact); KramaBench's data, whose one untracked input (wildfire's
-  WeatherEvents_Jan2016-Dec2022.csv, 1.0 GB) comes from Kaggle (sobhanmoosavi/us-weather-events) or --copy-from.
-  The tracked data/wildfire/input/ZHVI.csv is 0 bytes in every paper run: leave it so.
+- every benchmark: the KramaBench submodule at the pinned commit; the runners' venv (envs/kramabench) and Script
+  ReAct's locked interpreter (envs/scriptreact); the checkout's .venv (uv sync --all-extras) with the exact packages
+  the paper's engine ran the model's code on (envs/engine/requirements.txt); the engine's Python protos.
+- kramabench: KramaBench's data, whose one untracked input (wildfire's WeatherEvents_Jan2016-Dec2022.csv, 1.0 GB)
+  comes from Kaggle (sobhanmoosavi/us-weather-events) or --copy-from. The tracked data/wildfire/input/ZHVI.csv is 0
+  bytes in every paper run: leave it so.
 - prepbench: TsinghuaDatabaseGroup/prepbench at 993a313 in $PREPBENCH_REPO (default ~/datasets/prepbench), staged as
   the KramaBench workload `prepbench` (data/prepbench/input/case_NNN/; the workload and format-hint files it writes
   must equal the committed ones).
@@ -47,9 +49,27 @@ WEATHER_BYTES = 1_085_964_816
 NETFLIX_TASK3_EXTRA = "business/netflix_movies_and_tv_shows/task3/data/working_tables"
 
 
+def pinned(requirements):
+    """The name==version lines of a requirements file."""
+    return {line.strip() for line in requirements.read_text().splitlines() if line.strip() and line[0] != "#"}
+
+
+def installed(python):
+    """The name==version lines of what an interpreter holds, without the checkout's own editable install."""
+    frozen = subprocess.check_output(["uv", "pip", "freeze", "--python", str(python)], text=True,
+                                     stderr=subprocess.DEVNULL)
+    return {line for line in frozen.splitlines() if line and not line.startswith("-e ")}
+
+
+def short(lines):
+    """A few of many packages, for a message."""
+    lines = sorted(lines)
+    return ", ".join(lines[:6]) + (f" and {len(lines) - 6} more" if len(lines) > 6 else "")
+
+
 class Setup:
     def __init__(self, dry_run):
-        self.dry_run, self.notes = dry_run, []
+        self.dry_run, self.notes, self.base_done = dry_run, [], False
 
     def say(self, message):
         print(("[dry-run] " if self.dry_run else "") + message, flush=True)
@@ -80,10 +100,47 @@ class Setup:
 
     def venv(self, name):
         python = ENVS / name / ".venv" / "bin" / "python"
-        if python.exists():
-            self.say(f"envs/{name}/.venv exists")
-        else:
+        if not python.exists():
             self.run(["bash", ENVS / name / "setup.sh"])
+            return
+        different = pinned(ENVS / name / "requirements.txt") ^ installed(python)
+        if different:
+            self.note(f"envs/{name}/.venv differs from its requirements.txt: {short(different)}")
+        else:
+            self.say(f"envs/{name}/.venv holds exactly its requirements.txt")
+
+    def engine(self):
+        """The checkout's .venv with the paper's engine packages, and the Python protos its workers import."""
+        python = REPO / ".venv" / "bin" / "python"
+        if not python.exists():
+            self.run(["uv", "sync", "--all-extras"], cwd=REPO)
+        if python.exists():
+            have, want = installed(python), pinned(ENVS / "engine" / "requirements.txt")
+            if want - have:
+                self.say(f"{len(want - have)} packages of envs/engine/requirements.txt are not in .venv")
+                self.run(["uv", "pip", "install", "--no-deps", "--python", python, *sorted(want - have)])
+                have = installed(python) if not self.dry_run else want
+            if have == want:
+                self.say(".venv holds exactly the paper's engine packages")
+            else:
+                self.note(f"the paper's engine did not have these .venv packages: {short(have - want)}")
+        else:
+            self.say("then the packages of envs/engine/requirements.txt that uv's lock lacks")
+        if not (REPO / "amber" / "src" / "main" / "python" / "proto").is_dir():
+            self.run(["bash", REPO / "bin" / "python-proto-gen.sh"],
+                     env={**os.environ, "PATH": f"{REPO / '.venv' / 'bin'}{os.pathsep}{os.environ['PATH']}"})
+
+    def base(self):
+        """What every benchmark needs; once per call."""
+        if self.base_done:
+            return
+        self.base_done = True
+        if not shutil.which("uv"):
+            raise SystemExit("bench setup needs uv (https://docs.astral.sh/uv/)")
+        self.submodule()
+        self.venv("kramabench")
+        self.venv("scriptreact")
+        self.engine()
 
     def weather(self, copy_from):
         target = KB / WEATHER
@@ -127,11 +184,7 @@ class Setup:
                 print("       " + line)
 
     def kramabench(self, copy_from):
-        self.submodule()
-        self.venv("kramabench")
-        self.venv("scriptreact")
-        if not (REPO / ".venv" / "bin" / "python").exists():
-            self.note("the checkout's .venv (engine workers, LongDS) is missing: uv sync --all-extras")
+        self.base()
         if (KB / ".git").exists():
             self.weather(copy_from)
             self.check_sources()
@@ -157,6 +210,7 @@ class Setup:
         self.run(["git", "-C", folder, "checkout", "--quiet", "--detach", revision])
 
     def prepbench(self, datasets):
+        self.base()
         repo = Path(datasets) / "prepbench" if datasets else PREPBENCH_REPO
         self.checkout(*PREPBENCH, repo)
         os.environ["PREPBENCH_REPO"] = str(repo)
@@ -177,6 +231,7 @@ class Setup:
     # LongDS ----------------------------------------------------------------------------------------------------------
 
     def longds(self, prepared, tables_from, only=None):
+        self.base()
         datamind = DATAMIND
         self.checkout(*DATAMIND_GIT, datamind, sparse=["/longds/runners/DSGym/scripts/prompt.py", "/longds/README.md"])
         dataset = datamind / "longds" / "dataset"
