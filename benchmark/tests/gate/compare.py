@@ -29,6 +29,13 @@ import sys
 from pathlib import Path
 
 CLOCKS = re.compile(r"(runtime|seconds|_at|timestamp|time)$")
+# Intended artifact changes since the baseline smokes were recorded (Phase B): (file, key) -> (whether the baseline and
+# gate values are the intended pair, why). Reported, never failed.
+INTENDED = {
+    ("evaluation.json", "token_usage_sut_reasoning"): (
+        lambda base, gate: base is None and isinstance(gate, int),
+        "BobFlow reports the reasoning tokens its turn streamed (the retired accounting module dropped them)"),
+}
 
 
 def attempts(run):
@@ -148,8 +155,15 @@ def main():
                     if isinstance(x, dict) and isinstance(y, dict):
                         x = {k: v for k, v in x.items() if not CLOCKS.search(k)}
                         y = {k: v for k, v in y.items() if not CLOCKS.search(k)}
+                        for field in sorted(set(x) | set(y)):
+                            expected, why = INTENDED.get((name, field), (None, None))
+                            if expected and x.get(field) != y.get(field) and expected(x.get(field), y.get(field)):
+                                notes.append(f"{name} {field}: {x.pop(field, None)!r} -> {y.pop(field, None)!r} "
+                                             f"(intended: {why})")
                     if not same(x, y):
-                        problems.append(f"{name} differs")
+                        found = [] if not (isinstance(x, dict) and isinstance(y, dict)) else \
+                            [k for k in sorted(set(x) | set(y)) if not same(x.get(k), y.get(k))]
+                        problems.append(f"{name} differs" + (f" at {', '.join(found[:5])}" if found else ""))
                 for out in sorted((b / "outputs").glob("*")) if (b / "outputs").is_dir() else []:
                     if not (g / "outputs" / out.name).exists() or out.read_bytes() != (g / "outputs" / out.name).read_bytes():
                         problems.append(f"outputs/{out.name} differs")

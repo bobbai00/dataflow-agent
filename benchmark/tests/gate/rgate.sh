@@ -64,19 +64,19 @@ PY=benchmark/Kramabench/.venv/bin/python
 cd "$W"
 for r in "${RUNS[@]}"; do
   case $r in
-    kb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" $PY benchmark/retrieval/run.py --output "$OUT/kb" \
+    kb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --output "$OUT/kb" \
           --endpoint http://localhost:3152 --models Haiku55 \
           --arms evidence_full_flow0 evidence_data1_flow0 evidence_data1_flow0_opt --tasks $KB_TASKS --repetitions 1 \
           --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 900 --direct-artifacts \
           --full-result-char-limit 5000 --sample-char-limit 2000 --wire-dir "$OUT/wire" \
           --agent-revision "$REV" --engine-revision "$REV" --selection "rgate replay of ${REF[kb]}" > "$OUT/kb.log" 2>&1 ;;
-    kbflow) setsid -w bash "$S/run-env.sh" "${ENV[@]}" $PY benchmark/retrieval/run.py --output "$OUT/kbflow" \
+    kbflow) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --output "$OUT/kbflow" \
           --endpoint http://localhost:3152 --models Haiku55 \
           --arms evidence_data1_flow1 evidence_full_flow1 --tasks $KBFLOW_TASKS --repetitions 1 \
           --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 900 --direct-artifacts \
           --full-result-char-limit 5000 --sample-char-limit 2000 --wire-dir "$OUT/wire" \
           --agent-revision "$REV" --engine-revision "$REV" --selection "rgate replay of ${REF[kbflow]}" > "$OUT/kbflow.log" 2>&1 ;;
-    pb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" $PY benchmark/prepbench/prep_run.py --output "$OUT/pb" \
+    pb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --benchmark prepbench --output "$OUT/pb" \
           --endpoint http://localhost:3152 --agent-revision "$REV" --engine-revision "$REV" --models Haiku55 \
           --arms evidence_full_flow0 evidence_data1_flow0_opt --repetitions 1 --workers 2 --timeout 900 \
           --large-input-bytes 5000000000 --full-result-char-limit 5000 --sample-char-limit 2000 --direct-artifacts \
@@ -92,5 +92,9 @@ for r in "${RUNS[@]}"; do
   echo "$r: $(tail -n 1 "$OUT/$r.log")"
 done
 ARGS=(); for r in "${RUNS[@]}"; do ARGS+=("$BASE/${REF[$r]}" "$OUT/$r"); done
-python3 -I "$HERE/compare.py" "${ARGS[@]}" --allow "${ALLOW[@]}" | tee "$OUT/compare.txt"
-echo "unmatched stub requests: $(grep -c '"attempt": null' "$OUT/model-requests.jsonl" || true)"
+STATUS=0
+python3 -I "$HERE/compare.py" "${ARGS[@]}" --allow "${ALLOW[@]}" | tee "$OUT/compare.txt" || STATUS=$?
+UNMATCHED=$(grep -c '"attempt": null' "$OUT/model-requests.jsonl" || true)
+echo "unmatched stub requests: $UNMATCHED"
+[ "$UNMATCHED" = 0 ] || STATUS=1
+exit $STATUS

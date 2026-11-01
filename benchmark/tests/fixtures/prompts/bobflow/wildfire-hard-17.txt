@@ -1,0 +1,16 @@
+You are a data scientist. Answer the following question based on the data files.
+
+Data files available (use these paths to read the data):
+[
+  "data/wildfire/input/noaa_wildfires.csv",
+  "data/wildfire/input/noaa_wildfires_variabledescrip.csv",
+  "data/wildfire/input/PublicView_RAWS_-3515561676727363726.csv"
+]
+
+Note: All paths are relative. Some paths may contain wildcards (e.g., "folder/*" or "file-*.csv"). Use glob patterns to match and read those files.
+
+Question: What is the average elevation (in feet) of the weather stations used for fire site monitoring in the NOAA dataset?
+
+Answer format: The result should be a single decimal number rounded to 1 decimal place.
+
+Your last line MUST BE: **Final Answer: <value>**

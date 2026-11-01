@@ -38,7 +38,7 @@ from evaluate.core import evaluate  # noqa: E402
 from metrics import current_price_schedule, response_cost  # noqa: E402
 from run import MODEL_TYPES as MODELS  # noqa: E402
 
-INDEX = json.loads((HERE / "task-index.json").read_text())
+INDEX = json.loads((HERE.parent / "src/bobbench/prepbench/data/task-index.json").read_text())
 GT = REPO / "src/evaluate/gt"
 SYSTEMS = {"smolagents": "smolagents", "evidence_data1_flow0": "dataflow, flow off", "evidence_data1_flow1": "dataflow, flow on",
            "evidence_full_flow0": "dataflow baseline", "evidence_full_flow1": "dataflow, flow only"}

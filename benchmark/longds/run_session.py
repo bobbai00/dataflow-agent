@@ -56,9 +56,8 @@ ARMS = {
 }
 # Arms whose requests see the task catalog, the annotated dependencies in detail (gold_dependencies).
 CATALOG_TASKS = {"catalog-gold"}
-# Everything else is stable's default (delta context, native message layout,
-# sample+stats retrieval, full-table profiles).
-BASE_SETTINGS = {"contextMode": "delta"}
+# Everything else is the agent's default (sample+stats retrieval, full-table profiles).
+BASE_SETTINGS = {}
 EMPTY_WORKFLOW = {"operators": [], "operatorPositions": {}, "links": [], "commentBoxes": [],
                   "settings": {"dataTransferBatchSize": 400}}
 

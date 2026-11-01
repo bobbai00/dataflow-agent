@@ -29,7 +29,8 @@ import evaluate_script_task as base  # noqa: E402
 from script_sandbox import SandboxedScriptAgent  # noqa: E402
 from systems.code_agent_system import CodeAgentSystem  # noqa: E402
 
-HINTS = {h["id"]: h["format_hint"] for h in json.loads((HERE.parent / "format_hint_script.json").read_text())}
+HINTS = {h["id"]: h["format_hint"] for h in json.loads(
+    (HERE.parents[1] / "src/bobbench/prepbench/data/format_hint_script.json").read_text())}
 load_hints = CodeAgentSystem._load_format_hints
 
 

@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements. See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+# http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# The benchmark harness's command line: picks the interpreter and PYTHONPATH each command needs.
+#   bench test     the offline tests, on the KramaBench venv and on the root .venv
+set -euo pipefail
+B=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$B/.." && pwd)
+KB_PY=$B/Kramabench/.venv/bin/python
+ROOT_PY=$REPO/.venv/bin/python
+
+usage() { sed -n '14,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+cmd_test() {
+  # The judge key is invalid in tests: a judge-cache miss fails a test instead of paying for a call.
+  local status=0
+  echo "== KramaBench venv ($KB_PY)"
+  (cd "$B" && OPENAI_API_KEY=invalid-test-key PYTHONPATH="$B/src:$B/Kramabench" "$KB_PY" -m pytest -q "$@") || status=1
+  echo "== root .venv ($ROOT_PY)"
+  (cd "$B" && OPENAI_API_KEY=invalid-test-key PYTHONPATH="$B/src" "$ROOT_PY" -m pytest -q "$@") || status=1
+  return $status
+}
+
+case "${1:-}" in
+  test) shift; cmd_test "$@" ;;
+  -h|--help|help|"") usage ;;
+  *) echo "unknown command: $1" >&2; usage 2 ;;
+esac

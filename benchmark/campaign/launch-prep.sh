@@ -15,7 +15,7 @@
 # Launch one detached dataflow PrepBench run with the settings of the 2026-10-14 and 2026-10-17 PrepBench runs: 25 steps,
 # 900 s per attempt, large inputs allowed (no one-at-a-time limit), full results 5,000 chars, samples 2,000 chars, 1 rep.
 # ARMS defaults to the basic setting (evidence_full_flow0: statistics off, runtime stats off). Each attempt exports the
-# output files the agent names from the engine's stored results (benchmark/prepbench/evaluate_task.py); score afterwards
+# output files the agent names from the engine's stored results (bobbench.prepbench.hooks); score afterwards
 # with benchmark/prepbench/score.py (PrepBench's own evaluator).
 # Usage: [STACK_DIR=/var/tmp/texera-stable] [ARMS=evidence_full_flow0] [CHECKOUT=<checkout>] launch-prep.sh <run name> <model tag>
 #        <workers> [task ids...]   (default: all 306 cases; CHECKOUT runs the runner from another checkout, matching an agent
@@ -39,7 +39,8 @@ cd "$W"
 REV=$(git -C "$W" rev-parse HEAD)
 setsid -f bash "$S/run-env.sh" env TEXERA_API_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
   TEXERA_COMPUTING_UNIT_ENDPOINT="$TEXERA_COMPUTING_UNIT_ENDPOINT" TEXERA_WORKFLOW_EXECUTION_ENDPOINT="$WORKFLOW_EXECUTION_SERVICE_ENDPOINT" \
-  benchmark/Kramabench/.venv/bin/python benchmark/prepbench/prep_run.py --output "$S/runs/$OUT" \
+  PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py --benchmark prepbench \
+  --output "$S/runs/$OUT" \
   --endpoint "$TEXERA_AGENT_SERVICE_ENDPOINT" --agent-revision "$REV" --engine-revision "$REV" \
   --models "$MODEL" --arms $ARMS --repetitions 1 --workers "$WORKERS" --timeout 900 \
   --large-input-bytes 5000000000 --full-result-char-limit 5000 --sample-char-limit 2000 --direct-artifacts \

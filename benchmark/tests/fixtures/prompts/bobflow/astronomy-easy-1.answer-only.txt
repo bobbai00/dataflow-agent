@@ -1,0 +1,17 @@
+You are a data scientist. Answer the following question based on the data files.
+
+Data files available (use these paths to read the data):
+[
+  "data/astronomy/input/geomag_forecast/0309geomag_forecast.txt",
+  "data/astronomy/input/geomag_forecast/0311geomag_forecast.txt",
+  "data/astronomy/input/geomag_forecast/0312geomag_forecast.txt",
+  "data/astronomy/input/geomag_forecast/0313geomag_forecast.txt"
+]
+
+Note: All paths are relative. Some paths may contain wildcards (e.g., "folder/*" or "file-*.csv"). Use glob patterns to match and read those files.
+
+Question: What is the estimation error, in terms of MAE, of NOAA SWPC's 3-day forecast of AP from March 9, 2025 for the period March 10-12, 2025?
+
+Answer format: The result should be a single integer.
+
+Your reply MUST BE exactly one line, with nothing before or after it: **Final Answer: <value>**

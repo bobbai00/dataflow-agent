@@ -1,0 +1,1020 @@
+[
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1",
+  "task": "archeology-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "pipeline_code": "",
+   "token_usage": 21309,
+   "token_usage_input": 20700,
+   "token_usage_output": 609,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 12834,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "code": "",
+   "token_usage_sut": 21309,
+   "token_usage_sut_input": 20700,
+   "token_usage_sut_output": 609,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 12834,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1",
+  "task": "astronomy-easy-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "pipeline_code": "",
+   "token_usage": 15771,
+   "token_usage_input": 14938,
+   "token_usage_output": 833,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 11683,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "astronomy-easy-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "code": "",
+   "token_usage_sut": 15771,
+   "token_usage_sut_input": 14938,
+   "token_usage_sut_output": 833,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 11683,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1",
+  "task": "legal-easy-25",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "pipeline_code": "",
+   "token_usage": 22036,
+   "token_usage_input": 21400,
+   "token_usage_output": 636,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 18723,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "legal-easy-25",
+   "model_output": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "code": "",
+   "token_usage_sut": 22036,
+   "token_usage_sut_input": 21400,
+   "token_usage_sut_output": 636,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 18723,
+   "cost_usd_sut": null,
+   "llm_paraphrase": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1",
+  "task": "archeology-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "pipeline_code": "",
+   "token_usage": 20823,
+   "token_usage_input": 20310,
+   "token_usage_output": 513,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 18457,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "code": "",
+   "token_usage_sut": 20823,
+   "token_usage_sut_input": 20310,
+   "token_usage_sut_output": 513,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 18457,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1",
+  "task": "astronomy-easy-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "pipeline_code": "",
+   "token_usage": 30455,
+   "token_usage_input": 29378,
+   "token_usage_output": 1077,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 25720,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "astronomy-easy-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "code": "",
+   "token_usage_sut": 30455,
+   "token_usage_sut_input": 29378,
+   "token_usage_sut_output": 1077,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 25720,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1",
+  "task": "legal-easy-25",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "pipeline_code": "",
+   "token_usage": 21444,
+   "token_usage_input": 21154,
+   "token_usage_output": 290,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 18812,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "legal-easy-25",
+   "model_output": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "code": "",
+   "token_usage_sut": 21444,
+   "token_usage_sut_input": 21154,
+   "token_usage_sut_output": 290,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 18812,
+   "cost_usd_sut": null,
+   "llm_paraphrase": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1",
+  "task": "archeology-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "pipeline_code": "",
+   "token_usage": 18498,
+   "token_usage_input": 18013,
+   "token_usage_output": 485,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 11472,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "code": "",
+   "token_usage_sut": 18498,
+   "token_usage_sut_input": 18013,
+   "token_usage_sut_output": 485,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 11472,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1",
+  "task": "astronomy-easy-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "pipeline_code": "",
+   "token_usage": 21490,
+   "token_usage_input": 20361,
+   "token_usage_output": 1129,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 17533,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "astronomy-easy-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "code": "",
+   "token_usage_sut": 21490,
+   "token_usage_sut_input": 20361,
+   "token_usage_sut_output": 1129,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 17533,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-kb",
+  "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1",
+  "task": "legal-easy-25",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "pipeline_code": "",
+   "token_usage": 12964,
+   "token_usage_input": 12528,
+   "token_usage_output": 436,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 10883,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "legal-easy-25",
+   "model_output": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "code": "",
+   "token_usage_sut": 12964,
+   "token_usage_sut_input": 12528,
+   "token_usage_sut_output": 436,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 10883,
+   "cost_usd_sut": null,
+   "llm_paraphrase": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1",
+  "task": "archeology-easy-11",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "17.1667"
+   },
+   "pipeline_code": "",
+   "token_usage": 32776,
+   "token_usage_input": 30834,
+   "token_usage_output": 1942,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 28560,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-11",
+   "model_output": {
+    "id": "main-task",
+    "answer": "17.1667"
+   },
+   "code": "",
+   "token_usage_sut": 32776,
+   "token_usage_sut_input": 30834,
+   "token_usage_sut_output": 1942,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 28560,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1",
+  "task": "environment-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "5.14"
+   },
+   "pipeline_code": "",
+   "token_usage": 47855,
+   "token_usage_input": 46135,
+   "token_usage_output": 1720,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 41010,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "environment-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "5.14"
+   },
+   "code": "",
+   "token_usage_sut": 47855,
+   "token_usage_sut_input": 46135,
+   "token_usage_sut_output": 1720,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 41010,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1",
+  "task": "legal-hard-15",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "243377"
+   },
+   "pipeline_code": "",
+   "token_usage": 49166,
+   "token_usage_input": 46482,
+   "token_usage_output": 2684,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 38541,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "legal-hard-15",
+   "model_output": {
+    "id": "main-task",
+    "answer": "243377"
+   },
+   "code": "",
+   "token_usage_sut": 49166,
+   "token_usage_sut_input": 46482,
+   "token_usage_sut_output": 2684,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 38541,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1",
+  "task": "wildfire-easy-15",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "No"
+   },
+   "pipeline_code": "",
+   "token_usage": 38499,
+   "token_usage_input": 36738,
+   "token_usage_output": 1761,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 31613,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "wildfire-easy-15",
+   "model_output": {
+    "id": "main-task",
+    "answer": "No"
+   },
+   "code": "",
+   "token_usage_sut": 38499,
+   "token_usage_sut_input": 36738,
+   "token_usage_sut_output": 1761,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 31613,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1",
+  "task": "wildfire-hard-17",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "4826.5"
+   },
+   "pipeline_code": "",
+   "token_usage": 134217,
+   "token_usage_input": 128305,
+   "token_usage_output": 5912,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 106226,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "wildfire-hard-17",
+   "model_output": {
+    "id": "main-task",
+    "answer": "4826.5"
+   },
+   "code": "",
+   "token_usage_sut": 134217,
+   "token_usage_sut_input": 128305,
+   "token_usage_sut_output": 5912,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 106226,
+   "cost_usd_sut": null,
+   "mean_absolute_error": 4.399999999999636,
+   "mean_squared_error": 19.3599999999968,
+   "rae_score": 0.9990900254379255,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1",
+  "task": "archeology-easy-11",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "17.7924"
+   },
+   "pipeline_code": "",
+   "token_usage": 40084,
+   "token_usage_input": 37979,
+   "token_usage_output": 2105,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 34522,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-11",
+   "model_output": {
+    "id": "main-task",
+    "answer": "17.7924"
+   },
+   "code": "",
+   "token_usage_sut": 40084,
+   "token_usage_sut_input": 37979,
+   "token_usage_sut_output": 2105,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 34522,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1",
+  "task": "environment-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "0.05"
+   },
+   "pipeline_code": "",
+   "token_usage": 52177,
+   "token_usage_input": 49643,
+   "token_usage_output": 2534,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 39341,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "environment-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "0.05"
+   },
+   "code": "",
+   "token_usage_sut": 52177,
+   "token_usage_sut_input": 49643,
+   "token_usage_sut_output": 2534,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 39341,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1",
+  "task": "legal-hard-15",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "243377"
+   },
+   "pipeline_code": "",
+   "token_usage": 36746,
+   "token_usage_input": 34526,
+   "token_usage_output": 2220,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 25813,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "legal-hard-15",
+   "model_output": {
+    "id": "main-task",
+    "answer": "243377"
+   },
+   "code": "",
+   "token_usage_sut": 36746,
+   "token_usage_sut_input": 34526,
+   "token_usage_sut_output": 2220,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 25813,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1",
+  "task": "wildfire-easy-15",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "No"
+   },
+   "pipeline_code": "",
+   "token_usage": 42450,
+   "token_usage_input": 40861,
+   "token_usage_output": 1589,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 33124,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "wildfire-easy-15",
+   "model_output": {
+    "id": "main-task",
+    "answer": "No"
+   },
+   "code": "",
+   "token_usage_sut": 42450,
+   "token_usage_sut_input": 40861,
+   "token_usage_sut_output": 1589,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 33124,
+   "cost_usd_sut": null,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk5-kbflow",
+  "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1",
+  "task": "wildfire-hard-17",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "4822.2"
+   },
+   "pipeline_code": "",
+   "token_usage": 118143,
+   "token_usage_input": 113473,
+   "token_usage_output": 4670,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 96672,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "wildfire-hard-17",
+   "model_output": {
+    "id": "main-task",
+    "answer": "4822.2"
+   },
+   "code": "",
+   "token_usage_sut": 118143,
+   "token_usage_sut_input": 113473,
+   "token_usage_sut_output": 4670,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 96672,
+   "cost_usd_sut": null,
+   "mean_absolute_error": 8.699999999999818,
+   "mean_squared_error": 75.68999999999683,
+   "rae_score": 0.9982023307711382,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-pb",
+  "sut": "DataflowSystemHaiku55_smk2_pb_evidence_data1_flow0_opt_Rep1",
+  "task": "prepbench-hard-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "pipeline_code": "",
+   "token_usage": 23845,
+   "token_usage_input": 23026,
+   "token_usage_output": 819,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 19680,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "prepbench-hard-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "code": "",
+   "token_usage_sut": 23845,
+   "token_usage_sut_input": 23026,
+   "token_usage_sut_output": 819,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 19680,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-pb",
+  "sut": "DataflowSystemHaiku55_smk2_pb_evidence_data1_flow0_opt_Rep1",
+  "task": "prepbench-hard-50",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "pipeline_code": "",
+   "token_usage": 65948,
+   "token_usage_input": 51092,
+   "token_usage_output": 14856,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 31414,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "prepbench-hard-50",
+   "model_output": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "code": "",
+   "token_usage_sut": 65948,
+   "token_usage_sut_input": 51092,
+   "token_usage_sut_output": 14856,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 31414,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-pb",
+  "sut": "DataflowSystemHaiku55_smk2_pb_evidence_full_flow0_Rep1",
+  "task": "prepbench-hard-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "pipeline_code": "",
+   "token_usage": 25556,
+   "token_usage_input": 24426,
+   "token_usage_output": 1130,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 19407,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "prepbench-hard-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "code": "",
+   "token_usage_sut": 25556,
+   "token_usage_sut_input": 24426,
+   "token_usage_sut_output": 1130,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 19407,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk2-pb",
+  "sut": "DataflowSystemHaiku55_smk2_pb_evidence_full_flow0_Rep1",
+  "task": "prepbench-hard-50",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "pipeline_code": "",
+   "token_usage": 73347,
+   "token_usage_input": 57675,
+   "token_usage_output": 15672,
+   "token_usage_reasoning": null,
+   "token_usage_cached": 40437,
+   "cost_usd": null
+  },
+  "evaluation": {
+   "task_id": "prepbench-hard-50",
+   "model_output": {
+    "id": "main-task",
+    "answer": "{\"output_01.csv\": \"output_01\"}"
+   },
+   "code": "",
+   "token_usage_sut": 73347,
+   "token_usage_sut_input": 57675,
+   "token_usage_sut_output": 15672,
+   "token_usage_sut_reasoning": null,
+   "token_usage_sut_cached": 40437,
+   "cost_usd_sut": null,
+   "success": 0,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk0-kbsmol",
+  "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1",
+  "task": "archeology-easy-6",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "pipeline_code": "",
+   "token_usage": 24736,
+   "token_usage_input": 24070,
+   "token_usage_output": 666,
+   "token_usage_reasoning": 0,
+   "token_usage_cached": 21969,
+   "cost_usd": 0.0
+  },
+  "evaluation": {
+   "task_id": "archeology-easy-6",
+   "model_output": {
+    "id": "main-task",
+    "answer": "São Paulo"
+   },
+   "code": "",
+   "token_usage_sut": 24736,
+   "token_usage_sut_input": 24070,
+   "token_usage_sut_output": 666,
+   "token_usage_sut_reasoning": 0,
+   "token_usage_sut_cached": 21969,
+   "cost_usd_sut": 0.0,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk0-kbsmol",
+  "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1",
+  "task": "astronomy-easy-1",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "pipeline_code": "",
+   "token_usage": 20202,
+   "token_usage_input": 19093,
+   "token_usage_output": 1109,
+   "token_usage_reasoning": 0,
+   "token_usage_cached": 11536,
+   "cost_usd": 0.0
+  },
+  "evaluation": {
+   "task_id": "astronomy-easy-1",
+   "model_output": {
+    "id": "main-task",
+    "answer": "15"
+   },
+   "code": "",
+   "token_usage_sut": 20202,
+   "token_usage_sut_input": 19093,
+   "token_usage_sut_output": 1109,
+   "token_usage_sut_reasoning": 0,
+   "token_usage_sut_cached": 11536,
+   "cost_usd_sut": 0.0,
+   "success": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ },
+ {
+  "run": "smk0-kbsmol",
+  "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1",
+  "task": "legal-easy-25",
+  "reply": {
+   "explanation": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "pipeline_code": "",
+   "token_usage": 18432,
+   "token_usage_input": 17920,
+   "token_usage_output": 512,
+   "token_usage_reasoning": 0,
+   "token_usage_cached": 15935,
+   "cost_usd": 0.0
+  },
+  "evaluation": {
+   "task_id": "legal-easy-25",
+   "model_output": {
+    "id": "main-task",
+    "answer": "U.S. Space Force"
+   },
+   "code": "",
+   "token_usage_sut": 18432,
+   "token_usage_sut_input": 17920,
+   "token_usage_sut_output": 512,
+   "token_usage_sut_reasoning": 0,
+   "token_usage_sut_cached": 15935,
+   "cost_usd_sut": 0.0,
+   "llm_paraphrase": 1,
+   "token_usage_metrics": 0,
+   "token_usage_metrics_input": 0,
+   "token_usage_metrics_output": 0,
+   "token_usage_subtask_eval": 0,
+   "token_usage_subtask_eval_input": 0,
+   "token_usage_subtask_eval_output": 0
+  }
+ }
+]

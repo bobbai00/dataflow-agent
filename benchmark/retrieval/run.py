@@ -12,8 +12,9 @@
 # limitations under the License.
 """Matched KramaBench campaign: retrieval crossed with flow evidence.
 
-Run with benchmark/Kramabench/.venv/bin/python. Records every attempt, including
-errors, and never overwrites a run. Uses the benchmark's official evaluator.
+Run with benchmark/Kramabench/.venv/bin/python and PYTHONPATH=benchmark/src. Records every attempt, including
+errors, and never overwrites a run. Each attempt is `python -m bobbench.kramabench.attempt`, scored by KramaBench's
+own evaluator.
 """
 import argparse
 import hashlib
@@ -31,10 +32,12 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
-from catalog import inventory
-from configuration import campaign_arms, full_result_char_limit
+from campaign import ResourceQueue, audit_attempt, install_provider_prices
 from metrics import current_price_schedule, reconcile_run
+
+from bobbench import agent_client
+from bobbench.arms import ARMS, base_settings, full_result_char_limit
+from bobbench.kramabench.tasks import BENCHMARKS, inventory, score
 
 ROOT = Path(__file__).resolve().parents[2]
 KB = ROOT / "benchmark/Kramabench"
@@ -69,13 +72,14 @@ def save(path, data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--benchmark", choices=sorted(BENCHMARKS), default="kramabench")
     parser.add_argument("--endpoint", default="http://localhost:3075")
     parser.add_argument("--agent-revision", help="Revision served by the frozen agent; defaults to this checkout")
     parser.add_argument("--engine-revision", help="Revision built into the running backend; record independently of the agent")
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--all-tasks", action="store_true", help="All original top-level KramaBench tasks")
-    parser.add_argument("--direct-artifacts", action="store_true", help="Write harness scratch directly into output using symlinks")
+    parser.add_argument("--all-tasks", action="store_true", help="Every task of the benchmark")
+    parser.add_argument("--direct-artifacts", action="store_true", help="Ignored: attempts always write into the output")
     parser.add_argument("--wire-dir", type=Path, help="Agent TEXERA_LLM_TRACE_DIR for exact usage and latency auditing")
     parser.add_argument("--large-input-bytes", type=int, default=100_000_000)
     parser.add_argument("--large-workers", type=int, default=1)
@@ -95,15 +99,16 @@ def main():
     args = parser.parse_args()
     if min(args.workers, args.large_workers, args.repetitions, args.timeout) < 1:
         parser.error("Workers, repetitions and timeout must be positive")
-    arms = campaign_arms()
+    arms = ARMS
     unknown = sorted(set(args.arms) - set(arms))
     if unknown:
         parser.error(f"Unknown arms: {', '.join(unknown)}")
-    source_inventory = inventory()
+    source_inventory = inventory(BENCHMARKS[args.benchmark])
     if args.all_tasks:
         args.tasks = sorted(t["task_id"] for t in source_inventory)
-        args.selection = "All 104 original KramaBench top-level tasks; no task exclusions or outcome-selected retries."
-        assert len(args.tasks) == 104
+        if args.benchmark == "kramabench":
+            args.selection = "All 104 original KramaBench top-level tasks; no task exclusions or outcome-selected retries."
+            assert len(args.tasks) == 104
     assert len(set(args.tasks)) == len(args.tasks), "Duplicate task IDs"
     assert set(args.tasks) <= {t["task_id"] for t in source_inventory}, "Unknown task IDs"
     output = args.output.resolve()
@@ -122,24 +127,19 @@ def main():
     os.environ.setdefault("TEXERA_API_ENDPOINT", "http://localhost:8080")
     os.environ.setdefault("TEXERA_COMPUTING_UNIT_ENDPOINT", "http://localhost:8888")
     os.environ.setdefault("TEXERA_WORKFLOW_EXECUTION_ENDPOINT", "http://localhost:8085")
-    os.environ["KB_EMPTY_TURN_RETRIES"] = "0"
     sys.path.insert(0, str(KB))
     import requests
-    from dataflow_agent import login
-    # kb installs signal handlers, so import it in the main thread.
-    import kb
     from systems import cost_utils
     pricing_overrides = install_provider_prices(cost_utils, [MODEL_TYPES[m] for m in args.models])
     source_hash = hashlib.sha256()
     source_paths = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-co", "--exclude-standard", "--",
-        "agent-service/src", "amber/src", "benchmark/retrieval", "bin/strict_tools.py"], text=True).splitlines()
+        "agent-service/src", "amber/src", "benchmark/retrieval", "benchmark/src", "bin/strict_tools.py"], text=True).splitlines()
     source_files = []
     for name in sorted(set(source_paths)):
         source = ROOT / name
         if source.is_file():
             source_hash.update(name.encode() + b"\0" + source.read_bytes() + b"\0")
             source_files.append({"path": name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
-    os.chdir(KB)
     output.mkdir(parents=True)
     save(output / "source-snapshot.json", {"captured_at": datetime.now(timezone.utc).isoformat(),
          "sha256": source_hash.hexdigest(), "matches_launch_manifest": True, "files": source_files})
@@ -148,19 +148,19 @@ def main():
         "agent_revision": args.agent_revision or subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         "engine_revision": args.engine_revision,
         "runner_revision": subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
-        "harness_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "harness_revision": subprocess.check_output(["git", "-C", str(KB), "rev-parse", "HEAD"], text=True).strip(),
+        "benchmark": args.benchmark,
         "endpoint": args.endpoint, "task_ids": args.tasks, "repetitions": args.repetitions,
         "models": {m: MODEL_TYPES[m] for m in args.models},
         "pricing_overrides": pricing_overrides,
         "pricing_schedules": {MODEL_TYPES[m]: current_price_schedule(MODEL_TYPES[m]) or cost_utils.price_schedule(MODEL_TYPES[m]) for m in args.models},
         "wire_directory": str(args.wire_dir.resolve()) if args.wire_dir else None,
         "working_tree_diff_sha256": hashlib.sha256(subprocess.check_output(
-            ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval", "bin"])).hexdigest(),
+            ["git", "-C", str(ROOT), "diff", "--no-ext-diff", "--", "agent-service", "amber", "benchmark/retrieval",
+             "benchmark/src", "bin"])).hexdigest(),
         "working_tree_sources_sha256": source_hash.hexdigest(),
         "arms": {k: arms[k] for k in args.arms}, "pass_threshold": 1.0,
-        "settings": {"contextMode": "delta", "nativeProfileCollection": True,
-                     "maxSteps": 25, "maxOperatorResultCharLimit": args.sample_char_limit, "maxResultRows": 3,
-                     "fullResultCharLimit": args.full_result_char_limit},
+        "settings": base_settings(args.sample_char_limit, args.full_result_char_limit),
         "selection": args.selection,
         "attempt_policy": "Independent repetitions of every selected task in every arm; no outcome-selected retries.",
         "task_timeout_seconds": args.timeout, "workers": args.workers,
@@ -177,12 +177,8 @@ def main():
                       for model in args.models for arm in args.arms for task in args.tasks]
         random.Random(101 + rep).shuffle(round_jobs)
         jobs.extend(round_jobs)
-    for name in {j["sut"] for j in jobs}:
-        assert not (KB / "system_scratch" / name).exists(), f"Would overwrite {name}"
     manifest["jobs"] = jobs
     save(output / "manifest.json", manifest)
-    if args.direct_artifacts:
-        prepare_artifacts(KB / "system_scratch", output / "system_scratch", [j["sut"] for j in jobs])
     large_tasks = {t["task_id"] for t in source_inventory if t["bytes"] >= args.large_input_bytes}
     pending = ResourceQueue(jobs, large_tasks, args.large_workers)
     lock = threading.Lock()
@@ -256,7 +252,7 @@ def main():
 
     def worker(slot):
         wait_until_ready(slot)
-        token = login(api_endpoint=os.environ["TEXERA_API_ENDPOINT"])
+        token = agent_client.login(os.environ["TEXERA_API_ENDPOINT"])
         headers = {"Authorization": "Bearer " + token}
         cu_base = os.environ["TEXERA_COMPUTING_UNIT_ENDPOINT"]
         response = requests.post(cu_base + "/api/computing-unit/create", headers=headers, timeout=30,
@@ -273,18 +269,17 @@ def main():
                 if job is None:
                     return
                 wait_until_ready(slot)
-                destination = KB / "system_scratch" / job["sut"] / job["task"]
+                destination = output / "system_scratch" / job["sut"] / job["task"]
                 log = output / "logs" / f'{job["sut"]}-{job["task"]}.log'
                 log.parent.mkdir(exist_ok=True)
-                env = dict(os.environ, RETRIEVAL_MANIFEST=str(output / "manifest.json"),
-                           RETRIEVAL_JOB=json.dumps(job), RETRIEVAL_CUID=str(cuid), PYTHONUNBUFFERED="1")
+                env = dict(os.environ, PYTHONPATH=f"{ROOT / 'benchmark/src'}:{KB}", PYTHONUNBUFFERED="1")
                 started = time.monotonic()
                 timeout = False
                 with log.open("x") as stream:
                     with launch_lock:
-                        proc = subprocess.Popen([sys.executable, str(Path(__file__).with_name("evaluate_task.py")),
-                            "--sut", job["sut"], "--workload", kb.workload_of(job["task"]), "--task_id", job["task"],
-                            "--use_truth_subset", "--no_pipeline_eval", "--verbose"], cwd=KB, env=env, stdout=stream, stderr=subprocess.STDOUT)
+                        proc = subprocess.Popen([sys.executable, "-m", "bobbench.kramabench.attempt",
+                            "--manifest", str(output / "manifest.json"), "--job", json.dumps(job), "--cuid", str(cuid)],
+                            cwd=KB, env=env, stdout=stream, stderr=subprocess.STDOUT)
                         time.sleep(1)
                     with lock:
                         progress["active"][slot] = {**job, "pid": proc.pid, "started_at": datetime.now(timezone.utc).isoformat()}
@@ -311,9 +306,7 @@ def main():
                         except subprocess.TimeoutExpired:
                             proc.kill()
                             proc.wait()
-                archive = output / "system_scratch" / job["sut"] / job["task"]
-                if destination.exists() and destination.resolve() != archive.resolve():
-                    shutil.copytree(destination, archive)
+                archive = destination
                 def read_json(name):
                     """A harness killed at the wall clock can leave a truncated file; treat it as absent."""
                     file = archive / name
@@ -331,8 +324,7 @@ def main():
                     stats["cost_usd"] = None
                     if archive.exists():
                         save(archive / "stats.json", stats)
-                scores = [float(evaluation[k]) for k in kb.SCORE_METRICS if evaluation.get(k) is not None]
-                row = {**job, "exit_code": proc.returncode, "timeout": timeout, "score": max(scores) if scores else None,
+                row = {**job, "exit_code": proc.returncode, "timeout": timeout, "score": score(evaluation),
                        "cost_usd": stats.get("cost_usd"), "seconds": time.monotonic() - started}
                 unscored = judge_unavailable(evaluation, read_json("answer.json"))
                 if unscored:

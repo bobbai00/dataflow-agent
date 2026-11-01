@@ -66,6 +66,10 @@ setsid -w bash "$S/run-env.sh" env LITELLM_BASE_URL=http://localhost:$STUB_PORT 
   || echo "smolagents-depnote runner failed"
 echo "smolagents-depnote: $(tail -n 1 "$OUT/smolagents-depnote.log" | cut -c1-120)"
 
+STATUS=0
 python3 -I "$HERE/compare.py" --wire "$S/wire" "$OUT/wire" "$BASE/smk2-longds" "$OUT/longds" --allow "${ALLOW[@]}" \
-  | tee "$OUT/compare.txt"
-echo "unmatched stub requests: $(cat "$OUT"/model-requests-*.jsonl | grep -c '"attempt": null' || true)"
+  | tee "$OUT/compare.txt" || STATUS=$?
+UNMATCHED=$(cat "$OUT"/model-requests-*.jsonl | grep -c '"attempt": null' || true)
+echo "unmatched stub requests: $UNMATCHED"
+[ "$UNMATCHED" = 0 ] || STATUS=1
+exit $STATUS

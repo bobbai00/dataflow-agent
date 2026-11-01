@@ -1,0 +1,15 @@
+You are a data scientist. Answer the following question based on the data files.
+
+Data files available (use these paths to read the data):
+[
+  "data/wildfire/input/noaa_wildfires.csv",
+  "data/wildfire/input/noaa_wildfires_variabledescrip.csv"
+]
+
+Note: All paths are relative. Some paths may contain wildcards (e.g., "folder/*" or "file-*.csv"). Use glob patterns to match and read those files.
+
+Question: According to NOAA, in Julies, are the size of a fire and the median wind speed in the area strongly correlated? The answer should be Yes or No.
+
+Answer format: The result should be a single string, either Yes or No.
+
+Your last line MUST BE: **Final Answer: <value>**
