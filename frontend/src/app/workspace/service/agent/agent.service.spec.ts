@@ -127,6 +127,10 @@ describe("AgentService", () => {
     httpMock.verify();
   });
 
+  /** The HEAD the service tracks for an agent (the value its headId stream holds). */
+  const headOf = (agentId: string): string | null =>
+    (service as any).agentStateTracking.get(agentId)?.headIdSubject.getValue() ?? null;
+
   describe("createAgent", () => {
     it("creates an agent without putting the user token in the payload", () => {
       let created: AgentInfo | undefined;
@@ -246,63 +250,6 @@ describe("AgentService", () => {
 
       expect(states[states.length - 1]).toBe(AgentState.GENERATING);
       expect(changes).toBe(0);
-    });
-  });
-
-  describe("getAgent", () => {
-    it("serves cache hits without issuing a request", () => {
-      seedAgent("agent-1");
-      let got: AgentInfo | undefined;
-
-      service.getAgent("agent-1").subscribe(a => (got = a));
-
-      httpMock.expectNone(r => r.url === "/api/agents/agent-1");
-      expect(got?.id).toBe("agent-1");
-      expect(got?.name).toBe("Bob");
-    });
-
-    it("fetches, maps and caches an unknown agent", () => {
-      let got: AgentInfo | undefined;
-      service.getAgent("agent-9").subscribe(a => (got = a));
-
-      httpMock
-        .expectOne(r => r.method === "GET" && r.url === "/api/agents/agent-9")
-        .flush({
-          id: "agent-9",
-          name: "Eve",
-          modelType: "o3",
-          state: "GENERATING",
-          createdAt: "2026-06-11T00:00:00.000Z",
-          delegate: {
-            userToken: "secret",
-            userInfo: { uid: 1, name: "u", email: "u@example.com", role: "REGULAR" },
-            workflowId: 42,
-            workflowName: "wf",
-          },
-        });
-
-      expect(got?.createdAt).toBeInstanceOf(Date);
-      expect(got?.createdAt.getTime()).toBe(new Date("2026-06-11T00:00:00.000Z").getTime());
-      expect(got?.state).toBe(AgentState.GENERATING);
-      expect(got?.delegate?.workflowId).toBe(42);
-      expect((got?.delegate as any).userToken).toBeUndefined();
-
-      // Second lookup is a cache hit.
-      let again: AgentInfo | undefined;
-      service.getAgent("agent-9").subscribe(a => (again = a));
-      httpMock.expectNone(r => r.url === "/api/agents/agent-9");
-      expect(again).toBe(got);
-    });
-
-    it("maps a 404 to a descriptive error", () => {
-      let message: string | undefined;
-      service.getAgent("ghost").subscribe({ error: (e: unknown) => (message = (e as Error).message) });
-
-      httpMock
-        .expectOne(r => r.method === "GET" && r.url === "/api/agents/ghost")
-        .flush("not found", { status: 404, statusText: "Not Found" });
-
-      expect(message).toBe("Agent with ID ghost not found");
     });
   });
 
@@ -547,7 +494,7 @@ describe("AgentService", () => {
     });
 
     describe("server events", () => {
-      it("applies an `init` frame: state, converted steps, HEAD and workflow", () => {
+      it("applies an `init` frame: state, converted steps and HEAD", () => {
         seedAgent("agent-1");
         service.activateAgent("agent-1");
         const ws = FakeWebSocket.latest();
@@ -556,14 +503,11 @@ describe("AgentService", () => {
         service.getAgentStateObservable("agent-1").subscribe(s => states.push(s));
         let steps: ReActStep[] = [];
         service.getReActStepsObservable("agent-1").subscribe(s => (steps = s));
-        let workflow: Workflow | null = null;
-        service.getWorkflowObservable("agent-1").subscribe(w => (workflow = w));
 
         emit(ws, {
           type: "init",
           state: "GENERATING",
           headId: "h1",
-          workflowContent: { operators: ["op"] },
           steps: [
             {
               messageId: "m1",
@@ -594,9 +538,7 @@ describe("AgentService", () => {
         expect(step.operatorAccess).toBeInstanceOf(Map);
         expect(step.operatorAccess?.get(0)?.viewedOperatorIds).toEqual(["v1"]);
 
-        expect(service.getHeadId("agent-1")).toBe("h1");
-        expect(workflow!.content).toEqual({ operators: ["op"] });
-        expect((service as any).agentStateTracking.get("agent-1").wsWorkflowActive).toBe(true);
+        expect(headOf("agent-1")).toBe("h1");
 
         // A follow-up status event flips only the state.
         emit(ws, { type: "state", state: "AVAILABLE" });
@@ -619,7 +561,7 @@ describe("AgentService", () => {
         });
         expect(steps.length).toBe(1);
         expect(steps[0].isEnd).toBe(false);
-        expect(service.getHeadId("agent-1")).toBe("s1");
+        expect(headOf("agent-1")).toBe("s1");
 
         // Same messageId + stepId: the existing step is replaced, not appended.
         emit(ws, {
@@ -628,7 +570,6 @@ describe("AgentService", () => {
         });
         expect(steps.length).toBe(1);
         expect(steps[0].isEnd).toBe(true);
-        expect(service.getVisibleSteps("agent-1").length).toBe(1);
 
         // Workflow content no longer rides on step frames: a separate
         // `snapshot` frame carries the DAG recorded at the new HEAD.
@@ -637,7 +578,7 @@ describe("AgentService", () => {
           step: { messageId: "m1", stepId: 2, id: "s2", timestamp: "2026-06-11T00:00:02.000Z" },
         });
         expect(steps.length).toBe(2);
-        expect(service.getHeadId("agent-1")).toBe("s2");
+        expect(headOf("agent-1")).toBe("s2");
         emit(ws, { type: "snapshot", stepId: "s2", workflow: { operators: [1] } });
         expect(workflow!.content).toEqual({ operators: [1] });
         expect((service as any).agentStateTracking.get("agent-1").wsWorkflowActive).toBe(true);
@@ -753,14 +694,14 @@ describe("AgentService", () => {
         // The server no longer resends the history with a checkout.
         emit(ws, { type: "headChange", headId: "s1", workflowContent: { operators: [{ operatorID: "a" }] } });
         expect(steps.map(s => s.id)).toEqual(["s1", "s2"]);
-        expect(service.getHeadId("agent-1")).toBe("s1");
+        expect(headOf("agent-1")).toBe("s1");
         expect(workflow!.content.operators.map(op => op.operatorID)).toEqual(["a"]);
 
         // Checking out an earlier version of a step records a restore step: it comes first, then the checkout.
         emit(ws, { type: "step", step: { ...step("r1", "s1"), role: "user" } });
         emit(ws, { type: "headChange", headId: "r1", workflowContent: { operators: [] } });
         expect(steps.map(s => s.id)).toEqual(["s1", "s2", "r1"]);
-        expect(service.getHeadId("agent-1")).toBe("r1");
+        expect(headOf("agent-1")).toBe("r1");
       });
 
       it("a checkout before the workflow was first polled keeps the agent's workflow id", () => {
@@ -853,10 +794,10 @@ describe("AgentService", () => {
         expect(workflowPersist.retrieveWorkflow).toHaveBeenCalledWith(42);
         expect(workflow).toBe(stubWorkflow);
 
-        // A snapshot carrying workflowContent flips wsWorkflowActive and
+        // A headChange carrying workflowContent flips wsWorkflowActive and
         // suppresses subsequent polls.
         FakeWebSocket.latest().onmessage!({
-          data: JSON.stringify({ type: "init", workflowContent: { operators: [] } }),
+          data: JSON.stringify({ type: "headChange", headId: "s1", workflowContent: { operators: [] } }),
         });
         workflowPersist.retrieveWorkflow.mockClear();
         vi.advanceTimersByTime(3000);
@@ -945,47 +886,6 @@ describe("AgentService", () => {
       service.setHoveredMessage("agent-1", null);
 
       expect(latest).toEqual({ viewedOperatorIds: [], addedOperatorIds: [], modifiedOperatorIds: [] });
-    });
-  });
-
-  describe("getReActStepsByOperatorAccess", () => {
-    it("collects viewing and modifying steps exactly once each", () => {
-      let result: { viewedBy: ReActStep[]; modifiedBy: ReActStep[] } | undefined;
-      service.getReActStepsByOperatorAccess("agent-1", "op-7").subscribe(r => (result = r));
-
-      httpMock
-        .expectOne(r => r.method === "GET" && r.url === "/api/agents/agent-1/react-steps")
-        .flush({
-          state: "AVAILABLE",
-          steps: [
-            {
-              messageId: "viewer",
-              timestamp: "2026-06-11T00:00:00.000Z",
-              // Two accesses mention op-7: the step must appear only once.
-              operatorAccess: {
-                "0": { viewedOperatorIds: ["op-7"], addedOperatorIds: [], modifiedOperatorIds: [] },
-                "1": { viewedOperatorIds: ["op-7"], addedOperatorIds: [], modifiedOperatorIds: [] },
-              },
-            },
-            {
-              messageId: "modifier",
-              timestamp: "2026-06-11T00:00:00.000Z",
-              operatorAccess: {
-                "0": { viewedOperatorIds: [], addedOperatorIds: [], modifiedOperatorIds: ["op-7"] },
-              },
-            },
-            {
-              messageId: "bystander",
-              timestamp: "2026-06-11T00:00:00.000Z",
-              operatorAccess: {
-                "0": { viewedOperatorIds: ["other"], addedOperatorIds: [], modifiedOperatorIds: [] },
-              },
-            },
-          ],
-        });
-
-      expect(result?.viewedBy.map(s => s.messageId)).toEqual(["viewer"]);
-      expect(result?.modifiedBy.map(s => s.messageId)).toEqual(["modifier"]);
     });
   });
 

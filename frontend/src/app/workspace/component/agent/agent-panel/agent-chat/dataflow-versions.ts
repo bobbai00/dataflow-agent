@@ -89,20 +89,6 @@ export function versionChip(version: VersionInfo): ActionChip {
   };
 }
 
-/** Every version a step's dataflow calls recorded, earliest first: each edit's, run's and show's. */
-export function stepVersions(step: Pick<ReActStep, "toolResults">): VersionInfo[] {
-  return (step.toolResults ?? []).flatMap(result => {
-    const output: unknown = result.output;
-    if (!isDataflowResult(output)) return [];
-    return output.actions.flatMap(item => {
-      const recorded = item.output as { versions?: VersionInfo[]; version?: VersionInfo } | undefined;
-      return item.status === "pending" || item.status === "skipped" || typeof recorded !== "object"
-        ? []
-        : recorded?.versions ?? (recorded?.version ? [recorded.version] : []);
-    });
-  });
-}
-
 /** A step's dataflow calls as chips: what they changed, each edit with the
  * version it made. Runs and reads are not listed; a failure shows on the row
  * instead (`dataflowFailure`). Undefined when the step made no `dataflow` call. */

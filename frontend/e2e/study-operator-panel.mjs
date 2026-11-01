@@ -18,9 +18,9 @@
  */
 
 // The canvas and the operator panel of a prepared study workflow: selecting an
-// operator marks everything upstream of it, and the panel's Summary action gets
-// the agent's summary into the panel and the chat. Prints what it finds and
-// saves screenshots.
+// operator marks everything upstream of it, and the panel's Explain action gets
+// the agent's explanation into the panel and the chat (SKIP_SUMMARY=1 skips
+// it). Prints what it finds and saves screenshots.
 //
 //   node e2e/study-operator-panel.mjs <workflow id> <operator id> <out prefix>
 //   (FE_BASE, WEB_BASE, STUDY_CU as the other scripts)

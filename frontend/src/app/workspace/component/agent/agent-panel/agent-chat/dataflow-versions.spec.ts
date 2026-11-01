@@ -26,7 +26,6 @@ import {
   isUserMessage,
   messageLabel,
   shownVersion,
-  stepVersions,
   versionLabel,
   versionNodes,
 } from "./dataflow-versions";
@@ -104,13 +103,6 @@ describe("dataflow versions in the chat", () => {
       ["add", "add kept", 2],
     ]);
     expect(dataflowChips(built)![0].title).toBe("v1: add records (make_table) · defines make_table");
-    // Its run and show are versions too, though no chip lists them.
-    expect(stepVersions(built).map(version => [version.version, version.kind])).toEqual([
-      [1, "add"],
-      [2, "add"],
-      [3, "run"],
-      [4, "show"],
-    ]);
     expect(dataflowFailure(built)).toBeUndefined();
   });
 

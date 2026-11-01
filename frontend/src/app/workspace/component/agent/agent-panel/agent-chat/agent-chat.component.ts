@@ -748,11 +748,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
     this.isDetailsModalVisible = true;
   }
 
-  public closeDetailsModal(): void {
-    this.isDetailsModalVisible = false;
-    this.selectedResponse = null;
-  }
-
   public showSystemInfo(): void {
     this.refreshSystemInfo();
     this.isSystemInfoModalVisible = true;
@@ -796,28 +791,6 @@ export class AgentChatComponent implements OnInit, AfterViewChecked, OnDestroy, 
 
   public closeSystemInfoModal(): void {
     this.isSystemInfoModalVisible = false;
-  }
-
-  public getToolResult(response: ReActStep, toolCallIndex: number): any {
-    if (!response.toolResults || toolCallIndex >= response.toolResults.length) {
-      return null;
-    }
-    const toolResult = response.toolResults[toolCallIndex];
-    return toolResult.output || toolResult.result || toolResult;
-  }
-
-  public getToolOperatorAccess(
-    response: ReActStep,
-    toolCallIndex: number
-  ): { viewedOperatorIds: string[]; modifiedOperatorIds: string[] } | null {
-    if (!response.operatorAccess) {
-      return null;
-    }
-    return response.operatorAccess.get(toolCallIndex) || null;
-  }
-
-  public hasOperatorAccess(response: ReActStep): boolean {
-    return !!response.operatorAccess && response.operatorAccess.size > 0;
   }
 
   /** Toggle the Next-Step Context preview panel. */
