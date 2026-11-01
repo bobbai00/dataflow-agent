@@ -2,7 +2,7 @@
 
 # Native mode: system prompt
 
-The prompt sent with the `dataflow(python, statements)` tool. SYSTEM_PROMPT.txt contains the exact default text; SYSTEM_PROMPT_WITH_EVIDENCE.txt adds data and flow statistics. Definitions persist; every operator invocation has isolated Python state.
+The prompt sent with the `dataflow(python, statements)` tool. SYSTEM_PROMPT.txt is the prompt rendered with no settings; an agent renders it with its own settings, which change a few numbers (such as the sample row count) and add optional sections (such as the operator doc rule). SYSTEM_PROMPT_WITH_EVIDENCE.txt adds data and flow statistics. Definitions persist; every operator invocation has isolated Python state.
 
 ````markdown
 ## 1. Role and objective

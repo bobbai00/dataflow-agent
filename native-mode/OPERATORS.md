@@ -2,7 +2,7 @@
 
 # Native mode: operators and edits
 
-Thirteen built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table.
+14 built-in operators plus public registered Python functions. Positional arguments are graph inputs; settings are keywords. Every operator returns one table.
 
 ## Edit statements
 
@@ -77,4 +77,4 @@ def adjust(table, *, factor=1):
 set doubled: adjust(records, factor=2)
 ```
 
-The receipt confirms function registration or replacement. Replacing a definition conservatively invalidates custom users, measured filters, and their descendants; execution recomputes them. Filter is a built-in measured operator using a registered predicate.
+The receipt confirms function registration or replacement. Replacing a definition invalidates the operators whose function reaches it, and their descendants; execution recomputes them. Filter is a built-in measured operator: a lambda condition, or a registered predicate with settings.

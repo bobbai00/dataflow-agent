@@ -82,38 +82,3 @@ describe("legacy join heuristics are not context evidence", () => {
     expect(text).not.toContain("Join retention");
   });
 });
-
-/** Value loss: the same idea applied to values instead of rows. */
-function coerceScenario(upNulls: number, upRows: number, outNulls: number, outRows: number): Scenario {
-  const s = buildScenario([
-    { id: "u1", stepId: 0, role: "user", messageId: "m1", content: "clean it" },
-    {
-      id: "a1",
-      stepId: 1,
-      role: "agent",
-      messageId: "m1",
-      parentId: "u1",
-      toolCalls: [{ toolName: "noop", toolCallId: "t1", input: {} }],
-      toolResults: [{ toolCallId: "t1", output: "ok", isError: false }],
-    },
-  ]);
-  const wf = makeWorkflow(
-    [
-      { id: "raw", type: "DataLoading" },
-      { id: "cleaned", type: "DataProcessing" },
-    ],
-    [["raw", "cleaned", 0]]
-  );
-  (wf.operators.find((o: any) => o.operatorID === "cleaned") as any).inputPorts = [{ portID: "input-0" }];
-  s.storage.createSnapshot("a1", wf);
-  const up: any = makeInfo(5, {});
-  up.totalRowCount = upRows;
-  up.columnStats = { amount: `null=${upNulls}, distinct=${upRows}` };
-  s.storage.setOperatorResult("a1", "raw", up);
-  const out: any = makeInfo(5, {});
-  out.totalRowCount = outRows;
-  out.columnStats = { amount: `null=${outNulls}, mean=1.0, min=0, max=2` };
-  out.inputPortShapes = [{ portIndex: 0, rows: upRows, columns: 1 }];
-  s.storage.setOperatorResult("a1", "cleaned", out);
-  return s;
-}

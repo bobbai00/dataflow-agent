@@ -373,7 +373,7 @@ function serializeTaskBody(
     }
     if (node.step.role !== "agent") continue;
 
-    lines.push(serializeTurn(node, options, createFlagsByStep.get(node.step.id)));
+    lines.push(serializeTurn(node, options));
     lines.push("");
 
     // Historical inspectResult/inspectError traces: a read-only pull's OUTPUT
@@ -571,13 +571,13 @@ function serializeUserEventInline(node: PathNode): string {
 
 /**
  * Render one agent event as `## Agent Event N` + optional `Thought:` +
- * optional `Action:` block. A native tool call renders by
+ * optional `Action:` block. A retired `deleteOperator` call renders by
  * `renderNativeToolCall`, any other in standard tool-call form by
  * `renderToolCall` — the registered tool name plus every parameter as a
  * `key: value` pair. Lossless: exactly what the model emitted. The execution
  * outcome is rendered separately as the caller's `Observation:` block.
  */
-function serializeTurn(node: PathNode, options?: AssembleContextOptions, createFlags?: Map<string, boolean>): string {
+function serializeTurn(node: PathNode, options?: AssembleContextOptions): string {
   const step = node.step;
   options?.eventStepSink?.(node.eventIndex, step);
   const lines: string[] = [];
@@ -590,11 +590,10 @@ function serializeTurn(node: PathNode, options?: AssembleContextOptions, createF
 
   // Action: the tool call(s) the model issued, in standard tool-call form via
   // renderToolCall (tool name + `key: value` params). Lossless.
-  // NATIVE typed tools render as one line, `- add filter operator \`id\`; inputs: …; properties: {…}`.
   if (step.toolCalls && step.toolCalls.length > 0) {
     lines.push("Action:");
     for (const tc of step.toolCalls) {
-      const nativeLines = renderNativeToolCall(tc, createFlags);
+      const nativeLines = renderNativeToolCall(tc);
       if (nativeLines) {
         lines.push(...nativeLines);
         continue;
@@ -607,49 +606,14 @@ function serializeTurn(node: PathNode, options?: AssembleContextOptions, createF
 }
 
 /**
- * NATIVE typed tool call as one Action line in the agreed shape:
- *   `- add filter operator \`web_fraud\`; inputs: contributors; properties: {"predicate":"…"}`
- *   `- modify join operator \`pairs\`; inputs: left = a, right = b; properties: {…}`
- *   `- delete operator \`x\``
- * A udf's code renders as an indented block under its line. Returns undefined
- * for non-native tools (the generic renderer handles those).
+ * A `deleteOperator` call of the retired typed operator tools (older traces) as
+ * one Action line: `- delete operator \`x\``. Returns undefined for every
+ * other tool (the generic renderer handles those).
  */
-function renderNativeToolCall(
-  tc: { toolName: string; input?: unknown },
-  createFlags?: Map<string, boolean>
-): string[] | undefined {
+function renderNativeToolCall(tc: { toolName: string; input?: unknown }): string[] | undefined {
   const inp = (tc.input ?? {}) as Record<string, unknown>;
-  if (tc.toolName === TOOL_NAME_DATAFLOW && Array.isArray(inp.actions)) {
-    return [
-      "- dataflow",
-      `  reasoning: ${String(inp.reasoning ?? "")}`,
-      ...JSON.stringify(inp.actions, null, 2)
-        .split("\n")
-        .map(line => `  ${line}`),
-    ];
-  }
-  const edits = typeof inp.edits === "string" ? inp.edits : typeof inp.program === "string" ? inp.program : undefined;
-  if (tc.toolName === TOOL_NAME_DATAFLOW && edits !== undefined) {
-    // The statements exactly as written; the receipt below says what landed.
-    const lines = ["- dataflow"];
-    // The model's stated intent and expectation, as written (dataflowReasoning).
-    if (typeof inp.reasoning === "string" && inp.reasoning.trim())
-      lines.push(`  reasoning: ${inp.reasoning.trim().replace(/\s*\n\s*/g, " ")}`);
-    if (Array.isArray(inp.delete) && inp.delete.length) lines.push(`  delete: ${JSON.stringify(inp.delete)}`);
-    const text = edits.trim();
-    if (text) {
-      lines.push("  edits:");
-      for (const l of text.split("\n")) lines.push(`    ${l}`);
-    } else
-      lines.push(Array.isArray(inp.delete) && inp.delete.length ? "  edits: (none)" : "  edits: (empty: cached read)");
-    // Describe the submitted action, not an inferred default: saved receipts
-    // from older runs may have resolved an omitted observe differently.
-    lines.push(`  observe: ${Array.isArray(inp.observe) ? JSON.stringify(inp.observe) : "omitted"}`);
-    return lines;
-  }
   const id = typeof inp.id === "string" ? inp.id : "";
   if (tc.toolName === "deleteOperator" && id) return [`- delete operator \`${id}\``];
-  void createFlags;
   return undefined;
 }
 

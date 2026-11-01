@@ -47,9 +47,8 @@ import type { TraceStore, TraceTurnEnd } from "../trace/trace-store";
 import { AgentState as AgentStateEnum, DEFAULT_AGENT_SETTINGS } from "../types/agent";
 import { buildRegisteredNativeSystemPrompt, withSessionInstructions } from "./prompts";
 import { TOOL_NAME_DELETE_OPERATOR } from "./tools/workflow-crud-tools";
-import { asNativeBatchResult, batchObservedIds, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
+import { asNativeBatchResult, TOOL_NAME_DATAFLOW } from "./tools/native-batch-tools";
 import { NativeCatalogSettingsError, validateNativeSettings } from "./native/settings";
-import { formatNativeDiagnostic } from "./native/diagnostics";
 import { requestFilePath } from "./native/turn-syntax";
 import {
   REPEATED_FAILURE_LIMIT,
@@ -686,12 +685,6 @@ export class TexeraAgent {
     return order;
   }
 
-  /** 1-based global turn number for a messageId, or undefined if unknown. */
-  turnNumberOf(messageId: string): number | undefined {
-    const i = this.turnOrder().indexOf(messageId);
-    return i < 0 ? undefined : i + 1;
-  }
-
   getCurrentMessageId(): string | undefined {
     return this.currentMessageId;
   }
@@ -1139,7 +1132,6 @@ export class TexeraAgent {
           systemPrompt: this.systemPrompt,
           tools: this.tools,
           maxSteps,
-          requireShownResult: true,
           resultShown: () => this.resultShownFor(messageId),
           abortSignal: this.abortController?.signal,
           prepareStep: async ({ stepNumber, messages: _currentMessages }) => {
@@ -1909,7 +1901,7 @@ export class TexeraAgent {
     // `runPostStepExecution` immediately after a step's actions run. That
     // doesn't fire during import — without this pass the snapshot tree's
     // workflow is faithful but every snapshot's `results` map stays empty,
-    // so callers (the dashboard, the agent's own context assembler if the
+    // so callers (the agent panel, the agent's own context assembler if the
     // import is followed by `sendMessage`) see no operator state.
     //
     // The agent service's context assemblers already serialized that state

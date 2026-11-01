@@ -18,8 +18,8 @@
  */
 
 // What a participant sees when the facilitator opens a prepared study workflow: the
-// agent panel's tabs (and whether the workflow's agent is usable), the chat's steps
-// and the canvas. Prints them and saves a screenshot.
+// always-open agent panel (the workflow's agent, or the registration form when it has
+// none), the chat's steps and the canvas. Prints them and saves a screenshot.
 //
 //   node e2e/study-open-agent.mjs <workflow id> <out.png>   (FE_BASE, WEB_BASE, STUDY_CU as the other scripts)
 import { chromium } from "playwright";

@@ -41,8 +41,3 @@ case class CachedPortUsage(
     tupleCount: Option[Long],
     sourceExecutionId: Option[Long]
 )
-
-/**
-  * Websocket event that surfaces cache metadata matched for the current execution.
-  */
-case class CacheUsageUpdateEvent(cachedOutputs: List[CachedPortUsage]) extends TexeraWebSocketEvent

@@ -1,231 +1,245 @@
-# Retrieval views and automatic flow evidence
+# Retrieval views, statistics and runtime stats
 
-Native agents choose a view on each `show result` statement of a `dataflow`
-call:
+`show result` displays a computed result in one of two views. `sample_stats`
+shows a few records plus column statistics; `full` shows every record that
+fits a character cap. With `flowEvidence` on, receipts also carry
+`- runtime stats:` lines, facts the engine measured while operators ran.
+`show result` first computes what is stale, then renders from the result the
+agent already holds; the read itself never executes, so changing the view
+never recomputes. The statements themselves are in
+[Registered Python Dataflows](native-registered-python-design.md).
 
-```json
-{"python": "", "statements": "show result joined, checks sample_stats"}
+## Reading a result
+
+```text
+show result joined, checks
+show result joined full
+show result wide[Beach Name, "Sample Date"]
+show schema wide from 200
 ```
 
-`show result joined, checks` uses the default enabled view; an explicit suffix
-such as `show result joined, checks full` selects another. The statement first
-computes stale targets, then reads them; reading itself never executes.
-`show schema joined from 200` follows a schema page's `next_offset`; the offset
-is a zero-based column index.
+Without a view, `show result` uses `sample_stats` when the session offers it,
+else `full`. The view applies to every target, and each target has its own
+status and result block, so a missing or stale target does not hide the
+others. A column selection (`[...]`) takes one target; a name that holds a
+comma, or spaces at either end, must be quoted, and an unknown name fails with
+`UNKNOWN_COLUMN` and the result's column list. Statistics then cover only the
+selected columns.
 
-A `show result` statement reads a nonempty list of operator IDs. The view and
-optional columns (`show result joined[name, total]`) apply to every target;
-each target has its own status and result block, so a missing or stale target
-does not hide valid reads. Use separate statements when results need different
-views or column selections.
+`show schema <id>` computes a missing or stale result first, then reads its
+stored schema regardless of record and statistics budgets: up to 200 columns
+and 20,000 characters per page, with `next_offset` (a zero-based column index)
+when more remain. A scanned workbook's receipt lists its sheet names;
+`scan(..., sheet='name')` reads one.
 
-| View | Records | Data statistics |
-| --- | --- | --- |
-| `full` | All retained records that fit `fullResultCharLimit`, without sample cell clipping | None |
-| `sample_stats` | Records within `maxOperatorResultCharLimit` and `maxResultRows` | Available column/table evidence within its own 2,000-character budget |
+## The two views
 
-Every receipt reports the view, returned/total rows and columns, completeness,
-and the producing result version. A capped `full` view is explicitly incomplete.
-Backend cell truncation or unavailable records also prevents a completeness
-claim. Samples use the existing stored-record selection, not uniform sampling.
-Statistics retain their full/partial coverage and unknown-value labels; complete
-small tables suppress redundant data statistics.
+| View | Records | Statistics |
+|---|---|---|
+| `sample_stats` | at most `maxResultRows` rows (default 3; 0 means no row cap) within `maxOperatorResultCharLimit` characters (default 2,000); text cells clipped at 160 characters | column statistics within their own 2,000 characters |
+| `full` | every retained row within `fullResultCharLimit` characters (default 5,000); cells not clipped | none |
 
-Every view labels scan previews as source previews, even if all preview rows
-fit. That completeness refers to the preview output, not the source file.
-`sample_stats` reports collected row/column coverage and explicitly identifies
-unavailable statistics. Raw-line tables need parsing before column statistics
-are meaningful; repeated raw lines are not reported as duplicate data records.
-The collector profiles every row of each worker's output, for up to 128
-columns: counts, ranges and distinct counts are exact, and value lists are kept
-for columns with at most 256 distinct values.
-If profiling measured no rows of a nonempty table, its data statistics are
-marked unavailable. Independently measured operator counters remain usable.
+A result's records start with a `columns:` line and a caption, for example
+`records: sample_stats; 3 of 10,012 rows, 8 of 8 columns (first and last
+retained records; … marks omitted rows)`. The caption's notes say what is
+missing:
 
-The default views are `sample_stats` and `full`. The prompt starts with samples
-and statistics; when they suffice, no full read is needed. Project relevant
-columns and compute aggregates in the graph before requesting individual
-records. The default full display cap is 5,000 characters. Workbook header
-inspection uses a one-row preview; increasing its length reads data rows from
-each sheet as well.
+- `complete`: every row and column is shown, nothing was clipped, and the
+  engine transported the whole table. Only then is a result complete.
+- `all rows`: every row, but not every column or cell.
+- `first and last retained records; … marks omitted rows` (preceded by `one
+  row per cell pattern, then` when patterns chose rows), or `retained records,
+  not a random sample`: a sample.
+- `cut at N characters`, `N clipped cells`, `columns requested`,
+  `first N rows; the whole table exceeds N characters` (`fullPreviewRows`),
+  and `source preview only` (a `scan(..., preview=n)`, whose completeness
+  refers to the preview, not the source file).
 
-For complete column discovery, use `show schema <id>`. This reads the stored
-result schema independently of record and statistics budgets, in pages of up to
-200 columns, and returns `next_offset` when more columns remain; it computes a
-missing or stale result first. For workbook discovery, run `scan(..., preview=1)`
-and `show result`: the receipt lists the workbook's sheet names, and
-`scan(..., sheet='name')` reads one. Raw preview rows are layout hints, not a
-parsed schema.
+A sample takes one row of each cell pattern (missing, number-like or text per
+column; common patterns first, the all-missing one last) when the table has a
+few repeating patterns, then rows alternately from the head and the tail of
+the retained rows, and shows them in table order with `…` gaps
+(`native/observation-format.ts`). If no row of a wide sample fits the budget,
+columns are dropped, keeping first the ones this operator and the operators
+downstream of it use. Records with more than `keyValueColumns` columns
+(default 12) are written one `column: value` line per field; `tableFormat`
+chooses a Markdown or tab-separated table. A chart's HTML is replaced by a
+placeholder naming its size.
 
-Data statistics describe an explicitly requested operator's output table.
-`flowEvidence` independently exposes operator runtime measurements: filter
-retention and rejections, join matches and unmatched keys, cast failures, scan diagnostics, and aggregate
-denominators. Execution receipts report each newly executed operator's own
-measurements even when its table was not requested. Retrieval adds bounded
-summaries from the requested operator's producing ancestors. Its 2,000-character
-budget is independent of the record and data-statistics budgets.
-The measurements describe executed operations; they do not certify that the
-calculation answers the task.
+## Data statistics
 
-Text receipts deduplicate flow facts only after the final renderer actually
-prints them. A target's own measurements appear beside its displayed result;
-omitted upstream blocks cannot cause later facts to become dangling references.
-References name a visible operator earlier in the same receipt. Table statistics
-and flow measurements remain independently enabled and budgeted in both transports.
+Statistics appear only in `sample_stats` (`native/evidence.ts`,
+`selectNativeObservation`):
 
-Traversal follows exact producing input versions, visits at most 32 nodes to
-depth eight, and selects at most three ancestor summaries within the flow
-budget. It can cross custom Python operators because their input dependencies
-are explicit. Measurements from before custom processing are labeled with
-unknown row/column correspondence to the requested output; graph ancestry does
-not prove that particular rows survived. Stale, failed, or unbound results do
-not contribute ancestor measurements.
+```text
+statistics: full table, 10,012 of 10,012 rows, 8 of 8 columns
+| column | type | nulls | distinct | values |
+```
 
-The measured filter contract is `filter(t, predicate="name", settings={})`.
-The named registered function receives a read-only row mapping and returns True,
-False, or a scalar missing value. True retains the row; False/null rejects it,
-with null verdicts counted separately. Output columns and retained row order
-are preserved. The execution records columns actually read by the predicate.
-Filtering inside an unrestricted table function remains opaque, as do custom
-pandas joins and conversions: they do not inherit built-in filter/join/cast
-measurements. Names and docstrings cannot establish those semantics.
+`values` holds the range of a numeric or datetime column, never clipped, and
+up to four frequent values (`all:` when they are every value, else `top:` with
+the remaining count marked `not exhaustive`), each clipped at 40 characters. A
+partial profile says `partial profile` and that its values describe profiled
+rows only. Columns that do not fit the 2,000-character budget are left out; a
+note follows when the table has duplicate rows, all-null rows or all-null
+columns. Instead of a table the block says:
 
-### Bounded failure and key examples
+- `statistics: not shown; the complete records above show every value` when
+  the records are complete;
+- `statistics: unavailable for raw lines; parse them into columns first` for a
+  table of raw text lines;
+- `statistics: unavailable for this result` when there is no valid profile, or
+  the profile covered no rows of a nonempty table.
 
-With profile collection enabled, Filter retains three first-encountered distinct
-source values for each of up to eight predicate-read columns, plus their counts
-and the remaining `otherCount`. Counts cover **all rejected rows**, including
-null-verdict drops, even if a column was read only conditionally. Null is distinct
-from a literal `"null"` string. These distributions do not establish why an
-individual row was rejected.
+With `dataHygiene` on, an incomplete `full` view adds a line naming the
+columns that hold nulls, with their counts. The statistics describe the
+requested table; they do not show that the computation answers the task.
 
-Cast retains examples for at most eight
-converted columns: the first three distinct failed values, their occurrence
-counts, and the remaining failure count. Join retains up to three eligible
-unmatched keys and three duplicate keys on each side. These are examples in
-encounter order, not random samples or the most frequent values. Counts use
-the original typed values. Display clipping never changes conversion, key
-identity, join matching or counts.
+### Where statistics come from
 
-Examples use the lossless scalar encoding, including decimal strings for
-large int64 values and UTC timestamps. Unrepresentable values are omitted
-from examples while their failures remain in the counters. Text is capped at
-96 characters and compound keys at eight components; clipped examples are labeled. Join null
-keys follow `nullsEqual`: excluded null keys contribute to the existing
-null/unmatched-row counters, but are not eligible-key examples.
+1. With `nativeProfileCollection` on (the default), every operator is compiled
+   with a `profileCollection` flag. The flag is fixed once a workflow has
+   operators; changing it needs a fresh agent and workflow.
+2. In the amber Python worker, `_publish_table_profile`
+   (`amber/src/main/python/core/runnables/data_processor.py`) feeds each
+   DataFrame the operator yields to a `ProfileAccumulator`
+   (`amber/src/main/python/core/util/table_profile.py`). Counts, nulls,
+   ranges and distinct counts are exact over every row the worker yields, for
+   up to 128 columns. A column keeps its value list (and so its frequent
+   values) only while it has at most 256 distinct values of at most 192
+   characters each; the top 8 are sent. The envelope (`protocol:
+   "texera.table-profile"`) also carries the runtime's operation counters, is
+   limited to 64 KiB, and travels under a reserved key in the worker's
+   statistics.
+3. The synchronous execution endpoint
+   (`amber/src/main/scala/org/apache/texera/web/resource/SyncExecutionResource.scala`)
+   returns the envelopes as each operator's `resultMetadata`.
+4. The agent merges the workers' envelopes (`mergeTableProfiles` in
+   `agent-service/src/agent/native/profiles.ts`), checks them against the
+   result's row count, schema and operator revision, and keeps the profile
+   with the result as `OperatorInfo.tableProfile`
+   (`agent-service/src/agent/native/result-versions.ts`): in memory, and in
+   the agent's SQLite trace store unless `AGENT_TRACE_DB=off`, from which a
+   restored agent reloads it. Nothing writes statistics to the data lake; the
+   Postgres column `operator_port_cache.result_statistics_json`
+   (`sql/texera_ddl.sql`) is unused.
 
-Direct retrieval can show these diagnostics within the flow budget. Selected
-upstream summaries include Cast failures/examples, Join coverage and short
-unmatched-key examples, and Window lag/lead offsets and boundary-null counts.
-All refer to the producing result versions. Invalid or absent examples do
-not suppress valid counters; old profiles remain readable. The collector
-drops optional witnesses before other profile information when its payload
-budget is exceeded and records `native_witness_payload_budget`.
+When the engine serves a result from its port cache, the agent takes no
+profile from the response: it reuses the profile of the matching earlier
+result it holds, and without one the statistics are unavailable. A profile is
+partial only when a worker's envelope is missing or unfinished. With several
+workers, distinct counts merge through the value lists, and duplicate-row
+counts and operation counters are dropped.
 
-The prompt uses synthetic fields and operator contracts to illustrate
-retrieval and repair. A failed conversion does not prescribe a cleaning rule;
-unmatched or duplicate keys do not automatically justify normalization or
-deduplication. Those choices depend on the task and source definitions.
+The envelope still names its algorithm `bounded-exact-v1` with
+`rowSelection: "prefix"`, and the agent's schema requires those values. They
+are labels kept from when profiles could stop after a row prefix; profiles now
+always cover the whole table, and the bound applies to value lists and payload
+size, not rows. The prompt's statistics paragraph still says profiles "may
+cover only a row prefix".
 
-## Session settings
+## Runtime stats
+
+With `flowEvidence` on, the prompt explains `- runtime stats:` lines and
+receipts carry them. They come from the operation counters in the table
+profile, so they also need profile collection.
+
+- An `## execute` or `## show result` section lists each operator that just
+  ran with its own lines.
+- `## show result` adds up to three summaries of the target's producing
+  ancestors, as `- runtime stats (<id>): ...`. The walk follows the exact
+  input result versions that produced the target, visits at most 32
+  operators, and stops at depth 8. It passes through custom functions; a fact
+  from before one is labeled `Before custom processing; row/column
+  correspondence to this output unknown`. Stale, failed or unbound results
+  contribute nothing.
+- The lines share a 2,000-character budget, separate from records and
+  statistics; `- note: flow facts omitted (budget).` marks the rest. Within one
+  receipt a fact already printed is not printed again.
+
+A line reports only what an operator's definition does not already say.
+Matched and unmatched join counts, kept and rejected filter counts and group
+sizes are recorded but not shown. What is shown:
+
+| Operator | Runtime stats |
+|---|---|
+| `filter` | rows dropped by a None verdict; rejected text values that equal a literal of the condition or a kept value except for case, spacing, punctuation or leading zeros, or that contain a literal; when no row passed a test for literals, the values that reached it |
+| `join` | left keys that match a right key only when written alike, with up to three pairs; a join that matched no key, with a key from each side |
+| `cast` with `errors="null"` | values that could not be converted, with up to three first-encountered examples |
+| `aggregate` | a group key that pools rows with different values of another column; input records repeated across sources, or repeats in a column that otherwise identifies rows; rows marked as excluded that are still counted |
+| `distinct` | removed rows that differ in other columns, or that share an empty key |
+| `scan` | source files without data rows; records listed in several files |
+| `project` | a dropped exclusion-mark column whose marked rows stay in the table |
+| `window`, `union`, `unpivot`, `pivot` | ties beyond the first, columns filled with null, retained null cells, absent cells |
+| custom functions | inside the function (with cell and line): merges and `.map` lookups whose keys match only when written alike, merges or row selections that return no rows, concatenations that list records several times, `drop_duplicates` removing rows that differ; records listed in several of the files it read; a file with several same-named columns of which it read only some; repeated values in an output column that otherwise identifies rows |
+
+Examples are first-encountered values, not top values or random samples.
+Long values are clipped and labeled; clipping never changes counting or key
+matching. The measurements describe what ran; they do not establish why a row
+was rejected or that a fix is right.
+
+## Settings
+
+The retrieval and evidence settings, with their defaults
+(`DEFAULT_AGENT_SETTINGS` in `agent-service/src/types/agent.ts`):
 
 ```json
 {
-  "nativeProfileCollection": true,
   "retrievalViews": ["sample_stats", "full"],
   "fullResultCharLimit": 5000,
   "maxOperatorResultCharLimit": 2000,
-  "maxResultRows": 5,
-  "flowEvidence": true
+  "maxResultRows": 3,
+  "nativeProfileCollection": true,
+  "dataEvidence": true,
+  "flowEvidence": false,
+  "tableFormat": "markdown",
+  "keyValueColumns": 12,
+  "fullPreviewRows": 0,
+  "compactRecords": false,
+  "dataHygiene": false
 }
 ```
 
-`retrievalViews` determines the enum exposed in the strict tool schema. A
-single-element list creates a fixed-view experimental arm. The system prompt
-describes only the enabled views, their budgets and the enabled evidence.
-Unavailable views reject the entire action envelope before any edits run.
+- `retrievalViews` is a nonempty list of unique `full` and `sample_stats`. It
+  decides which views the parser accepts and which the prompt describes; a
+  call naming another view is rejected before anything runs. `["full"]` turns
+  data statistics off.
+- `fullResultCharLimit` is an integer from 128 to 100,000.
+- The statistics and runtime-stats budgets are fixed at 2,000 characters each
+  (`EVIDENCE_CHAR_LIMIT` in `native/retrieval.ts`).
+- `dataEvidence` is accepted and reported but changes nothing a model sees:
+  statistics depend only on the view.
+- `fullPreviewRows` caps a `full` view of a table that exceeds its budget at
+  its first rows (0 shows as many as fit); tables read from files, previews and
+  column selections are not capped. `compactRecords` drops the `columns:` line
+  when the statistics list every column with its type.
 
-If `retrievalViews` is omitted, the default exposes `sample_stats` and `full`.
-Explicit `retrievalViews` controls availability; the legacy `dataEvidence`
-boolean does not change it. Thus `dataEvidence: false` alone is not a data-off
-configuration. In the native action interface, data statistics are shown only
-when the selected view is `sample_stats`. Historical runs must use their
-recorded revisions.
+Every execution fetches each result up to 100,000 characters (20,000 per cell),
+whatever the view and the display caps, so switching views or raising a cap
+never executes. Raising a cap cannot recover rows the engine did not send;
+such results stay labeled incomplete. The view never changes the graph, the
+result version or the engine's cache key.
 
-The three new character limits default to 5,000 / 2,000 / 2,000 respectively
-and accept integers from 128 through 100,000. `maxResultRows: 0` leaves sample
-size bounded only by characters. Row limits apply to `sample_stats` only.
+## Experiment arms
 
-## Storage, execution and history
+`benchmark/retrieval/run.py` runs the arms in
+`benchmark/retrieval/configuration.py`. `evidence_full_flow{0,1}` offer only
+`full`; `evidence_data1_flow{0,1}` offer `sample_stats` and `full`; the flow
+digit sets `flowEvidence`. The runner keeps `nativeProfileCollection` on for
+every arm, so the arms differ in what the model sees, not in what the engine
+collects. It sets its own budgets (`--full-result-char-limit`, default 5,000;
+`--sample-char-limit`, default 1,000, as `maxOperatorResultCharLimit`;
+`maxResultRows` 3), so read an arm's recorded settings, not the service
+defaults. The other arms in that file vary the observation format on top of
+`evidence_data1_flow0`.
 
-Every native execution retains results up to 100,000 characters, independently
-of `fullResultCharLimit` and the available views. A smaller display cap therefore
-preserves the bounded materialization for later reads. Native cell transport uses up to 20,000 characters,
-the backend ceiling. This implementation fetches the bounded result during
-execution; Retrieve renders it without a backend execution or a new row fetch.
-Increasing a limit later does not recover records absent from an earlier
-materialization. Incomplete observations remain labeled as such.
+## Code and tests
 
-The selected view never changes the graph, producing version, or cache key.
-DELTA receipts preserve every action's exact observation. Snapshot views retain
-the last successful observation per operator in the call, provided no later
-action invalidated that result. Profile collection is separate from exposure
-and must be configured before operators are created.
-
-Native timings remain saved telemetry rather than automatic model-facing
-evidence. With collection enabled, `native.operations.timing.operatorBodyMs`
-measures successful operator work, definition replay, source I/O, and native
-counters. The optional `filterRejectedValuesMs` is a separately measured pass
-excluded from body time. Profile `cost.collectionMs` measures accumulation;
-optional `cost.snapshotMs` measures building its immutable summary. These fields
-exclude input/output validation, JSON encoding/trimming, transfer, and persistence.
-Unknown phases remain absent; cached results keep their original measurements.
-
-## Experiments
-
-The campaign driver in `benchmark/retrieval/run.py` runs the arms defined in
-`benchmark/retrieval/configuration.py`. It records actual settings, prompt,
-schema, traces, producing versions, official KramaBench scores and costs. The
-original task evaluator is unchanged; full pass means official score >= 1.0.
-Independent repetitions retain failures and use no outcome-selected retries.
-
-The matched `evidence_full_flow{0,1}` and `evidence_data1_flow{0,1}` arms read only
-`full` when data is off and offer `sample_stats`/`full` when it is on, with flow
-independently toggled. All four collect full-row profiles internally, so they
-compare exposure rather than profiling overhead. Pass
-`--full-result-char-limit 5000` to use the current service display cap; the
-runner's historical default remains 100,000. Current inspection/filter
-contracts do not change the interpretation of frozen earlier campaigns.
-
-```bash
-benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py \
-  --output .claude/artifacts/retrieval-pilot-20261001 \
-  --endpoint http://localhost:3075 --repetitions 2
-```
-
-Use an agent service frozen at the recorded revision. The six default tasks
-are diagnostic cases for large tables, parsing, joins and sampling mistakes;
-they are not a representative accuracy estimate for all 104 KramaBench tasks.
-Freeze task selection before viewing results, retain every outcome, and inspect
-traces to distinguish information effects from errors or changes in strategy.
-Report cache-aware model costs separately from evaluator and engine overhead.
-
-Summarize a completed run:
-
-```bash
-benchmark/Kramabench/.venv/bin/python benchmark/retrieval/analyze.py .claude/artifacts/retrieval-pilot-20261001
-```
-
-The [2026-10-01 pilot report](../benchmark/retrieval/results/20261001.txt)
-records all 192 attempts, official scores, costs and limitations. It used the
-frozen agent at `ab1020138`. A header-clipping issue discovered in its traces
-was subsequently fixed in `84eb8579d`; the saved-result replay validates the
-rendering fix without attributing unmeasured accuracy or cost changes to it.
-
-The [large-data audit and pilot](../benchmark/retrieval/results/20261001-large.txt)
-uses three complete original tasks selected by input size, five settings and
-both models (30 attempts, one repetition). Sample statistics reduced recorded
-model cost relative to full retrieval by 54% for Luna and 48% for Terra. They
-did not increase full passes over sample-only in this pilot. Flow evidence had
-mixed results. The report includes source checks, cache checks, repaired
-timestamp serialization, the exact served prompt and remaining model errors.
+In `agent-service/src/agent/`: `native/retrieval.ts` (views and budgets),
+`native/observation-format.ts` (records), `native/evidence.ts` and
+`native/evidence-lineage.ts` (statistics, runtime stats, the ancestor walk),
+`native/profiles.ts` (profile merge), `native/turn-receipt.ts` (receipts).
+Tests: `native/retrieval.test.ts`, `native/evidence*.test.ts`,
+`native/profiles.test.ts`, `native/observation-format.test.ts`,
+`native/observation-integration.test.ts`, and, in amber,
+`amber/src/test/python/core/util/test_table_profile.py`.

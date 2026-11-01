@@ -21,7 +21,6 @@ import { env } from "../config/env";
 import type { AgentInfo, AgentSettingsApi, ReActStep } from "../types/agent";
 import type { WorkflowContent } from "../types/workflow";
 import type { NativeObservation } from "../agent/native/evidence";
-import type { NativeErrorQuery, NativeErrorSummary } from "../agent/native/diagnostics";
 
 /**
  * Client for the agent-service's own HTTP + WebSocket surface.
@@ -88,14 +87,6 @@ export async function deleteAgent(agentId: string, baseUrl?: string): Promise<vo
   }
 }
 
-export async function clearAgentHistory(agentId: string, baseUrl?: string): Promise<void> {
-  const response = await fetch(`${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/clear`, { method: "POST" });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to clear agent ${agentId}: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-}
-
 export async function getReActSteps(agentId: string, baseUrl?: string): Promise<{ steps: ReActStep[]; state: string }> {
   const response = await fetch(`${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/react-steps`);
   if (!response.ok) {
@@ -114,40 +105,6 @@ export interface AgentSnapshot {
   results: Record<string, unknown>;
   /** Event-pinned V2 successful observations, including selection audit data. */
   nativeObservations?: Record<string, NativeObservation>;
-}
-
-export interface AgentErrorInspection {
-  found: boolean;
-  text: string;
-  summary?: NativeErrorSummary;
-}
-
-/** Read a bounded diagnostic using the caller's current workflow permission.
- * No token in URL/body and no fallback to the service's delegated credential. */
-export async function inspectAgentError(
-  agentId: string,
-  query: NativeErrorQuery,
-  userToken: string,
-  baseUrl?: string
-): Promise<AgentErrorInspection> {
-  const response = await fetch(`${agentBase(baseUrl)}/${encodeURIComponent(agentId)}/inspect-error`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${userToken}` },
-    body: JSON.stringify(query),
-  });
-  if (!response.ok && response.status !== 404)
-    throw new Error(`Diagnostic inspection failed (HTTP ${response.status}).`);
-  const body = await response.json();
-  if (
-    !body ||
-    typeof body !== "object" ||
-    !("found" in body) ||
-    typeof body.found !== "boolean" ||
-    !("text" in body) ||
-    typeof body.text !== "string"
-  )
-    throw new Error(`Diagnostic inspection unavailable (HTTP ${response.status}).`);
-  return body as AgentErrorInspection;
 }
 
 export interface CurrentWorkflowResponse {

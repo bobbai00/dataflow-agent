@@ -123,7 +123,7 @@ describe("the snapshot storage keeps one version per action", () => {
     });
   });
 
-  test("a completed step takes no more versions; pruning and clearing drop them", () => {
+  test("a completed step takes no more versions; clearing drops them", () => {
     const store = new WorkflowSnapshotStorage(path);
     store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } });
     store.createSnapshot("B", workflow(["a"]));
@@ -135,8 +135,6 @@ describe("the snapshot storage keeps one version per action", () => {
     expect(() => store.recordVersions("B", [{ action: edit("delete", "c"), workflow: workflow(["a", "b"]) }])).toThrow(
       "Cannot change a completed snapshot"
     );
-    store.pruneOrphans(new Set(["A"]));
-    expect(store.getSnapshotTreeNodes().map(node => node.reactStepId)).toEqual([undefined, "A"]);
     store.clear();
     expect(store.createSnapshot("A", workflow(["a"]), { action: { kind: "start", author: "agent" } }).version).toBe(0);
   });

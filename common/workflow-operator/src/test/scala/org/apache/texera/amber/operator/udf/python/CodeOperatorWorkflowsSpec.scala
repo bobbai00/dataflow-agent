@@ -38,8 +38,8 @@ import java.nio.file.{Files, Path, Paths}
   *    wrapper containing the expected framework class
   *  - confirms link payloads connect ports by parameter index
   *
-  * Per-test results are written to `tests/<test>/result.json` so the
-  * top-level RESULTS.md can aggregate them.
+  * Per-test results are written to `tests/<test>/result.json` (git-ignored)
+  * for inspection.
   */
 class CodeOperatorWorkflowsSpec extends AnyFunSuite {
 

@@ -34,7 +34,7 @@ import type { ProfileColumn, ProfileScalar } from "./profiles";
 import { nativeWitnessSchema, type NativeWitness } from "./profiles";
 import { boundInputs, downstreamRelevantColumns } from "./evidence-lineage";
 import type { RetrievalView } from "../../types/agent";
-import { compactNativeObservation, type NativeColumnCount, type NativeUpstreamIdentity } from "./evidence-compaction";
+import type { NativeColumnCount, NativeUpstreamIdentity } from "./evidence-compaction";
 
 export interface NativeEvidenceContext {
   op: OperatorPredicate;
@@ -56,7 +56,6 @@ export interface NativeEvidenceFact {
   text: string;
   priority: number;
   columnCount?: NativeColumnCount;
-  coveredCount?: NativeColumnCount;
   upstream?: NativeUpstreamIdentity;
 }
 
@@ -103,7 +102,6 @@ export interface NativeObservation {
   }>;
 }
 
-const own = (obj: object, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
 const record = (x: unknown): Record<string, any> =>
   x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, any>) : {};
 const count = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
@@ -491,7 +489,7 @@ function collectLocalEvidence(context: NativeEvidenceContext): {
     kind: NativeEvidenceFact["kind"],
     text: string,
     priority: number,
-    metadata: Pick<NativeEvidenceFact, "columnCount" | "coveredCount"> = {}
+    metadata: Pick<NativeEvidenceFact, "columnCount"> = {}
   ) =>
     facts.push({
       id,

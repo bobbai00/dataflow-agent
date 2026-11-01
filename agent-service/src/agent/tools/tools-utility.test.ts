@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createErrorResult, formatExecuteOperatorResult, getVisibleResultHeaders } from "./tools-utility";
+import { getVisibleResultHeaders } from "./tools-utility";
 
 describe("getVisibleResultHeaders", () => {
   test("returns every key when no internal columns are present", () => {
@@ -51,21 +51,5 @@ describe("getVisibleResultHeaders", () => {
 
   test("returns an empty array when only internal columns are present", () => {
     expect(getVisibleResultHeaders({ __row_index__: 0, __is_visualization__: true })).toEqual([]);
-  });
-});
-
-describe("createErrorResult", () => {
-  test("wraps the error with the [ERROR] prefix", () => {
-    expect(createErrorResult("boom")).toBe("[ERROR] boom");
-  });
-
-  test("keeps the prefix even for empty error text", () => {
-    expect(createErrorResult("")).toBe("[ERROR] ");
-  });
-});
-
-describe("formatExecuteOperatorResult", () => {
-  test("renders the operator id in the standard executed message", () => {
-    expect(formatExecuteOperatorResult("op-1")).toBe("Executed operator op-1");
   });
 });

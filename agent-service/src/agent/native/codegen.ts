@@ -167,13 +167,6 @@ export async function validateNativeOperators(
   return definitions.map((_, i) => (results[i]?.ok ? undefined : results[i]?.diagnostic));
 }
 
-/** Single-definition form of {@link validateNativeOperators}; throws the
- * diagnostic in the `NATIVE_ERROR_V2:` envelope the receipts understand. */
-export async function validateNativeOperator(view: NativeOpView, operatorId: string): Promise<void> {
-  const [diagnostic] = await validateNativeOperators([{ id: operatorId, view }]);
-  if (diagnostic) throw new Error(`NATIVE_ERROR_V2:${JSON.stringify(diagnostic)}`);
-}
-
 export function compileNativeOp(view: NativeOpView, operatorId = "operator"): CompiledNativeOp {
   const def = NATIVE_BY_TYPE.get(view.type);
   if (!def) throw new Error(`unknown native operator type "${view.type}"`);

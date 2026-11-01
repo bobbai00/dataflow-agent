@@ -23,7 +23,7 @@ import { formatOperatorResult } from "../tools/result-formatting";
 import { WorkflowState } from "../workflow-state";
 import type { OperatorPredicate } from "../../types/workflow";
 import type { OperatorInfo } from "../../types/execution";
-import { REPAIR_HINTS, formatNativeDiagnostic, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
+import { REPAIR_HINTS, nativeDiagnosticIssue, sanitizeDiagnosticText, type NativeDiagnostic } from "./diagnostics";
 import { WorkflowSnapshotStorage } from "../workflow-snapshot-storage";
 import { assembleContext } from "../util/context-utils";
 import type { ReActStep } from "../../types/agent";
@@ -135,20 +135,6 @@ test("V2 failures never echo the embedded runtime, including process operators",
     expect(rendered).not.toContain("line 999");
     expect(rendered).not.toContain("NATIVE_ERROR_V2");
   }
-});
-
-test("a long V2 diagnostic has a separate bounded detail budget and explicit omissions", () => {
-  const { diagnostic } = fixture();
-  diagnostic.message += " detail".repeat(2000);
-  diagnostic.field = "field".repeat(1000);
-  diagnostic.source!.excerpt = "very_long_user_line".repeat(2000);
-  const rendered = formatNativeDiagnostic(diagnostic);
-  expect(rendered.length).toBeLessThanOrEqual(1400);
-  expect(rendered).toContain("CALLBACK_RUNTIME");
-  expect(rendered).toContain("execute");
-  expect(rendered).toContain(revision);
-  expect(rendered).toContain("division by zero");
-  expect(rendered).toContain("omitted");
 });
 
 test("V2 opaque infrastructure errors do not masquerade as callback/syntax failures", () => {
@@ -324,8 +310,8 @@ describe("error taxonomy rendering", () => {
     expect(codes.size).toBeGreaterThan(40);
   });
 
-  test("a runtime diagnostic renders code, stage, revision, cause, hint and the offending argument", () => {
-    const text = formatNativeDiagnostic({
+  test("a runtime diagnostic renders code, cause, hint and the offending argument", () => {
+    const text = nativeDiagnosticIssue({
       version: 1,
       operatorId: "joined",
       operatorRevision: "abc123",
@@ -334,14 +320,14 @@ describe("error taxonomy rendering", () => {
       message: "how must be one of 'inner', 'left', 'right', 'full', 'cross', got 'semi'.",
       field: "how",
     });
-    expect(text).toStartWith("[JOIN_ARGUMENT; validate; revision abc123]");
+    expect(text).toStartWith("- error JOIN_ARGUMENT: ");
     expect(text).toContain("got 'semi'");
-    expect(text).toContain("Hint: how is inner/left/right/full/cross");
-    expect(text).toContain("Field: how");
+    expect(text).toContain("  - fix: how is inner/left/right/full/cross");
+    expect(text).toContain("  - at: how");
   });
 
   test("a callback failure renders the failing line of the submitted function", () => {
-    const text = formatNativeDiagnostic({
+    const text = nativeDiagnosticIssue({
       version: 1,
       operatorId: "cleaned",
       operatorRevision: "abc123",
@@ -351,8 +337,8 @@ describe("error taxonomy rendering", () => {
       field: "columns[0].func",
       source: { entry: "apply", line: 2, excerpt: "    return row['Acres'] * 2" },
     });
-    expect(text).toContain("Field: columns[0].func");
-    expect(text).toContain("apply line 2: return row['Acres'] * 2");
-    expect(text).toContain("Hint: Check the input's columns and correct the column name.");
+    expect(text).toContain("  - at: apply line 2: ");
+    expect(text).toContain("return row['Acres'] * 2");
+    expect(text).toContain("  - fix: Check the input's columns and correct the column name.");
   });
 });

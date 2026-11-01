@@ -560,13 +560,6 @@ export class AgentService {
         if (message.headId !== undefined) {
           tracking.headIdSubject.next(message.headId);
         }
-        // Handle initial workflow content from agent service (ground truth)
-        if (message.workflowContent) {
-          tracking.wsWorkflowActive = true;
-          tracking.workflowSubject.next(
-            this.agentWorkflow(tracking, message.workflowContent, message.workflowMetadata)
-          );
-        }
         // Handle initial operator results
         if (message.operatorResults) {
           this.updateOperatorResultSummaries(message.operatorResults);
@@ -657,9 +650,7 @@ export class AgentService {
         // Update workflow content from agent service (ground truth)
         if (message.workflowContent) {
           tracking.wsWorkflowActive = true;
-          tracking.workflowSubject.next(
-            this.agentWorkflow(tracking, message.workflowContent, message.workflowMetadata)
-          );
+          tracking.workflowSubject.next(this.agentWorkflow(tracking, message.workflowContent));
         }
         // Update operator results on HEAD change
         if (message.operatorResults) {
@@ -699,17 +690,15 @@ export class AgentService {
   }
 
   /**
-   * The agent's workflow with the content a frame carries, under the metadata
-   * the frame sends or the last known. Before the first poll has brought the
+   * The agent's workflow with the content a frame carries, under the last
+   * known metadata. Before the first poll has brought the
    * workflow (a checkout right after the page opens), the agent's workflow id
    * is still known: without it the canvas would take the content for another,
    * new workflow, load it untitled and save it as one.
    */
-  private agentWorkflow(tracking: AgentStateTracking, content: any, metadata?: Partial<Workflow>): Workflow {
+  private agentWorkflow(tracking: AgentStateTracking, content: any): Workflow {
     const known =
-      metadata ||
-      tracking.workflowSubject.getValue() ||
-      (tracking.workflowId !== undefined ? { wid: tracking.workflowId } : {});
+      tracking.workflowSubject.getValue() || (tracking.workflowId !== undefined ? { wid: tracking.workflowId } : {});
     const operators = Array.isArray(content?.operators)
       ? withNativeRuntime(content.operators, tracking.nativeRuntime)
       : content?.operators;
@@ -829,14 +818,6 @@ export class AgentService {
   }
 
   /**
-   * Get the workflow ID associated with an agent.
-   */
-  public getAgentWorkflowId(agentId: string): number | undefined {
-    const agent = this.agents.get(agentId);
-    return agent?.delegate?.workflowId;
-  }
-
-  /**
    * Create a new agent with the specified model type.
    * The user's JWT travels in the Authorization header (added by the JWT
    * interceptor), which the agent service requires for delegate mode.
@@ -895,42 +876,6 @@ export class AgentService {
           this.notificationService.error(errorMsg);
           return throwError(() => new Error(errorMsg));
         })
-      );
-    });
-  }
-
-  /**
-   * Get an agent by ID.
-   */
-  public getAgent(agentId: string): Observable<AgentInfo> {
-    return defer(() => {
-      const agent = this.agents.get(agentId);
-      if (agent) {
-        return of(agent);
-      }
-
-      // Fetch from API if not in cache
-      return this.http.get<ApiAgentInfo>(`${this.AGENT_API_BASE}/agents/${agentId}`, this.agentHeaders(agentId)).pipe(
-        map(response => {
-          const agentInfo: AgentInfo = {
-            id: response.id,
-            name: response.name,
-            modelType: response.modelType,
-            createdAt: new Date(response.createdAt),
-            state: this.mapStateToAgentState(response.state),
-            delegate: response.delegate
-              ? {
-                  userInfo: response.delegate.userInfo,
-                  workflowId: response.delegate.workflowId,
-                  workflowName: response.delegate.workflowName,
-                }
-              : undefined,
-            settings: response.settings,
-          };
-          this.agents.set(response.id, agentInfo);
-          return agentInfo;
-        }),
-        catchError(() => throwError(() => new Error(`Agent with ID ${agentId} not found`)))
       );
     });
   }
@@ -1042,13 +987,6 @@ export class AgentService {
   }
 
   /**
-   * Get the count of active agents.
-   */
-  public getAgentCount(): Observable<number> {
-    return of(this.agents.size);
-  }
-
-  /**
    * Send a message to an agent via WebSocket.
    * The message is sent through the WebSocket connection for real-time streaming.
    */
@@ -1156,28 +1094,6 @@ export class AgentService {
   }
 
   /**
-   * Resolve the workflow + visible operator results at a given step via the
-   * agent's snapshot storage. `stepId` may be the literal "head" to read at
-   * the agent's current HEAD without an extra round trip.
-   */
-  public getSnapshot(
-    agentId: string,
-    stepId: string
-  ): Observable<{
-    stepId: string;
-    workflow: any | null;
-    workflowSourceStepId: string | null;
-    results: Record<string, any>;
-  }> {
-    return this.http.get<{
-      stepId: string;
-      workflow: any | null;
-      workflowSourceStepId: string | null;
-      results: Record<string, any>;
-    }>(`${this.AGENT_API_BASE}/agents/${agentId}/snapshots/${stepId}`, this.agentHeaders(agentId));
-  }
-
-  /**
    * Fetch the agent's workflow-snapshot tree — every snapshot node, its
    * parent link, and the ReAct step that produced it. Drives the snapshot
    * tree shown on the left of the agent chat panel. Returns an empty tree on
@@ -1250,13 +1166,6 @@ export class AgentService {
   }
 
   /**
-   * Check if an agent is connected.
-   */
-  public isAgentConnected(agentId: string): Observable<boolean> {
-    return this.getAgentState(agentId).pipe(map(state => state !== AgentState.UNAVAILABLE));
-  }
-
-  /**
    * Get HEAD step ID observable for an agent.
    */
   public getHeadIdObservable(agentId: string): Observable<string | null> {
@@ -1272,14 +1181,6 @@ export class AgentService {
   public getNextContextObservable(agentId: string): Observable<string> {
     const tracking = this.getOrCreateStateTracking(agentId);
     return tracking.nextContextSubject.asObservable();
-  }
-
-  /**
-   * Get current HEAD step ID for an agent.
-   */
-  public getHeadId(agentId: string): string | null {
-    const tracking = this.agentStateTracking.get(agentId);
-    return tracking ? tracking.headIdSubject.getValue() : null;
   }
 
   /**
@@ -1332,14 +1233,6 @@ export class AgentService {
   /** The workflow the agent shows at HEAD, as last received. */
   public getCurrentWorkflow(agentId: string): Workflow | null {
     return this.agentStateTracking.get(agentId)?.workflowSubject.getValue() ?? null;
-  }
-
-  /**
-   * Get visible steps for an agent (current snapshot).
-   */
-  public getVisibleSteps(agentId: string): ReActStep[] {
-    const tracking = this.agentStateTracking.get(agentId);
-    return tracking ? tracking.reActStepsSubject.getValue() : [];
   }
 
   /**
@@ -1405,36 +1298,6 @@ export class AgentService {
   ): Observable<{ viewedOperatorIds: string[]; addedOperatorIds: string[]; modifiedOperatorIds: string[] }> {
     const tracking = this.getOrCreateStateTracking(agentId);
     return tracking.hoveredMessageSubject.asObservable();
-  }
-
-  /**
-   * Get ReActSteps that viewed or modified a specific operator.
-   */
-  public getReActStepsByOperatorAccess(
-    agentId: string,
-    operatorId: string
-  ): Observable<{ viewedBy: ReActStep[]; modifiedBy: ReActStep[] }> {
-    return this.getReActSteps(agentId).pipe(
-      map(allSteps => {
-        const viewedBy: ReActStep[] = [];
-        const modifiedBy: ReActStep[] = [];
-
-        for (const step of allSteps) {
-          if (step.operatorAccess) {
-            step.operatorAccess.forEach(access => {
-              if (access.viewedOperatorIds.includes(operatorId) && !viewedBy.includes(step)) {
-                viewedBy.push(step);
-              }
-              if (access.modifiedOperatorIds.includes(operatorId) && !modifiedBy.includes(step)) {
-                modifiedBy.push(step);
-              }
-            });
-          }
-        }
-
-        return { viewedBy, modifiedBy };
-      })
-    );
   }
 
   /**

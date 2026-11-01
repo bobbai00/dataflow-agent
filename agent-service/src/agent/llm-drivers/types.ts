@@ -85,11 +85,10 @@ export interface DriverRunTurnInput {
   tools: Record<string, any>;
   /** Hard cap on the number of model turns per `sendMessage` invocation. */
   maxSteps: number;
-  /** The final answer is a reply without a tool call, accepted once a result
+  /** Whether a result of this task has been displayed (a retrieval succeeded).
+   *  The final answer is a reply without a tool call, accepted once a result
    *  of this task has been shown. Before that, such a reply is a lapse the
    *  agent corrects. */
-  requireShownResult?: boolean;
-  /** Whether a result of this task has been displayed (a retrieval succeeded). */
   resultShown?: () => boolean;
   abortSignal?: AbortSignal;
   prepareStep: DriverPrepareStep;

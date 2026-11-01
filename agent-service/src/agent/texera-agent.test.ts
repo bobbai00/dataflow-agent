@@ -1018,7 +1018,7 @@ describe("TexeraAgent.initialize(delegateConfig) — delegate bootstrap", () => 
   });
 
   test("uniform error persistence: sibling op errors land in storage, not just the requested op", async () => {
-    // Drives executeOperatorAndFormat through createExecuteOperatorTool, with
+    // Drives the initial whole-workflow run (executeWorkflowAndPersist) with
     // a mixed-success backend response (one op succeeds with rows, sibling
     // errors). Both must be persisted at HEAD.
     const wf = workflowWith(["primary", "sibling"]);

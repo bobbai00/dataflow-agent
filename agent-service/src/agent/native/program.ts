@@ -18,13 +18,11 @@
  */
 
 /**
- * From a program to operator definitions.
+ * From a parsed statement to an operator definition: the catalog's normalize
+ * plus Ajv give one NativeOpView per statement (registered.ts parses the
+ * statements and calls normalizeStatement on each).
  *
- *   program text ──python/program_parser.py──▶ statements + functions
- *                ──catalog normalize + Ajv──▶ one NativeOpView per statement
- *
- * A syntax error fails the whole program (there is nothing to apply). An
- * argument error fails only its statement; the other statements still carry
+ * An argument error fails only its statement; the other statements still carry
  * a view, and the failed one carries an `attempted` view so the receipt can
  * pin a diagnostic to exactly what was written.
  */
@@ -42,17 +40,6 @@ import {
 } from "./catalog";
 import { nativeRevision } from "./codegen";
 
-/** One statement (or def) that did not parse or is not `name = operator(...)`.
- * Reported at its line; the rest of the program is unaffected. */
-export interface ProgramSyntaxError {
-  line: number;
-  column?: number | null;
-  message: string;
-  /** The assigned name when the broken statement has one (`x = ...`), else null. */
-  id?: string | null;
-  source?: string;
-}
-
 export interface ProgramStatement {
   id: string;
   op: string;
@@ -63,14 +50,6 @@ export interface ProgramStatement {
   error?: { message: string; field?: string };
   /** What was written, for diagnostics — identical to `view` when it exists. */
   attempted: NativeOpView;
-}
-
-export interface ProgramResult {
-  ok: true;
-  statements: ProgramStatement[];
-  functions: Record<string, ParsedFunction>;
-  /** Statements that did not parse, in line order; the others were compiled. */
-  errors: ProgramSyntaxError[];
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false });

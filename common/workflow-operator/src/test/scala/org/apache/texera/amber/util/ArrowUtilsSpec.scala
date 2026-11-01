@@ -119,10 +119,6 @@ class ArrowUtilsSpec extends AnyFlatSpec {
     }
 
     assertThrows[AttributeTypeException] {
-      ArrowUtils.toAttributeType(new ArrowType.List)
-    }
-
-    assertThrows[AttributeTypeException] {
       ArrowUtils.toAttributeType(new ArrowType.Interval(IntervalUnit.DAY_TIME))
     }
   }

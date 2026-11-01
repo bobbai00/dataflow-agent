@@ -19,6 +19,5 @@
 
     "noEmit": true
   },
-  "include": ["src/**/*", "benchmark/**/*.ts"],
-  "exclude": ["src/dashboard/web/**", "src/dashboard/dist/**"]
+  "include": ["src/**/*", "benchmark/**/*.ts"]
 }

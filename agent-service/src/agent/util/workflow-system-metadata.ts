@@ -18,102 +18,11 @@
  */
 
 import Ajv from "ajv";
-import { fetchOperatorMetadata, type OperatorSchema, type OperatorMetadata } from "../../api/backend-api";
-import type { ValidationError, Validation } from "../../types/workflow";
+import { fetchOperatorMetadata, type OperatorMetadata } from "../../api/backend-api";
+import type { Validation } from "../../types/workflow";
 import { createLogger } from "../../logger";
 
 const log = createLogger("WorkflowSystemMetadata");
-
-export type { ValidationError, Validation } from "../../types/workflow";
-
-interface OperatorSchemaInfo {
-  properties: any;
-  required: any;
-  definitions: any;
-}
-
-interface CompactOperatorSchema {
-  properties: Record<string, any>;
-  required: string[];
-}
-
-const FILTERED_PROPERTY_KEYS = ["dummyPropertyList"];
-
-const FILTERED_DEFINITION_KEYS = [
-  "DummyProperties",
-  "PortDescription",
-  "HashPartition",
-  "RangePartition",
-  "SinglePartition",
-  "BroadcastPartition",
-  "UnknownPartition",
-];
-
-const COMPACT_SCHEMA_EXCLUDED_KEYS = ["propertyOrder", "autofill", "autofillAttributeOnPort", "attributeTypeRules"];
-
-function filterObjectKeys(obj: any, keysToExclude: string[]): any {
-  if (!obj || typeof obj !== "object") {
-    return obj;
-  }
-  const filtered: any = {};
-  for (const key of Object.keys(obj)) {
-    if (!keysToExclude.includes(key)) {
-      filtered[key] = obj[key];
-    }
-  }
-  return filtered;
-}
-
-function inlineRefs(schema: any, definitions: Record<string, any>): any {
-  if (!schema || typeof schema !== "object") {
-    return schema;
-  }
-
-  if (schema.$ref && typeof schema.$ref === "string") {
-    const refPath = schema.$ref.replace("#/definitions/", "");
-    const refDef = definitions[refPath];
-    if (refDef) {
-      return inlineRefs(refDef, definitions);
-    }
-    return schema;
-  }
-
-  if (Array.isArray(schema)) {
-    return schema.map(item => inlineRefs(item, definitions));
-  }
-
-  const result: any = {};
-  for (const [key, value] of Object.entries(schema)) {
-    if (COMPACT_SCHEMA_EXCLUDED_KEYS.includes(key)) {
-      continue;
-    }
-    if (typeof value === "object" && value !== null) {
-      result[key] = inlineRefs(value, definitions);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-function getCompactSchema(jsonSchema: any): CompactOperatorSchema | null {
-  try {
-    const properties = filterObjectKeys(jsonSchema.properties, FILTERED_PROPERTY_KEYS);
-    const definitions = filterObjectKeys(jsonSchema.definitions, FILTERED_DEFINITION_KEYS) || {};
-
-    const compactProperties: Record<string, any> = {};
-    for (const [propName, propSchema] of Object.entries(properties || {})) {
-      compactProperties[propName] = inlineRefs(propSchema, definitions);
-    }
-
-    return {
-      properties: compactProperties,
-      required: jsonSchema.required || [],
-    };
-  } catch {
-    return null;
-  }
-}
 
 // Matches the frontend ValidationWorkflowService Ajv configuration.
 const ajv = new Ajv({ allErrors: true, strict: false });
@@ -121,10 +30,9 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 /**
  * Process-wide singleton cache of operator metadata fetched from the backend.
  *
- * Holds each operator type's JSON schema, description, and additional
- * metadata, plus a compact schema variant used in system prompts and error
- * messages. Exposes Ajv-backed property validation that matches the
- * frontend's `ValidationWorkflowService` configuration.
+ * Holds each operator type's JSON schema and additional metadata, and
+ * exposes Ajv-backed property validation that matches the frontend's
+ * `ValidationWorkflowService` configuration.
  */
 export class WorkflowSystemMetadata {
   private static instance: WorkflowSystemMetadata | null = null;
@@ -145,7 +53,6 @@ export class WorkflowSystemMetadata {
   }
 
   private schemas: Map<string, any> = new Map();
-  private descriptions: Map<string, string> = new Map();
   private additionalMetadata: Map<string, any> = new Map();
   private initialized = false;
 
@@ -164,10 +71,6 @@ export class WorkflowSystemMetadata {
   loadFromMetadata(metadata: OperatorMetadata): void {
     for (const op of metadata.operators) {
       this.schemas.set(op.operatorType, op.jsonSchema);
-      this.descriptions.set(
-        op.operatorType,
-        op.additionalMetadata.operatorDescription || op.additionalMetadata.userFriendlyName
-      );
       this.additionalMetadata.set(op.operatorType, op.additionalMetadata);
     }
   }
@@ -181,8 +84,8 @@ export class WorkflowSystemMetadata {
    * compile to (`DataLoading` and `DataProcessing`), but only for types not
    * already known. Backend-loaded metadata always wins — this is just a
    * fallback so graph edits can land operators when the Texera backend is
-   * unreachable (most commonly: when the dashboard imports a trace into a
-   * fresh agent service that boots without its backend cluster up).
+   * unreachable (most commonly: when a trace is imported into a fresh agent
+   * service that boots without its backend cluster up).
    *
    * The seeded `additionalMetadata` gives DataLoading 0 input ports and
    * DataProcessing 1. The JSON schema accepts a `code` string and nothing
@@ -202,7 +105,6 @@ export class WorkflowSystemMetadata {
         type: "object",
         properties: { code: { type: "string" } },
       });
-      this.descriptions.set(type, friendly);
       this.additionalMetadata.set(type, {
         userFriendlyName: friendly,
         operatorGroupName: "code",
@@ -221,46 +123,12 @@ export class WorkflowSystemMetadata {
     return this.schemas.get(operatorType);
   }
 
-  getDescription(operatorType: string): string {
-    return this.descriptions.get(operatorType) || "";
-  }
-
   getAdditionalMetadata(operatorType: string): any | undefined {
     return this.additionalMetadata.get(operatorType);
   }
 
-  getAllOperatorTypes(): Record<string, string> {
-    const result: Record<string, string> = {};
-    for (const [type, desc] of this.descriptions) {
-      result[type] = desc;
-    }
-    return result;
-  }
-
-  getCompactSchema(operatorType: string): CompactOperatorSchema | null {
-    const schema = this.schemas.get(operatorType);
-    if (!schema) return null;
-    return getCompactSchema(schema);
-  }
-
-  getAllSchemasAsJson(): string {
-    const result: Record<string, OperatorSchemaInfo> = {};
-    for (const [type, schema] of this.schemas) {
-      result[type] = {
-        properties: filterObjectKeys(schema.properties, FILTERED_PROPERTY_KEYS),
-        required: schema.required,
-        definitions: filterObjectKeys(schema.definitions, FILTERED_DEFINITION_KEYS),
-      };
-    }
-    return JSON.stringify(result, null, 2);
-  }
-
   getOperatorCount(): number {
     return this.schemas.size;
-  }
-
-  operatorTypeExists(operatorType: string): boolean {
-    return this.schemas.has(operatorType);
   }
 
   validateOperatorProperties(operatorType: string, properties: Record<string, any>): Validation {
@@ -290,20 +158,4 @@ export class WorkflowSystemMetadata {
       return { isValid: false, messages: { error: `Validation error: ${e}` } };
     }
   }
-}
-
-export function formatValidationErrors(validation: Validation): string {
-  if (validation.isValid) return "";
-  const errorMessages = Object.entries(validation.messages).map(([key, msg]) => `${key}: ${msg}`);
-  return errorMessages.join("; ");
-}
-
-export function formatCompactSchemaForError(compactSchema: CompactOperatorSchema): string {
-  const requiredProps: Record<string, any> = {};
-  for (const key of compactSchema.required) {
-    if (compactSchema.properties[key]) {
-      requiredProps[key] = compactSchema.properties[key];
-    }
-  }
-  return `required: [${compactSchema.required.join(", ")}], properties: ${JSON.stringify(requiredProps)}`;
 }

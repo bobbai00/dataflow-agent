@@ -189,12 +189,6 @@
                     style="margin: 0; font-size: 11px"
                     >~{{ item.tokenCount }} tokens</nz-tag
                   >
-                  <nz-tag
-                    *ngIf="item.isTrimmed"
-                    nzColor="volcano"
-                    style="margin: 0; font-size: 11px; font-weight: 600"
-                    >TRIMMED</nz-tag
-                  >
                 </span>
               </span>
             </ng-template>
@@ -273,12 +267,6 @@
                     nzColor="default"
                     style="margin: 0; font-size: 11px"
                     >~{{ item.tokenCount }} tokens</nz-tag
-                  >
-                  <nz-tag
-                    *ngIf="item.isTrimmed"
-                    nzColor="volcano"
-                    style="margin: 0; font-size: 11px; font-weight: 600"
-                    >TRIMMED</nz-tag
                   >
                 </div>
                 <pre

@@ -173,15 +173,12 @@ export class VercelToolUseDriver implements LLMDriver {
     // not the model deciding to stop.
     if (result.finishReason === "content-filter" && !result.text.trim() && !result.toolCalls.length)
       throw new ProviderRefusalError();
-    if (input.requireShownResult) {
-      const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
-      // The answer is a reply without a tool call once a result was shown;
-      // before that the reply computed nothing, and the agent corrects it.
-      if (textOnly && result.text.trim() && input.resultShown?.()) return completed;
-      // A reply cut at the output limit is not an answer either; the model gets another call.
-      const cut = result.finishReason === "length" && !result.toolCalls.length;
-      throw new MissingAnswerActionError(completed, (textOnly || cut) && result.steps.length < input.maxSteps, cut);
-    }
-    return completed;
+    const textOnly = result.finishReason === "stop" && !result.toolCalls.length;
+    // The answer is a reply without a tool call once a result was shown;
+    // before that the reply computed nothing, and the agent corrects it.
+    if (textOnly && result.text.trim() && input.resultShown?.()) return completed;
+    // A reply cut at the output limit is not an answer either; the model gets another call.
+    const cut = result.finishReason === "length" && !result.toolCalls.length;
+    throw new MissingAnswerActionError(completed, (textOnly || cut) && result.steps.length < input.maxSteps, cut);
   }
 }

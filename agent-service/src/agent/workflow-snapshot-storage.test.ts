@@ -117,7 +117,7 @@ describe("immutable native definitions across snapshots", () => {
     expect(first.workflow.operatorPositions).toEqual({});
   });
 
-  test("changed definitions get their own immutable copy on creation and during a pending edit", () => {
+  test("changed definitions get their own immutable copy on creation", () => {
     const store = new WorkflowSnapshotStorage(makeAbcdPath());
     const input = nativeWorkflow();
     const first = store.createSnapshot("A", input);
@@ -129,19 +129,12 @@ describe("immutable native definitions across snapshots", () => {
     expect(second.workflow).toEqual(edited);
     expect(second.workflow.operators[0]).not.toBe(first.workflow.operators[0]);
     expect(second.workflow.operators[1] === first.workflow.operators[1]).toBe(true);
-    const secondSource = second.workflow.operators[0];
-    edited.operators[1].operatorProperties.code = "changed summary";
-    edited.operators[1].nativeOp!.revision = "summary-v2";
-    store.updatePendingWorkflow("B", edited);
-    expect(second.workflow).toEqual(edited);
-    expect(second.workflow.operators[0] === secondSource).toBe(true);
-    expect(second.workflow.operators[1]).not.toBe(first.workflow.operators[1]);
     expect(JSON.stringify(first.workflow)).toBe(original);
     expect(() => {
       first.workflow.operators[1].operatorProperties.code = "illegal mutation";
     }).toThrow();
-    edited.operators[1].operatorProperties.code = "later caller mutation";
-    expect(second.workflow.operators[1].operatorProperties.code).toBe("changed summary");
+    edited.operators[0].operatorProperties.code = "later caller mutation";
+    expect(second.workflow.operators[0].operatorProperties.code).toBe("changed source");
   });
 
   test("mutable legacy definitions are never shared between snapshots", () => {
@@ -248,17 +241,17 @@ describe("WorkflowSnapshotStorage — operator results (snapshot-resolved)", () 
     expect(() => s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 1))).toThrow(/no snapshot owned by this step/);
   });
 
-  test("getResolvedOperatorResult preserves the originating step through inheritance", () => {
+  test("a result entry keeps its originating step through inheritance", () => {
     const s = new WorkflowSnapshotStorage(makeAbcdPath());
     s.createSnapshot("A", emptyWorkflow());
     s.setOperatorResult("A", "op1", makeOperatorInfo("op1", 7));
     s.createSnapshot("B", emptyWorkflow()); // B inherits op1 from A by reference
 
-    const fromB = s.getResolvedOperatorResult("B", "op1");
-    expect(fromB?.value.totalRowCount).toBe(7);
+    const fromB = s.getAssociatedSnapshot("B").results.get("op1");
+    expect(fromB?.info.totalRowCount).toBe(7);
     expect(fromB?.sourceStepId).toBe("A"); // earned at A, even when read from B
 
-    const fromC = s.getResolvedOperatorResult("C", "op1");
+    const fromC = s.getAssociatedSnapshot("C").results.get("op1");
     expect(fromC?.sourceStepId).toBe("A"); // also via the action-less C → B → A walk
   });
 
@@ -691,21 +684,6 @@ describe("WorkflowSnapshotStorage — housekeeping", () => {
     expect(s.getOperatorResult("X", "op1")).toBeUndefined();
     expect(s.hasSnapshotFor("X")).toBe(false);
   });
-
-  test("pruneOrphans drops snapshots whose owning step is no longer live", () => {
-    const s = new WorkflowSnapshotStorage((id: string) => (id === "Y" ? ["X", "Y"] : [id]));
-    s.createSnapshot("X", makeWorkflow(["op1"]));
-    s.createSnapshot("Y", makeWorkflow(["op2"]));
-    s.createSnapshot("Z", makeWorkflow(["op3"])); // orphan
-
-    s.pruneOrphans(new Set(["X", "Y"]));
-
-    // Z no longer owns a snapshot → reads at Z resolve to the empty root.
-    expect(s.hasSnapshotFor("Z")).toBe(false);
-    expect(s.getWorkflow("Z").operators).toEqual([]);
-    expect(s.getWorkflow("Y")?.operators.length).toBe(1); // op2's snapshot kept
-    expect(s.getWorkflow("X")?.operators.length).toBe(1);
-  });
 });
 
 describe("WorkflowSnapshotStorage — results off HEAD's path on disk", () => {
@@ -749,7 +727,7 @@ describe("WorkflowSnapshotStorage — results off HEAD's path on disk", () => {
     const back = storage.getOperatorResult("B", "b")!;
     expect(back.result).toEqual(withRows("b", 5).result);
     expect(Object.isFrozen(back)).toBe(true);
-    expect(storage.getResolvedOperatorResult("B", "a")?.sourceStepId).toBe("A");
+    expect(storage.getAssociatedSnapshot("B").results.get("a")?.sourceStepId).toBe("A");
     // Read back, it stays until the next compact decides.
     expect(storage.getOperatorResult("B", "b")).toBe(back);
     storage.compact(storage.getAssociatedSnapshot("C").id);

@@ -140,8 +140,6 @@ class TexeraWebSocketEventSpec extends AnyFlatSpec with Matchers {
     ),
     "ConsoleUpdateEvent" -> ConsoleUpdateEvent("op-console", Seq(consoleMessage)),
     "CacheStatusUpdateEvent" -> CacheStatusUpdateEvent(Map("op-cache" -> "cache valid")),
-    "CacheUsageUpdateEvent" -> CacheUsageUpdateEvent(List.empty),
-    "CacheEntryUpdateEvent" -> CacheEntryUpdateEvent("op-cache:out-0", "hash", Some(3L), 2L),
     "PaginatedResultEvent" -> PaginatedResultEvent(
       "req-1",
       "op-2",
@@ -192,8 +190,6 @@ class TexeraWebSocketEventSpec extends AnyFlatSpec with Matchers {
     "WebResultUpdateEvent",
     "ConsoleUpdateEvent",
     "CacheStatusUpdateEvent",
-    "CacheUsageUpdateEvent",
-    "CacheEntryUpdateEvent",
     "PaginatedResultEvent",
     "PythonExpressionEvaluateResponse",
     "WorkerAssignmentUpdateEvent",
