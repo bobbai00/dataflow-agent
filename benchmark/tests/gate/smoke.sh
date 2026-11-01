@@ -32,6 +32,14 @@ GATEWAY=${GATEWAY:-$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4000))}
 PORT=$TEXERA_AGENT_SERVICE_PORT
 export STACK_DIR=$S
 
+# A rejected provider key would otherwise run every attempt to a recorded failure and exit 0.
+status=$(bash "$S/run-env.sh" bash -c 'curl -s -o /dev/null -w "%{http_code}" "http://localhost:$0/v1/chat/completions" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" -H "Content-Type: application/json" \
+  -d "{\"model\": \"claude-haiku-5.5\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}"' "$GATEWAY")
+case $status in
+  401|403) echo "the gateway refuses claude-haiku-5.5 (HTTP $status): check ANTHROPIC_API_KEY in .env and $S/infra.env"; exit 1;;
+esac
+
 pid=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); [ -n "$pid" ] && kill "$pid" && sleep 2
 "$W/benchmark/campaign/start-agent.sh"
 for _ in $(seq 1 60); do curl -sf "localhost:$PORT/api/healthcheck" >/dev/null && break; sleep 1; done

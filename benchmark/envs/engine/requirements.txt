@@ -11,10 +11,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # The packages of the interpreter every paper run's engine ran the model's code on, the checkout's .venv (the stack's
-# NATIVE_ISOLATED_PYTHON), exactly as frozen after those runs. `uv sync --all-extras` gives the locked subset of it: a
-# few newer versions and 40 more packages, which were installed into that .venv by hand on 2026-09-29..10-03 and which
-# the model's code imports (nrlmsise00, pyatmos and astropy on the astronomy tasks, bs4). bench setup kramabench
-# installs what the .venv lacks; a later `uv sync` removes them again.
+# NATIVE_ISOLATED_PYTHON), exactly as frozen after those runs. `uv sync --all-extras` gives most of it. These were
+# installed into that .venv by hand on 2026-09-29..10-03: 38 more packages and newer beautifulsoup4 and psutil. The
+# model's code imports some of them (nrlmsise00, pyatmos and astropy on the astronomy tasks, bs4). bench setup installs
+# what the .venv lacks; a later `uv sync` removes them again.
 absl-py==2.4.0
 affine==3.0.1
 aiobotocore==2.25.1
