@@ -13,28 +13,16 @@
 """Campaign scheduling and trace integrity checks, without live model calls."""
 from concurrent.futures import ThreadPoolExecutor
 import json
-import importlib.util
 from pathlib import Path
 import tempfile
 import threading
 import unittest
 
-from benchmark.retrieval.campaign import ResourceQueue, audit_attempt, prepare_artifacts, install_provider_prices
+from bobbench.audit import audit_dataflow as audit_attempt
+from bobbench.runner import ResourceQueue, judge_unavailable
 
 
 class CampaignTests(unittest.TestCase):
-    def test_sonnet_prices_charge_each_token_class_once_and_keep_other_models(self):
-        path = Path(__file__).resolve().parents[1] / "Kramabench/systems/cost_utils.py"
-        spec = importlib.util.spec_from_file_location("cost_fixture", path)
-        cost = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cost)
-        before = cost.price_schedule("claude-haiku-4.5")
-        frozen = install_provider_prices(cost, ["claude-haiku-4.5", "claude-sonnet-5.5"])
-        self.assertAlmostEqual(cost.compute_cost("claude-sonnet-5.5", 1000, 20, 800, 100), 0.00081)
-        self.assertEqual(cost.price_schedule("claude-haiku-4.5"), before)
-        self.assertEqual(set(frozen), {"claude-sonnet-5.5"})
-        self.assertEqual(frozen["claude-sonnet-5.5"]["rates"]["output"], 10e-6)
-        self.assertIn("platform.claude.com", frozen["claude-sonnet-5.5"]["source"])
 
     def test_large_tasks_wait_while_small_tasks_continue(self):
         jobs = [{"task": task} for task in ["large-a", "large-b", "small"]]
@@ -55,15 +43,6 @@ class CampaignTests(unittest.TestCase):
         work.done(jobs[2])
         self.assertIsNone(work.get())
 
-    def test_artifacts_have_one_copy_and_existing_runs_are_protected(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            source, archive = root / "kb", root / "out"
-            prepare_artifacts(source, archive, ["SUT"])
-            (source / "SUT" / "trace.json").write_text("trace")
-            self.assertEqual((archive / "SUT" / "trace.json").read_text(), "trace")
-            with self.assertRaises(FileExistsError):
-                prepare_artifacts(source, archive, ["SUT"])
 
     def test_audit_flags_exposure_and_prefix_errors(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -166,7 +145,8 @@ class CampaignTests(unittest.TestCase):
             self.assertIn("missing_answer", audit_attempt(path, settings)["warnings"])
 
     def test_haiku_55_prices_and_its_long_prompt_rate(self):
-        from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
+        from bobbench.models import price_schedule as current_price_schedule
+        from bobbench.profiling.usage import cost_for_usage
         pricing = current_price_schedule("claude-haiku-5.5")
         usage = {"input_tokens": 1000, "output_tokens": 100, "cached_tokens": 800, "cache_creation_tokens": 100}
         # 100 uncached at $0.10, 800 cache reads at $0.01, 100 writes at $0.125, 100 output at $0.50 per million.
@@ -179,7 +159,6 @@ class CampaignTests(unittest.TestCase):
         self.assertNotIn("long_context_multiplier", gpt)
 
     def test_an_answer_the_judge_could_not_grade_is_unscored_not_wrong(self):
-        from benchmark.retrieval.run import judge_unavailable
         answer = {"id": "main-task", "answer": "More aggressive suppression did not end fires faster."}
         self.assertTrue(judge_unavailable({"llm_paraphrase": None}, answer))
         self.assertTrue(judge_unavailable({"f1_approximate": None}, answer))

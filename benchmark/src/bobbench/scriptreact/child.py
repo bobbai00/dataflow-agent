@@ -10,9 +10,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Solve one task with the smolagents SUT's own wrapper, inside the sandbox.
+"""Solve one task with Script ReAct's wrapper (code_agent.py), inside the sandbox.
 
-script_sandbox.py starts this under bubblewrap with a JSON request on stdin.
+sandbox.py starts this under bubblewrap with a JSON request on stdin.
 smolagents executes model-written code in the agent's own process, so the
 whole agent runs here: the task's input directory is the only data mounted and
 the model gateway, through a Unix socket, the only way out. Model requests,
@@ -65,14 +65,7 @@ def main():
     import httpx
     from smolagents.local_python_executor import LocalPythonExecutor
 
-    import code_agent
-    from code_agent import CodeAgentWrapper
-
-    # The harness recognises OpenAI reasoning models by name (gpt-5*, o1, o3, o4): for them smolagents sends no
-    # `stop` and trims stop sequences itself, and no temperature is set. gpt-6* models are reasoning models too
-    # (OpenAI rejects `stop` and non-default temperatures for gpt-6.1-sol), so they get the same treatment.
-    if "gpt-6" not in code_agent._REASONING_MODEL_PREFIXES:
-        code_agent._REASONING_MODEL_PREFIXES = (*code_agent._REASONING_MODEL_PREFIXES, "gpt-6")
+    from code_agent import CodeAgentWrapper  # mounted beside this file at /harness
 
     def append(name, event):
         event["timestamp"] = datetime.now(timezone.utc).isoformat()

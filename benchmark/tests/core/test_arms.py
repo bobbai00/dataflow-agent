@@ -14,7 +14,7 @@
 import argparse
 import unittest
 
-from benchmark.retrieval.configuration import campaign_arms, full_result_char_limit
+from bobbench.arms import arms as campaign_arms, full_result_char_limit
 
 
 class ConfigurationTests(unittest.TestCase):

@@ -21,7 +21,7 @@ import unittest
 
 from benchmark.longds.campaign import command
 from benchmark.longds.smolagents_session import answer_text, make_interpreter_class, request_record
-from benchmark.retrieval.metrics import current_price_schedule
+from bobbench.models import price_schedule as current_price_schedule
 
 try:
     from smolagents.local_python_executor import CodeOutput, PythonExecutor

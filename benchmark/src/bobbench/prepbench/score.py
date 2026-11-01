@@ -14,38 +14,36 @@
 outputs/, and report pass rate, failure types and billed cost per model x system.
 
 A case passes when every output file matches the gold: same row count, a one-to-one key match, values within the
-column's matcher (2% for numbers). The evaluator reports the first error per case; its type is kept
-(NOT_FOUND = no output written, ROW_COUNT_MISMATCH, KEY_MISMATCH, VALUE_MISMATCH, MISSING_COLUMNS, ...).
-Costs are billed as in the KramaBench campaign: dataflow from stats.json (wire-reconciled), smolagents from the usage
-in model-request-trace.jsonl, priced with benchmark/retrieval/metrics.py (OpenRouter responses carry their billed
-usage.cost). Model tags are the runner's (benchmark/retrieval/run.py MODEL_TYPES).
+column's matcher (2% for numbers). The evaluator reports the first error per case; its type is kept (NOT_FOUND = no
+output written, ROW_COUNT_MISMATCH, KEY_MISMATCH, VALUE_MISMATCH, MISSING_COLUMNS, ...). Costs are billed as in every
+run: BobFlow from stats.json (wire-reconciled), Script ReAct from the usage in model-request-trace.jsonl, priced with
+bobbench.profiling.usage (OpenRouter responses carry their billed usage.cost).
 
-PREPBENCH_REPO points at a checkout of TsinghuaDatabaseGroup/prepbench (the runs used 993a313); the default is
-~/datasets/prepbench. Run from the checkout root with the KramaBench venv:
-  PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/prepbench/score.py <out.json> <run dir> [<run dir> ...]"""
+PREPBENCH_REPO is a checkout of TsinghuaDatabaseGroup/prepbench at 993a313 (default ~/datasets/prepbench); its src/
+must be on PYTHONPATH and KramaBench's root must not be (its evaluate.py would shadow PrepBench's evaluate package).
+
+    bench score prepbench <out.json> <run> [<run> ...]
+"""
+import argparse
 import collections
 import json
-import os
 from pathlib import Path
 import statistics as st
-import sys
 
-HERE = Path(__file__).resolve().parent
-REPO = Path(os.environ.get("PREPBENCH_REPO", "~/datasets/prepbench")).expanduser()
-sys.path.insert(0, str(REPO / "src"))
-sys.path.insert(0, str(HERE.parent / "retrieval"))
-from evaluate.core import evaluate  # noqa: E402
-from metrics import current_price_schedule, response_cost  # noqa: E402
-from run import MODEL_TYPES as MODELS  # noqa: E402
+from evaluate.core import evaluate  # PrepBench's evaluator
 
-INDEX = json.loads((HERE.parent / "src/bobbench/prepbench/data/task-index.json").read_text())
-GT = REPO / "src/evaluate/gt"
+from bobbench.models import MODEL_TYPES as MODELS, price_schedule
+from bobbench.paths import PREPBENCH_REPO
+from bobbench.prepbench.hooks import INDEX
+from bobbench.profiling.usage import response_cost
+
+GT = PREPBENCH_REPO / "src/evaluate/gt"
 SYSTEMS = {"smolagents": "smolagents", "evidence_data1_flow0": "dataflow, flow off", "evidence_data1_flow1": "dataflow, flow on",
            "evidence_full_flow0": "dataflow baseline", "evidence_full_flow1": "dataflow, flow only"}
 
 
 def smol_cost(attempt, model):
-    pricing, cost = current_price_schedule(MODELS[model]), 0.0
+    pricing, cost = price_schedule(MODELS[model]), 0.0
     trace = attempt / "model-request-trace.jsonl"
     if trace.exists():
         for line in trace.open():
@@ -81,8 +79,12 @@ def score(run):
 
 
 def main():
-    rows = [r for run in sys.argv[2:] for r in score(run)]
-    Path(sys.argv[1]).write_text(json.dumps(rows, indent=1) + "\n")
+    parser = argparse.ArgumentParser(prog="bench score prepbench", description=__doc__.split("\n\n")[0])
+    parser.add_argument("out", type=Path, help="where the per-attempt rows go (JSON)")
+    parser.add_argument("runs", nargs="+", type=Path)
+    args = parser.parse_args()
+    rows = [r for run in args.runs for r in score(run)]
+    args.out.write_text(json.dumps(rows, indent=1) + "\n")
     cells = collections.defaultdict(list)
     for r in rows:
         cells[(r["model"], r["system"])].append(r)

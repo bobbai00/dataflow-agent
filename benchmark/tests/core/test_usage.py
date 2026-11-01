@@ -16,8 +16,9 @@ import json
 from pathlib import Path
 import tempfile
 
-from benchmark.retrieval.metrics import (cost_for_usage, current_price_schedule, normalize_usage, reconcile_run,
-                                         reconcile_trace, recost, response_cost, retrieval_results, edit_operations)
+from bobbench.models import price_schedule as current_price_schedule
+from bobbench.profiling.usage import cost_for_usage, normalize_usage, reconcile_run, reconcile_trace, recost, response_cost
+from bobbench.react_steps import retrieval_results
 
 
 class MetricsTests(unittest.TestCase):
@@ -144,11 +145,6 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual([r["operator_id"] for r in rows], ["a", "b"])
         self.assertEqual([r["status"] for r in rows], ["ok", "error"])
 
-    def test_edit_summary_supports_registered_and_legacy_changes(self):
-        self.assertEqual(edit_operations({"changes": [{"operation": "upsert"},
-            {"change": "operator", "action": "created"},
-            {"change": "function", "action": "registered"}]}),
-            ["upsert", "operator.created", "function.registered"])
 
     def test_wire_audit_preserves_original_stats_and_separates_timings(self):
         with tempfile.TemporaryDirectory() as temporary:

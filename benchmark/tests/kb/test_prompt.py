@@ -14,7 +14,6 @@
 
 BobFlow: KramaBench tasks with and without the answer-only line (smk2-kb), PrepBench cases (smk2-pb) and the Flow
 Evidence tasks (smk5-kbflow). Needs the KramaBench data (bench setup kramabench) and the PrepBench workload."""
-import json
 from pathlib import Path
 
 import pytest

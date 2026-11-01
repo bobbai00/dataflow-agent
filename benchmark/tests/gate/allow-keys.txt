@@ -7,3 +7,6 @@ errorReflectionThreshold fewShotPrompt toolDialect enableInspectTool enableRende
 sourceProvenanceHint staticCompaction userTaskPlacement catalogSource catalogRecent toolTimeoutSeconds answerEcho
 catalogRecords cellChars columnsShown definitionChars topValues compactionStrategy contextWindowTokens deckSampleRatio
 nativeChecks nativeProfileScope
+# Script ReAct settings no paper run varied (Phase B: the wrapper keeps max_steps, max_print_outputs_length,
+# use_custom_prompt and final_answer_tool_prompt).
+use_fine_grained_prompt use_pitfalls_prompt no_action_detail

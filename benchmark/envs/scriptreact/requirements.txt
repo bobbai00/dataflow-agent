@@ -10,11 +10,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# The interpreter the smolagents baseline and the model's code run on
-# (script_sandbox.py), built by setup.sh on the Python in .python-version.
+# The interpreter Script ReAct (smolagents) and the model's code run on
+# (bobbench/scriptreact/sandbox.py), built by setup.sh on the Python in .python-version.
 # Python, numpy and pyarrow match Texera's operator sandbox
 # (NATIVE_ISOLATED_PYTHON); every other package is the KramaBench venv's.
-# run_baselines.py refuses an interpreter that differs from this list.
+# bench run refuses an interpreter that differs from this list.
 absl-py==2.2.2
 affine==3.0.1
 aiohappyeyeballs==2.6.1

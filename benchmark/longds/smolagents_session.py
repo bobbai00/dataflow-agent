@@ -52,7 +52,8 @@ import time
 
 from benchmark.longds.common import DATA, HERE, ROOT, dependency_note, load, save
 from bobbench.sandbox.isolation import isolated_command
-from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
+from bobbench.models import price_schedule
+from bobbench.profiling.usage import cost_for_usage
 
 WORKER = HERE / "smolagents_worker.py"
 
@@ -215,7 +216,7 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
     manifest = load(prepared / "manifest.json")
     prompts = load(prepared / "prompts.json")[:turns]
     imports = available_imports(code_agent.AUTHORIZED_IMPORTS)
-    pricing = current_price_schedule(model)
+    pricing = price_schedule(model)
     gateway = os.environ["LITELLM_BASE_URL"].rstrip("/") + "/v1"
     model_client = RecordingModel(model_id=model, api_base=gateway, api_key=os.environ["LITELLM_MASTER_KEY"])
     interpreter = make_interpreter_class(PythonExecutor, CodeOutput)(manifest["task"], out / "sandbox", imports)
@@ -307,7 +308,7 @@ def main():
     parser.add_argument("--note", choices=["dependencies"], required=True,
                         help="each request keeps every earlier request and is told which earlier tasks it builds on")
     args = parser.parse_args()
-    if current_price_schedule(args.model) is None:
+    if price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
     run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps)
 

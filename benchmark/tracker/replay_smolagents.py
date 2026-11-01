@@ -12,12 +12,12 @@
 # limitations under the License.
 """Replay recorded smolagents conversations in one session and record its memory after every step.
 
-The agent is the benchmarks' script baseline, built by KramaBench's CodeAgentWrapper with each conversation's
-settings, and runs every conversation with `reset=False`, as the smolagents service continues a chat. Its model
+The agent is the benchmarks' script baseline, built by bobbench's CodeAgentWrapper (scriptreact/code_agent.py) with
+the conversations' settings, and runs every conversation with `reset=False`, as the smolagents service continues a chat. Its model
 returns the recorded responses in order, and its executor returns what each step's code printed, returned or raised,
 so no model is called and no code runs: the memory measured is the agent's history, without execution variables.
 
-    .venv/bin/python benchmark/tracker/replay_smolagents.py CONVERSATIONS.jsonl OUT.jsonl [--limit N] [--kramabench DIR]
+    .venv/bin/python benchmark/tracker/replay_smolagents.py CONVERSATIONS.jsonl OUT.jsonl [--limit N] [--harness DIR]
 
 Each output line is one step: steps so far, the Python memory traced after a full collection, minus the memory
 before the first conversation, and the characters of the step's model input.
@@ -96,10 +96,10 @@ def main():
     parser.add_argument("conversations", type=Path)
     parser.add_argument("out", type=Path)
     parser.add_argument("--limit", type=int, default=0)
-    parser.add_argument("--kramabench", type=Path, default=REPO / "benchmark" / "Kramabench",
-                        help="the KramaBench checkout whose code_agent.py builds the baseline")
+    parser.add_argument("--harness", type=Path, default=REPO / "benchmark/src/bobbench/scriptreact",
+                        help="the folder of the baseline's code_agent.py (default: bobbench's)")
     args = parser.parse_args()
-    sys.path.insert(0, str(args.kramabench))
+    sys.path.insert(0, str(args.harness))
     from code_agent import CodeAgentWrapper
     conversations = [json.loads(line) for line in args.conversations.read_text().splitlines()]
     if args.limit:
@@ -111,11 +111,12 @@ def main():
     LocalPythonExecutor._check_authorized_imports_are_installed = lambda executor: None
     tracemalloc.start()
     settings = conversations[0]["settings"]
+    # Every paper run had these off; the wrapper no longer has them.
+    assert not any(settings.get(flag) for flag in ("use_fine_grained_prompt", "use_pitfalls_prompt", "no_action_detail")), settings
     wrapper = CodeAgentWrapper(
         model_type="replay", api_base="http://127.0.0.1:9", api_key="replay", verbosity_level=-1,
         max_steps=settings["max_steps"], use_custom_prompt=settings["use_custom_prompt"],
-        use_fine_grained_prompt=settings["use_fine_grained_prompt"], use_pitfalls_prompt=settings["use_pitfalls_prompt"],
-        max_print_outputs_length=settings["max_print_outputs_length"], no_action_detail=settings["no_action_detail"],
+        max_print_outputs_length=settings["max_print_outputs_length"],
     ).setup()
     agent, model = wrapper._agent, wrapper._model
     model.client.chat.completions.create = replay.respond

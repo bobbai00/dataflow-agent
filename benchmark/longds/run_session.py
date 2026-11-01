@@ -48,7 +48,9 @@ import time
 import requests
 
 from benchmark.longds.common import ROOT, dependency_note, load, save
-from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule, final_reply, normalize_usage
+from bobbench.models import price_schedule
+from bobbench.profiling.usage import cost_for_usage, normalize_usage
+from bobbench.react_steps import final_reply
 
 ARMS = {
     "transcript-depnote": {"multiRequest": "transcript"},
@@ -158,7 +160,7 @@ def request_record(turn, prompt, steps, model, elapsed, watchdog):
     the work, not an error or a stop), usage and estimated cost."""
     agents = [step for step in steps if step.get("role") == "agent"]
     completed = final_reply(steps) and not watchdog
-    pricing = current_price_schedule(model)
+    pricing = price_schedule(model)
     usages = [normalize_usage(step["usage"]) for step in agents if step.get("usage")]
     costs = [cost_for_usage(usage, pricing) for usage in usages]
     totals = {key: sum(usage[key] for usage in usages)
@@ -239,7 +241,7 @@ def main():
     parser.add_argument("--spend-limit", type=float, default=5.0, help="USD; no request starts beyond it")
     parser.add_argument("--question-minutes", type=float, default=30, help="a request running longer is stopped")
     args = parser.parse_args()
-    if current_price_schedule(args.model) is None:
+    if price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
     run(args.prepared, args.out, args.arm, args.model, args.turns, args.spend_limit, args.question_minutes)
 

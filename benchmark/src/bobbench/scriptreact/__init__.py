@@ -10,4 +10,5 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Placeholder: smol_run.py points run_baselines.__file__ here so PrepBench attempts run evaluate_script_task.py next to it."""
+"""Script ReAct, the script-agent baseline: smolagents' CodeAgent (code_agent.py), run whole inside bubblewrap
+(sandbox.py starts child.py) on a locked interpreter (interpreter.py, envs/scriptreact)."""

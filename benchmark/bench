@@ -11,19 +11,33 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# The benchmark harness's command line: picks the interpreter and PYTHONPATH each command needs.
-#   bench test     the offline tests, on the KramaBench venv and on the root .venv
+# bench: the benchmark harness's command line (benchmark/README.md). It picks the interpreter and PYTHONPATH each
+# command needs.
+#
+#   bench run {kramabench|prepbench} {bobflow|scriptreact} ...   one run on a stack (inside its run-env.sh)
+#   bench score prepbench <out.json> <run>...                    PrepBench's evaluator on the runs' output tables
+#   bench recost <run>                                           re-price a run from its exact responses
+#   bench audit <run>                                            re-run the per-attempt checks offline
+#   bench test [pytest args]                                     the offline tests, on both interpreters
+#
+# Interpreters: envs/kramabench/.venv (KramaBench's evaluator and the runner; bench setup kramabench builds it) and
+# the checkout's .venv (LongDS, the engine). Each command takes --help.
 set -euo pipefail
 B=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$B/.." && pwd)
-KB_PY=$B/Kramabench/.venv/bin/python
-ROOT_PY=$REPO/.venv/bin/python
+KB_PY=${BENCH_KB_PYTHON:-$B/envs/kramabench/.venv/bin/python}
+ROOT_PY=${BENCH_ROOT_PYTHON:-$REPO/.venv/bin/python}
+PREPBENCH_REPO=${PREPBENCH_REPO:-$HOME/datasets/prepbench}
+export PREPBENCH_REPO
 
-usage() { sed -n '14,15p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '14,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+need() { [ -x "$1" ] || { echo "bench: no interpreter at $1 (bench setup kramabench builds it)" >&2; exit 2; }; }
+kb() { need "$KB_PY"; cd "$B" && PYTHONPATH="$B/src" exec "$KB_PY" -m "$@"; }
 
 cmd_test() {
   # The judge key is invalid in tests: a judge-cache miss fails a test instead of paying for a call.
   local status=0
+  need "$KB_PY"; need "$ROOT_PY"
   echo "== KramaBench venv ($KB_PY)"
   (cd "$B" && OPENAI_API_KEY=invalid-test-key PYTHONPATH="$B/src:$B/Kramabench" "$KB_PY" -m pytest -q "$@") || status=1
   echo "== root .venv ($ROOT_PY)"
@@ -32,7 +46,16 @@ cmd_test() {
 }
 
 case "${1:-}" in
+  run) shift; kb bobbench.kramabench.cli "$@" ;;
+  score)
+    shift
+    [ "${1:-}" = prepbench ] || { echo "usage: bench score prepbench <out.json> <run>..." >&2; exit 2; }
+    shift; need "$KB_PY"
+    # PrepBench's src/ holds its `evaluate` package; KramaBench's root (its evaluate.py) stays off the path.
+    cd "$B" && PYTHONPATH="$B/src:$PREPBENCH_REPO/src" exec "$KB_PY" -m bobbench.prepbench.score "$@" ;;
+  recost) shift; kb bobbench.profiling.usage "$@" ;;
+  audit) shift; kb bobbench.audit "$@" ;;
   test) shift; cmd_test "$@" ;;
   -h|--help|help|"") usage ;;
-  *) echo "unknown command: $1" >&2; usage 2 ;;
+  *) echo "bench: unknown command $1" >&2; usage 2 ;;
 esac

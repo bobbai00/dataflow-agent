@@ -13,7 +13,7 @@
 """Offline diagnostics are independent of the official benchmark judge."""
 import unittest
 from decimal import Decimal
-from benchmark.retrieval.answer_diagnostics import diagnose_answer, rounded_equal
+from bobbench.audit import diagnose_answer, rounded_equal
 
 def snapshot(value=13.162794202898551, version="v1"):
     return {"results": {"ratio": {"state": "Completed", "result": [{"ratio": value}],

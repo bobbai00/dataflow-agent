@@ -14,12 +14,12 @@
 
 smolagents keeps no snapshot of its Python state, so returning to step k of a conversation means a fresh interpreter
 state and the code of steps 1..k, run again in order. For random (conversation, step) pairs, this runs that code in
-the baseline's interpreter (benchmark/retrieval/script-agent) and its executor, in a fresh child process per pair with
+the baseline's interpreter (benchmark/envs/scriptreact) and its executor, in a fresh child process per pair with
 the task data where the benchmark mounted it, and records the time the code took (the process's start and loading
 pandas and numpy, which a running session has done already, are not counted).
 
-    benchmark/retrieval/script-agent/.venv/bin/python benchmark/tracker/restore_smolagents.py \\
-        CONVERSATIONS.jsonl OUT.jsonl --data benchmark/Kramabench/data --kramabench benchmark/Kramabench [--samples 300]
+    benchmark/envs/scriptreact/.venv/bin/python benchmark/tracker/restore_smolagents.py \\
+        CONVERSATIONS.jsonl OUT.jsonl --data benchmark/Kramabench/data [--samples 300]
 """
 import argparse
 import json
@@ -34,11 +34,12 @@ from pathlib import Path
 CHILD = r"""
 import json, sys, time
 sys.path.insert(0, sys.argv[1])
-from code_agent import AUTHORIZED_IMPORTS, DEFAULT_MAX_PRINT_OUTPUTS_LENGTH
+from code_agent import AUTHORIZED_IMPORTS
 from smolagents.default_tools import FinalAnswerTool
 from smolagents.local_python_executor import LocalPythonExecutor
 codes = json.load(sys.stdin)
-executor = LocalPythonExecutor(AUTHORIZED_IMPORTS, max_print_outputs_length=DEFAULT_MAX_PRINT_OUTPUTS_LENGTH or 5000,
+# 5,000 characters of output per step, as every benchmark run.
+executor = LocalPythonExecutor(AUTHORIZED_IMPORTS, max_print_outputs_length=5000,
                                additional_functions={"open": open})
 executor.send_tools({"final_answer": FinalAnswerTool()})
 # A session's interpreter has its libraries loaded already: only running the code again is counted.
@@ -75,7 +76,8 @@ def main():
     parser.add_argument("conversations", type=Path)
     parser.add_argument("out", type=Path)
     parser.add_argument("--data", type=Path, required=True, help="the KramaBench data folder the tasks read")
-    parser.add_argument("--kramabench", type=Path, required=True, help="the KramaBench checkout (its code_agent.py)")
+    parser.add_argument("--harness", type=Path, default=Path(__file__).resolve().parents[1] / "src/bobbench/scriptreact",
+                        help="the folder of the baseline's code_agent.py (default: bobbench's)")
     parser.add_argument("--samples", type=int, default=300)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--seed", type=int, default=7)
@@ -90,7 +92,7 @@ def main():
                 (Path(workspace) / "data").symlink_to(args.data.resolve())
                 started = time.monotonic()
                 try:
-                    run = subprocess.run([sys.executable, "-c", CHILD, str(args.kramabench.resolve())],
+                    run = subprocess.run([sys.executable, "-c", CHILD, str(args.harness.resolve())],
                                          input=json.dumps(codes), capture_output=True, text=True, cwd=workspace,
                                          timeout=args.timeout)
                     result = json.loads(run.stdout.strip().splitlines()[-1])

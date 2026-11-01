@@ -12,12 +12,11 @@
 # limitations under the License.
 """Offline matrix checks exercise actual wire text, not only evidence IDs."""
 import json
-import re
 from pathlib import Path
 import tempfile
 import unittest
 
-from benchmark.retrieval.matrix_audit import audit_attempt, audit_matrix
+from bobbench.audit import audit_matrix, audit_wire as audit_attempt
 
 
 class MatrixAuditTests(unittest.TestCase):
@@ -317,8 +316,8 @@ class MatrixAuditTests(unittest.TestCase):
 
     def test_evidence_prompt_checks_match_the_shipped_prompt(self):
         # The runner pauses a campaign on these checks: they must follow the prompt's wording.
-        from benchmark.retrieval.matrix_audit import DATA_PROMPT, FLOW_PROMPT, RUNTIME_PROMPT
-        root = Path(__file__).resolve().parents[2]
+        from bobbench.audit import DATA_PROMPT, FLOW_PROMPT, RUNTIME_PROMPT
+        from bobbench.paths import REPO as root
         evidence = (root / "native-mode/SYSTEM_PROMPT_WITH_EVIDENCE.txt").read_text()
         plain = (root / "native-mode/SYSTEM_PROMPT.txt").read_text()
         self.assertTrue(DATA_PROMPT.search(evidence))

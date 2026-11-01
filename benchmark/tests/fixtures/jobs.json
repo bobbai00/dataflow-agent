@@ -1,0 +1,292 @@
+[
+ {
+  "run": "smk2-kb",
+  "system": "bobflow",
+  "models": [
+   "Haiku55"
+  ],
+  "arms": [
+   "evidence_full_flow0",
+   "evidence_data1_flow0",
+   "evidence_data1_flow0_opt"
+  ],
+  "tasks": [
+   "archeology-easy-6",
+   "astronomy-easy-1",
+   "legal-easy-25"
+  ],
+  "repetitions": 1,
+  "jobs": [
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow0",
+    "task": "archeology-easy-6",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0_opt",
+    "task": "legal-easy-25",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0",
+    "task": "archeology-easy-6",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0_opt",
+    "task": "archeology-easy-6",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0_opt",
+    "task": "astronomy-easy-1",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_opt_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0",
+    "task": "astronomy-easy-1",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow0",
+    "task": "astronomy-easy-1",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0",
+    "task": "legal-easy-25",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_data1_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow0",
+    "task": "legal-easy-25",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_kb_evidence_full_flow0_Rep1"
+   }
+  ]
+ },
+ {
+  "run": "smk5-kbflow",
+  "system": "bobflow",
+  "models": [
+   "Haiku55"
+  ],
+  "arms": [
+   "evidence_data1_flow1",
+   "evidence_full_flow1"
+  ],
+  "tasks": [
+   "wildfire-easy-15",
+   "environment-easy-6",
+   "archeology-easy-11",
+   "wildfire-hard-17",
+   "legal-hard-15"
+  ],
+  "repetitions": 1,
+  "jobs": [
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow1",
+    "task": "wildfire-easy-15",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow1",
+    "task": "archeology-easy-11",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow1",
+    "task": "wildfire-hard-17",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow1",
+    "task": "environment-easy-6",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow1",
+    "task": "environment-easy-6",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow1",
+    "task": "wildfire-hard-17",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow1",
+    "task": "legal-hard-15",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow1",
+    "task": "legal-hard-15",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow1",
+    "task": "wildfire-easy-15",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_full_flow1_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow1",
+    "task": "archeology-easy-11",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk5_kbflow_evidence_data1_flow1_Rep1"
+   }
+  ]
+ },
+ {
+  "run": "smk2-pb",
+  "system": "bobflow",
+  "models": [
+   "Haiku55"
+  ],
+  "arms": [
+   "evidence_full_flow0",
+   "evidence_data1_flow0_opt"
+  ],
+  "tasks": [
+   "prepbench-hard-1",
+   "prepbench-hard-50"
+  ],
+  "repetitions": 1,
+  "jobs": [
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow0",
+    "task": "prepbench-hard-1",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_pb_evidence_full_flow0_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0_opt",
+    "task": "prepbench-hard-50",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_pb_evidence_data1_flow0_opt_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_data1_flow0_opt",
+    "task": "prepbench-hard-1",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_pb_evidence_data1_flow0_opt_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "evidence_full_flow0",
+    "task": "prepbench-hard-50",
+    "rep": 1,
+    "sut": "DataflowSystemHaiku55_smk2_pb_evidence_full_flow0_Rep1"
+   }
+  ]
+ },
+ {
+  "run": "smk0-kbsmol",
+  "system": "scriptreact",
+  "models": [
+   "Haiku55"
+  ],
+  "arms": [
+   "smolagents"
+  ],
+  "tasks": [
+   "archeology-easy-6",
+   "astronomy-easy-1",
+   "legal-easy-25"
+  ],
+  "repetitions": 1,
+  "jobs": [
+   {
+    "model": "Haiku55",
+    "arm": "smolagents",
+    "task": "astronomy-easy-1",
+    "rep": 1,
+    "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "smolagents",
+    "task": "legal-easy-25",
+    "rep": 1,
+    "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "smolagents",
+    "task": "archeology-easy-6",
+    "rep": 1,
+    "sut": "CodeAgentSystemHaiku55_smk0_kbsmol_smolagents_Rep1"
+   }
+  ]
+ },
+ {
+  "run": "smk0-pbsmol",
+  "system": "scriptreact",
+  "models": [
+   "Haiku55"
+  ],
+  "arms": [
+   "smolagents"
+  ],
+  "tasks": [
+   "prepbench-hard-1",
+   "prepbench-hard-50"
+  ],
+  "repetitions": 1,
+  "jobs": [
+   {
+    "model": "Haiku55",
+    "arm": "smolagents",
+    "task": "prepbench-hard-50",
+    "rep": 1,
+    "sut": "CodeAgentSystemHaiku55_smk0_pbsmol_smolagents_Rep1"
+   },
+   {
+    "model": "Haiku55",
+    "arm": "smolagents",
+    "task": "prepbench-hard-1",
+    "rep": 1,
+    "sut": "CodeAgentSystemHaiku55_smk0_pbsmol_smolagents_Rep1"
+   }
+  ]
+ }
+]

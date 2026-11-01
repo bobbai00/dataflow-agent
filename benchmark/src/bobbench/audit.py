@@ -10,23 +10,150 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Audit saved evidence-matrix wire prompts, displays, telemetry and accounting.
+"""Per-attempt checks that a run did what its arm says, apart from the answer's correctness.
 
-This makes no service, provider or scoring calls. It complements campaign.py's
-profile invariants and official evaluation; it does not judge answer correctness.
+- audit_dataflow (runner, every BobFlow attempt -> attempt-audit.json): settings as configured, the context only ever
+  appended, retrieval views and evidence exposure as the arm allows, table-profile equations, answer diagnostics, and
+  the wire audit (audit_wire) of every model request: one system prompt, tool schema and prompt sections per arm,
+  displays without leaked evidence, execution telemetry, accounting.
+- audit_script (runner, every Script ReAct attempt): stats equal to the usage the request trace recorded.
+- audit_run (bench audit): every attempt of a finished run again, offline, with a summary in <run>/matrix-audit.json.
+
+A violation pauses the runner (PAUSE); a warning does not. None of this calls a model, a service or the judge.
+
+    python -m bobbench.audit <run>     (bench audit)
 """
 import argparse
 from collections import Counter, defaultdict
+from decimal import Decimal, DecimalException, InvalidOperation, ROUND_HALF_EVEN, ROUND_HALF_UP, localcontext
 import hashlib
 import json
 from pathlib import Path
 import re
 
-try:
-    from .metrics import final_reply, retrieval_results
-except ImportError:
-    from metrics import final_reply, retrieval_results
+from bobbench.react_steps import final_reply, retrieval_results, tool_error_counts
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Answer diagnostics: matches establish support, not correctness.
+
+NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
+
+def number(text):
+    text = str(text).strip()
+    if not NUMBER.fullmatch(text):
+        return None
+    try:
+        value = Decimal(text)
+        return value if value.is_finite() else None
+    except InvalidOperation:
+        return None
+
+def rounded_equal(candidate, target):
+    if candidate == target:
+        return True
+    exponent = target.as_tuple().exponent
+    # Integer/scientific notation must not turn a different integer into a
+    # match by rounding to tens or larger powers. Only fractional precision
+    # permits rounding; extreme exponents remain inconclusive with bounded work.
+    if exponent >= 0 or abs(exponent) > 4096 or abs(candidate.adjusted()) > 4096:
+        return False
+    precision = max(50, len(candidate.as_tuple().digits), candidate.adjusted() - exponent + 2)
+    if precision > 4096:
+        return False
+    try:
+        with localcontext() as ctx:
+            ctx.prec = precision
+            quantum = Decimal((0, (1,), exponent))
+            return any(candidate.quantize(quantum, rounding=mode) == target for mode in (ROUND_HALF_EVEN, ROUND_HALF_UP))
+    except DecimalException:
+        return False
+
+
+def record_number(cell):
+    value = number(cell)
+    if value is not None:
+        return value
+    # The renderer JSON-quotes string cells. Accept a whole numeric string,
+    # never a numeric substring of labels such as "Age 60".
+    try:
+        decoded = json.loads(cell)
+        return number(decoded) if isinstance(decoded, str) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def visible_numbers(text):
+    # Restrict to record cells. Shape counts, schema labels and flow facts are
+    # not answer cells; matching one of their numbers would be a false positive.
+    values = set()
+    header_seen = False
+    for line in text.splitlines():
+        if line.startswith(("statistics:", "- flow", "- runtime stats", "- note:")):
+            break
+        if line.startswith("|") and line.endswith("|"):
+            cells = line[1:-1].split("|")
+        elif "\t" in line:
+            cells = line.split("\t")
+        else:
+            continue
+        if not header_seen:
+            header_seen = True
+            continue
+        values.update(value for cell in cells if (value := record_number(cell)) is not None)
+    return values
+
+
+def diagnose_answer(prompt, response, steps, snapshot):
+    """Check the explicit KramaBench final-line contract and numeric cell support.
+
+    Only successful, nonsuperseded reads of the same current result version
+    qualify. Absence from bounded records is inconclusive, never an incorrect
+    answer verdict. A matching value is not proof that the formula/population
+    was correct. This does not alter official scores or rewrite responses.
+    """
+    final = response.strip().splitlines()[-1] if response.strip() else ""
+    bold = re.fullmatch(r"\*\*Final Answer: (.+)\*\*", final)
+    labelled = re.fullmatch(r"(?:\*\*)?Final Answer:\s*(.+?)(?:\*\*)?", final)
+    value = bold.group(1) if bold else labelled.group(1) if labelled else final
+    target = number(value)
+    format_required = "**Final Answer:" in prompt
+    observed = {}
+    for step in steps:
+        for result in step.get("toolResults", []):
+            for item in (result.get("output") or {}).get("actions", []) if isinstance(result.get("output"), dict) else []:
+                for read in retrieval_results(item):
+                    if read.get("status") == "ok" and not read.get("superseded_in_call") and read.get("result_version"):
+                        observed.setdefault((read.get("operator_id"), read["result_version"]), set()).update(visible_numbers(read.get("text", "")))
+    matches = []
+    if target is not None:
+        for operator, info in snapshot.get("results", {}).items():
+            version = (info.get("resultVersion") or {}).get("id")
+            visible = observed.get((operator, version))
+            if visible is None or info.get("error") or info.get("state") not in {"Completed", "CompletedFromCache"}:
+                continue
+            for row_index, row in enumerate(info.get("sampleRecords", info.get("result")) or []):
+                for column, cell in row.items():
+                    if isinstance(cell, bool) or cell is None:
+                        continue
+                    candidate = number(cell)
+                    if candidate is None:
+                        continue
+                    # Require the cell itself to have been visible in the read,
+                    # rather than merely present in a retained but hidden sample.
+                    if not any(shown.as_tuple().exponent <= target.as_tuple().exponent and rounded_equal(candidate, shown) for shown in visible):
+                        continue
+                    if rounded_equal(candidate, target):
+                        matches.append({"operator_id": operator, "result_version": version, "row": row_index, "column": column})
+    return {"format_contract": "bold_final_answer_last_line" if format_required else None,
+            "format_compliant": bool(bold) if format_required else None,
+            "numeric_support": {"status": "not_numeric_scalar" if target is None else "observed_result_match" if matches else "not_found_in_observed_results",
+                "matches": matches,
+                "limitation": "Cell presence is support, not proof of the requested computation; absence from bounded records is inconclusive."}}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The wire audit: what every model request of a BobFlow attempt held.
 
 def read(path, default=None):
     return json.loads(path.read_text()) if path.exists() else default
@@ -76,7 +203,7 @@ RUNTIME_PROMPT = re.compile(r"Runtime stats are very helpful for validating your
 COMPLETE_RECORDS = re.compile(r"^records:.*\(complete(?:;|\))", re.MULTILINE)
 
 
-def audit_attempt(path, settings):
+def audit_wire(path, settings):
     path = Path(path)
     views = settings.get("retrievalViews", [])
     data_enabled, flow_enabled = "sample_stats" in views, bool(settings.get("flowEvidence"))
@@ -338,7 +465,7 @@ def audit_matrix(directory):
         path = directory / "system_scratch" / job["sut"] / job["task"]
         present = any((path / name).exists() for name in ("react_steps.json", "watchdog-react_steps.json"))
         settings = {**manifest.get("settings", {}), **manifest.get("arms", {}).get(job["arm"], {})}
-        row = {**job, "audit": audit_attempt(path, settings) if present else None,
+        row = {**job, "audit": audit_wire(path, settings) if present else None,
                "official_evaluation": read(path / "evaluation.json")}
         rows.append(row)
         groups[(job["model"], job["arm"])].append(row)
@@ -363,15 +490,188 @@ def audit_matrix(directory):
             "Costs are frozen-rate estimates, with provider-reported costs and absent cache classifications kept separate."}
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# BobFlow
+
+def audit_dataflow(path, settings):
+    """Flag engine/context invariants separately from normal model mistakes."""
+    violations, warnings = [], []
+
+    def read(name, default):
+        file = path / name
+        if not file.exists():
+            return default
+        try:
+            return json.loads(file.read_text())
+        except ValueError:
+            # A harness terminated at the wall clock can leave a truncated dump;
+            # the runner's watchdog copy of the trace is complete.
+            fallback = path / "watchdog-react_steps.json" if name == "react_steps.json" else None
+            if fallback is not None and fallback.exists():
+                try:
+                    return json.loads(fallback.read_text())
+                except ValueError:
+                    pass
+            warnings.append(f"unreadable_{name}")
+            return default
+    recorded = read("settings.json", None)
+    if recorded is None:
+        warnings.append("missing_settings")
+    elif any(recorded.get(key) != value for key, value in settings.items()):
+        violations.append("settings_drift")
+    raw = read("react_steps.json", None)
+    if raw is None:
+        warnings.append("missing_trace")
+    steps = raw if isinstance(raw, list) else (raw or {}).get("steps", [])
+    previous, prefix_checks, action_errors, reads = None, 0, 0, 0
+    text_replies = 0
+    tool_errors = envelope_errors = 0
+    # The agent answers with a final reply that calls no tool; any earlier
+    # tool-less reply is a lapse.
+    agent_steps = [step for step in steps if step.get("role") == "agent"]
+    final = agent_steps[-1] if agent_steps else None
+    answered = final_reply(steps)
+    for step in steps:
+        messages = step.get("inputMessages")
+        if (step.get("role") == "agent" and messages is not None
+                and not step.get("toolCalls") and step.get("content") and not (answered and step is final)):
+            text_replies += 1
+        if step.get("role") == "agent" and messages:
+            if previous is not None:
+                prefix_checks += 1
+                if messages[:len(previous)] != previous:
+                    violations.append("context_prefix_changed")
+            previous = messages
+        for result in step.get("toolResults", []):
+            counts = tool_error_counts(result)
+            tool_errors += counts["tool_errors"]
+            envelope_errors += counts["envelope_errors"]
+            output = result.get("output")
+            if not isinstance(output, dict):
+                continue
+            for item in output.get("actions", []):
+                action_errors += item.get("status") == "error"
+                action = item.get("action", {})
+                if action.get("type") != "retrieve":
+                    continue
+                for target in retrieval_results(item):
+                    if target.get("status") != "ok":
+                        continue
+                    reads += 1
+                    if action.get("view") not in settings["retrievalViews"]:
+                        violations.append("unexpected_retrieval_view")
+                    facts = target.get("evidence", [])
+                    if not settings["flowEvidence"] and any(f.startswith("flow.") for f in facts):
+                        violations.append("flow_evidence_leak")
+                    # dataHygiene deliberately names the columns holding nulls in a view without
+                    # statistics; every other data fact there is a leak.
+                    allowed = {"data.nulls"} if settings.get("dataHygiene") else set()
+                    if action.get("view") != "sample_stats" and any(
+                            f.startswith("data.") and f not in allowed for f in facts):
+                        violations.append("data_evidence_leak")
+    if raw is not None:
+        if text_replies:
+            warnings.append("text_without_dataflow")
+        if not answered:
+            warnings.append("missing_answer")
+    profiles = columns = 0
+    for result in read("snapshot.json", {}).get("results", {}).values():
+        profile = result.get("tableProfile")
+        if not profile:
+            continue
+        profiles += 1
+        version = result.get("resultVersion")
+        if version and profile.get("resultVersion") != version["id"]:
+            violations.append("profile_version_mismatch")
+        for data in profile.get("columns", {}).values():
+            columns += 1
+            if data["nullCount"] + data["nonnullCount"] != data["rowsProcessed"]:
+                violations.append("column_count_equation")
+            if data["distinctCount"] is not None and data["distinctCount"] > data["nonnullCount"]:
+                violations.append("distinct_exceeds_nonnull")
+            frequencies = data.get("frequencies")
+            if frequencies and sum(v["count"] for v in frequencies["values"]) + frequencies["otherCount"] != data["nonnullCount"]:
+                violations.append("frequency_equation")
+    diagnostics = diagnose_answer(
+        (path / "prompt.txt").read_text() if (path / "prompt.txt").exists() else "",
+        (path / "response.txt").read_text() if (path / "response.txt").exists() else "",
+        steps, read("snapshot.json", {}))
+    wire_audit = None
+    if any((path / "wire").glob("*-request.json")):
+        try:
+            wire_audit = audit_wire(path, settings)
+        except ValueError:
+            warnings.append("unreadable_wire_audit_artifact")
+        else:
+            violations.extend(wire_audit["violations"])
+            warnings.extend(wire_audit["warnings"])
+    return {"answer_diagnostics": diagnostics, "wire_audit": wire_audit,
+            "violations": sorted(set(violations)), "warnings": sorted(set(warnings)), "prefix_checks": prefix_checks,
+            "action_errors": action_errors, "tool_errors": tool_errors, "envelope_errors": envelope_errors,
+            "text_replies": text_replies, "retrievals": reads, "profiles": profiles, "columns": columns}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Script ReAct
+
+def audit_script(path):
+    """The attempt's stats must equal the usage its request trace recorded."""
+    violations, warnings = [], []
+    stats_file, trace_file = path / "stats.json", path / "model-request-trace.jsonl"
+    if not stats_file.exists() or not trace_file.exists():
+        return {"violations": [], "warnings": ["missing_script_stats_or_trace"]}
+    stats = json.loads(stats_file.read_text())
+    events = [json.loads(line) for line in trace_file.read_text().splitlines()]
+    responses = [e for e in events if e["phase"] == "response"]
+    totals = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "cache_creation_tokens": 0}
+    for response in responses:
+        usage = response["usage"]
+        details = usage.get("prompt_tokens_details") or {}
+        totals["input_tokens"] += usage["prompt_tokens"]
+        totals["output_tokens"] += usage["completion_tokens"]
+        totals["cached_tokens"] += details.get("cached_tokens", 0) or 0
+        totals["cache_creation_tokens"] += details.get("cache_creation_tokens", 0) or 0
+    for key, value in totals.items():
+        if value != stats[key]:
+            violations.append("script_usage_mismatch:" + key)
+    if (path / "wall-clock-stop.json").exists():
+        warnings.append("task_timeout_usage_incomplete")
+    elif not responses:
+        violations.append("no_successful_provider_calls")
+    if any(e["phase"] == "error" for e in events):
+        warnings.append("provider_request_error")
+    return {"violations": violations, "warnings": warnings, "provider_calls": len(responses), **totals}
+
+
+def audit_run(run):
+    """Audit every attempt of a finished run again (attempt-audit.json) and summarize the wire audits."""
+    run = Path(run)
+    manifest = read(run / "manifest.json", {})
+    progress = read(run / "progress.json", {})
+    summary = audit_matrix(run) if manifest.get("arms") else None
+    rows = []
+    for row in progress.get("completed", []):
+        path = run / "system_scratch" / row["sut"] / row["task"]
+        if manifest.get("arms"):
+            checks = audit_dataflow(path, {**manifest.get("settings", {}), **manifest["arms"][row["arm"]]})
+        else:
+            checks = audit_script(path)
+        (path / "attempt-audit.json").write_text(json.dumps(checks, indent=2) + "\n")
+        rows.append({"task": row["task"], "sut": row["sut"], "violations": checks["violations"], "warnings": checks["warnings"]})
+    if summary is not None:
+        (run / "matrix-audit.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
+    return rows
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=Path)
-    parser.add_argument("--output", type=Path, help="Defaults to DIRECTORY/matrix-audit.json")
+    parser = argparse.ArgumentParser(prog="bench audit", description=audit_run.__doc__)
+    parser.add_argument("run", type=Path)
     args = parser.parse_args()
-    result = audit_matrix(args.directory)
-    output = args.output or args.directory / "matrix-audit.json"
-    output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
-    print(json.dumps({key: result[key] for key in ("attempts_expected", "attempts_present", "violation_attempts", "summary")}, indent=2))
+    rows = audit_run(args.run)
+    flagged = [row for row in rows if row["violations"]]
+    for row in flagged:
+        print(f"{row['sut']} {row['task']}: {', '.join(row['violations'])}")
+    print(f"{len(rows)} attempts audited, {len(flagged)} with violations, "
+          f"{sum(bool(row['warnings']) for row in rows)} with warnings")
 
 
 if __name__ == "__main__":

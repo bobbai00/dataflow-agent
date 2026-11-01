@@ -19,18 +19,22 @@ Each PrepBench case becomes task `prepbench-hard-<n>`:
           so KramaBench's evaluator makes no LLM judge calls.
 Format hints, one file per system (same requirements; only the handover of the tables differs):
 - format_hint/prepbench.json:        dataflow agent names the operator holding each output table; the runner exports it;
-- bobbench/prepbench/data/format_hint_script.json: smolagents writes each table with pandas to result/<file>.
+- bobbench/prepbench/data/format_hint_script.json: Script ReAct writes each table with pandas to result/<file>.
 The PrepBench runs used TsinghuaDatabaseGroup/prepbench at 993a313 (git clone https://github.com/TsinghuaDatabaseGroup/prepbench).
-Usage: build_workload.py <prepbench repo> [<kramabench root> [<out dir>]]
-       (defaults: this checkout's benchmark/Kramabench, and benchmark/src/bobbench/prepbench/data for
-        format_hint_script.json and task-index.json)"""
-import json, shutil, sys
+Usage: python -m bobbench.prepbench.build_workload <prepbench repo> [<kramabench root> [<out dir>]]
+       (defaults: the KramaBench submodule, and bobbench/prepbench/data for format_hint_script.json and
+       task-index.json; bench setup prepbench runs it)"""
+import json
 from pathlib import Path
+import shutil
+import sys
+
+from bobbench.paths import KB
 
 HERE = Path(__file__).resolve().parent
 repo = Path(sys.argv[1])
-kb = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE.parents[1] / "benchmark/Kramabench"
-out = Path(sys.argv[3]) if len(sys.argv) > 3 else HERE.parent / "src/bobbench/prepbench/data"
+kb = Path(sys.argv[2]) if len(sys.argv) > 2 else KB
+out = Path(sys.argv[3]) if len(sys.argv) > 3 else HERE / "data"
 cases = sorted(p for p in (repo / "data").iterdir() if p.is_dir() and p.name.startswith("case_"))
 workload, dataflow_hints, script_hints, index = [], [], [], {}
 for case in cases:
@@ -44,7 +48,7 @@ for case in cases:
     query = (case / "query_full.md").read_text().strip()
     workload.append({"id": task, "query": query, "answer": "scored by the PrepBench evaluator", "answer_type": "string_exact",
                      "runtime": 1, "data_sources": [f"{case.name}/{name}" for name in inputs], "subtasks": []})
-    example_map = json.dumps({name: f"<operator ID>" for name in outputs})
+    example_map = json.dumps({name: "<operator ID>" for name in outputs})
     dataflow_hints.append({"id": task, "query": query, "format_hint": (
         "Build each output table listed under Output as an operator in the Dataflow: its columns are exactly the listed "
         "fields, with those names and in that order, and nothing else. Do not write files: when you finish, each output "

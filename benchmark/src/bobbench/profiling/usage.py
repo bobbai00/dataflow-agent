@@ -10,66 +10,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Auditable native-run accounting from exact gateway response usage."""
+"""Model usage and cost from the exact responses, per attempt: the source of every reported cost and model latency.
+
+BobFlow attempts are reconciled from the agent's wire traces (TEXERA_LLM_TRACE_DIR/<agent id>/NNNNNN-{request,response,
+meta}.json, copied into <attempt>/wire/); Script ReAct attempts from model-request-trace.jsonl. Each response is billed
+at the provider's own charge when it reports one (OpenRouter's usage.cost), else at the frozen token rates
+(bobbench.models). A run whose usage is incomplete keeps cost_usd null rather than calling unpriced work free.
+
+    python -m bobbench.profiling.usage recost <run> [--stopped]     (bench recost)
+"""
+import argparse
 from datetime import datetime
 import json
 import math
 from pathlib import Path
 import shutil
 
-
-def current_price_schedule(model):
-    """Frozen standard-tier token estimates; not invoices. Where a response carries the provider's own charge
-    (OpenRouter), response_cost uses that charge and these rates only estimate responses without one."""
-    openrouter = "rates fitted to the usage.cost_details OpenRouter returned on the campaign's responses"
-    providers = {
-        "gpt-5.6-luna": ((.2, 1.2, .02, .25), "https://developers.openai.com/api/docs/models/gpt-5.6-luna", "2026-10-12"),
-        "gpt-5.6-terra": ((2, 12, .2, 2.5), "https://developers.openai.com/api/docs/models/gpt-5.6-terra", "2026-10-12"),
-        "gpt-5.6-sol": ((4, 20, .4, 5), "https://developers.openai.com/api/docs/models/gpt-5.6-sol", "2026-10-12"),
-        "gpt-6.1-sol": ((2, 10, .1, 2.5), "https://developers.openai.com/api/docs/models/gpt-6.1-sol", "2026-10-16"),
-        "claude-opus-4.8": ((5, 25, .5, 6.25), "https://platform.claude.com/docs/en/models/opus-4-8/overview", "2026-10-08"),
-        "claude-opus-5.5": ((4, 20, .2, 5), "https://platform.claude.com/docs/en/models/opus-5-5/overview", "2026-10-12"),
-        # OpenRouter models: the rates the routes' pinned providers billed (Parasail for Qwen, DeepInfra for
-        # DeepSeek), not OpenRouter's listing, which was 1.2-2.9x higher per rate. Neither bills cache writes.
-        "qwen3.8-27b": ((.24, 2.2, .05, None), openrouter + " (Parasail)", "2026-10-12"),
-        # The same model with thinking switched off at the gateway (qwen3.8-27b-nothink route).
-        "qwen3.8-27b-nothink": ((.24, 2.2, .05, None), openrouter + " (Parasail)", "2026-10-12"),
-        "deepseek-v4.1-flash": ((.14, .42, .0042, None), openrouter + " (DeepInfra)", "2026-10-12"),
-        "claude-haiku-5.5": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-08"),
-        # The same model with adaptive thinking at effort low (claude-haiku-5.5-lowthink route).
-        "claude-haiku-5.5-lowthink": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-17"),
-        # The same model with thinking switched off (claude-haiku-5.5-nothink route).
-        "claude-haiku-5.5-nothink": ((.1, .5, .01, .125), "https://platform.claude.com/docs/en/about-claude/pricing", "2026-10-21"),
-        # Gemini 4 Argon through OpenRouter on Google AI Studio (standard tier); OpenRouter reports each response's
-        # charge, so these rates only price a response without one. Implicit caching only; the rates double on
-        # 2026-12-01. The -medium route is the same model with reasoning effort medium.
-        "gemini-4-argon": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
-        "gemini-4-argon-medium": ((2, 10, .1, None), "https://ai.google.dev/gemini-api/docs/pricing (through 2026-11-30)", "2026-10-16"),
-        # Standard paid tier through 2026-12-31 (output includes thinking); explicit cache storage is billed per
-        # token-hour on top and is not counted here.
-        "gemini-3.8-flash": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-02"),
-        # The same model through OpenRouter on Vertex (gemini-3.8-flash-vertex route); OpenRouter reports each
-        # response's charge, so these rates only price a response without one.
-        "gemini-3.8-flash-vertex": ((.75, 3.75, .075, None), "https://ai.google.dev/gemini-api/docs/pricing", "2026-10-24"),
-    }
-    if model not in providers:
-        return None
-    rates, source, verified = providers[model]
-    # GPT-6.1 Sol follows GPT-5.6's billing rules: the 272K long-prompt rates, and every prompt written to its cache.
-    gpt_cache_rules = model.startswith(("gpt-5.6-", "gpt-6.1-"))
-    haiku55 = model in ("claude-haiku-5.5", "claude-haiku-5.5-lowthink", "claude-haiku-5.5-nothink")
-    return {"model": model, "kind": "token_estimate", "currency": "USD", "unit": "per_token",
-            "verified_on": verified, "source": source,
-            "rates": {k: v / 1e6 if v is not None else None for k, v in
-                      zip(("input", "output", "cache_read", "cache_creation"), rates)},
-            "long_context_threshold": 272000 if gpt_cache_rules else 100000 if haiku55 else None,
-            # Haiku 5.5 bills every token class at 5x once a prompt exceeds 100k tokens.
-            **({"long_context_multiplier": 5} if haiku55 else {}),
-            # GPT-5.6 and GPT-6.1 write every prompt to their cache (implicit mode) and bill writes at 1.25x input
-            # (https://developers.openai.com/api/docs/guides/prompt-caching); usage that omits the write count
-            # still incurred them. GPT-6.1 Sol's Responses usage reported 3,624 writes on a fresh 3,627-token prompt.
-            **({"implicit_cache_writes": True} if gpt_cache_rules else {}),
-            "input_includes_cached": True, "output_includes_reasoning": True}
+from bobbench.models import price_schedule
 
 
 def cache_usage_values(usage):
@@ -78,12 +35,13 @@ def cache_usage_values(usage):
     return {
         "cached_tokens": (prompt.get("cached_tokens"), usage.get("cachedInputTokens"), usage.get("cache_read_input_tokens")),
         "cache_creation_tokens": (prompt.get("cache_write_tokens"), prompt.get("cache_creation_tokens"),
-            usage.get("cache_creation_input_tokens"), usage.get("cacheCreationInputTokens")),
+                                  usage.get("cache_creation_input_tokens"), usage.get("cacheCreationInputTokens")),
     }
 
 
 def normalize_usage(usage):
     completion = usage.get("completion_tokens_details") or {}
+
     def number(*values):
         return next((int(value) for value in values if value is not None), 0)
     inputs = number(usage.get("prompt_tokens"), usage.get("inputTokens"), usage.get("input_tokens"))
@@ -94,8 +52,8 @@ def normalize_usage(usage):
 
 
 def cost_for_usage(usage, pricing, implicit_cache_writes=False):
-    """Frozen-rate estimate for one normalized usage. With implicit_cache_writes, the uncached prompt tokens are
-    priced as cache writes: the provider wrote them to its cache without reporting the count."""
+    """Frozen-rate estimate for one normalized usage. With implicit_cache_writes, the uncached prompt tokens are priced
+    as cache writes: the provider wrote them to its cache without reporting the count."""
     if pricing is None:
         return None
     counts = {"input": usage["input_tokens"] - usage["cached_tokens"] - usage["cache_creation_tokens"],
@@ -153,7 +111,7 @@ def unreported_cache_write_assumption(count, pricing):
 
 
 def reconcile_trace(path, model, pricing):
-    """Price a script-agent attempt from its model-request-trace.jsonl with the same per-response rules as
+    """Price a Script ReAct attempt from its model-request-trace.jsonl with the same per-response rules as
     reconcile_run, and write the result into stats.json (the harness's own figure stays as harness_cost_usd)."""
     path = Path(path)
     stats_path = path / "stats.json"
@@ -186,52 +144,10 @@ def reconcile_trace(path, model, pricing):
     return stats
 
 
-def retrieval_results(item):
-    """Expand both historical single reads and ordered multi-target reads."""
-    action, output = item.get("action", {}), item.get("output")
-    if action.get("type") != "retrieve" or not isinstance(output, dict):
-        return []
-    targets = output.get("results")
-    if isinstance(targets, list):
-        return [{**(target.get("output") or target), "operator_id": target.get("operator_id"),
-                 "status": target.get("status", item.get("status"))} for target in targets]
-    return [{**output, "operator_id": action.get("operator_id"), "status": item.get("status")}]
-
-
-# The step the agent records when a turn is stopped, e.g. by the runner's
-# wall-clock watchdog. It ends the turn but is not a reply.
-STOPPED_STEP = "Generation stopped by user."
-
-
-def final_reply(steps):
-    """The answer: the last agent step ends the task with text and no tool call.
-    A failed or stopped turn's last step says so in `endReason`; traces from
-    before that field are recognized by their text."""
-    agents = [step for step in steps if step.get("role") == "agent"]
-    final = agents[-1] if agents else None
-    return bool(final and final.get("isEnd") and not final.get("toolCalls") and final.get("content")
-                and not final.get("endReason")
-                and not str(final["content"]).startswith("Error:") and final["content"] != STOPPED_STEP)
-
-
-def tool_error_counts(result):
-    """Count failed calls, including validation failures before any action runs."""
-    output = result.get("output")
-    output = output if isinstance(output, dict) else {}
-    action_errors = sum(item.get("status") == "error" for item in output.get("actions", []))
-    failed = bool(result.get("isError") or output.get("status") == "error" or output.get("error") or action_errors)
-    return {"tool_errors": int(failed), "envelope_errors": int(failed and not action_errors),
-            "action_errors": action_errors}
-
-
-def edit_operations(output):
-    """Normalize historical graph edits and registered-Python change reports."""
-    return [change.get("operation") or ".".join((change.get("change", "unknown"), change.get("action", "unknown")))
-            for change in output.get("changes", [])]
-
-
 def reconcile_run(path, model, pricing, wire_root=None):
-    """Preserve harness stats, verify observed usage, and never call unpriced work free."""
+    """Price a BobFlow attempt from its wire traces (copied from `wire_root`/<agent id> when given): per-response usage,
+    cost and latency into stats.json (the harness's streamed figures stay in harness-stats.json), and the usage audit
+    into metrics-audit.json."""
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     stats_path = path / "stats.json"
@@ -301,7 +217,7 @@ def reconcile_run(path, model, pricing, wire_root=None):
     known = bool(costs) and all(cost is not None for cost in costs)
     provider_complete = complete and len(provider_costs) == len(metas)
     cache_reporting = {key: {"reported_responses": count, "unreported_responses": len(usages) - count,
-                            "complete": complete and count == len(metas)}
+                             "complete": complete and count == len(metas)}
                        for key, count in cache_reports.items()}
     assumptions = []
     missing = cache_reporting["cached_tokens"]["unreported_responses"]
@@ -345,11 +261,18 @@ def backup_once(path, suffix=".before-billing-fix.json"):
         shutil.copyfile(path, path.with_name(path.stem + suffix))
 
 
+def run_pricing(manifest, model):
+    """The schedule an attempt of `model` is priced with: today's frozen rates, else the ones the run recorded."""
+    return (price_schedule(model) or (manifest.get("pricing_schedules") or {}).get(model)
+            or manifest.get("price_schedule"))
+
+
 def recost(root):
-    """Re-price a finished run's preserved attempts with the current per-response rules, changing only cost:
-    each attempt's stats.json (and metrics-audit.json) and the progress rows' cost_usd. The first rewrite keeps
-    the previous files as *.before-billing-fix.json. Dataflow attempts are priced from wire/, script-agent
-    attempts from model-request-trace.jsonl."""
+    """Re-price a finished run's preserved attempts with the current per-response rules, changing only cost: each
+    attempt's stats.json (and metrics-audit.json) and the progress rows' cost_usd. The first rewrite keeps the previous
+    files as *.before-billing-fix.json. BobFlow attempts are priced from wire/, Script ReAct attempts from
+    model-request-trace.jsonl. No model or judge is called."""
+    root = Path(root)
     manifest = json.loads((root / "manifest.json").read_text())
     progress = json.loads((root / "progress.json").read_text())
     backup_once(root / "progress.json")
@@ -357,8 +280,7 @@ def recost(root):
     for row in progress["completed"]:
         path = root / "system_scratch" / row["sut"] / row["task"]
         model = manifest["models"][row["model"]]
-        pricing = (current_price_schedule(model) or (manifest.get("pricing_schedules") or {}).get(model)
-                   or manifest.get("price_schedule"))
+        pricing = run_pricing(manifest, model)
         if (path / "wire").is_dir():
             backup_once(path / "stats.json")
             backup_once(path / "metrics-audit.json")
@@ -375,36 +297,15 @@ def recost(root):
 
 
 def main():
-    """Recompute accounting and invariant checks offline from preserved artifacts."""
-    import argparse
-    try:
-        from .campaign import audit_attempt
-    except ImportError:
-        from campaign import audit_attempt
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("directory", type=Path)
-    parser.add_argument("--costs-only", action="store_true",
-                        help="Re-price with the current rules and change nothing but cost fields (any runner kind).")
+    parser = argparse.ArgumentParser(prog="bench recost", description=recost.__doc__)
+    parser.add_argument("run", type=Path)
     parser.add_argument("--stopped", action="store_true",
-                        help="The run's progress still says running, but its runner is known to be gone.")
+                        help="the run's progress still says running, but its runner is known to be gone")
     args = parser.parse_args()
-    root = args.directory
-    manifest = json.loads((root / "manifest.json").read_text())
-    progress = json.loads((root / "progress.json").read_text())
+    progress = json.loads((args.run / "progress.json").read_text())
     if progress.get("status") == "running" and not args.stopped:
-        parser.error("Wait for the campaign to finish before rewriting its accounting.")
-    if args.costs_only:
-        print(f"Re-priced {recost(root)} preserved attempts; no model or scorer calls.")
-        return
-    for row in progress["completed"]:
-        path = root / "system_scratch" / row["sut"] / row["task"]
-        model = manifest["models"][row["model"]]
-        stats, _ = reconcile_run(path, model, manifest.get("pricing_schedules", {}).get(model))
-        row["audit"] = audit_attempt(path, {**manifest["settings"], **manifest["arms"][row["arm"]]})
-        row["cost_usd"] = stats["cost_usd"]
-        (path / "attempt-audit.json").write_text(json.dumps(row["audit"], indent=2) + "\n")
-    (root / "progress.json").write_text(json.dumps(progress, indent=2) + "\n")
-    print(f"Reconciled {len(progress['completed'])} preserved attempts; no model or scorer calls.")
+        parser.error("Wait for the run to finish before re-pricing it (or pass --stopped).")
+    print(f"Re-priced {recost(args.run)} preserved attempts; no model or judge calls.")
 
 
 if __name__ == "__main__":

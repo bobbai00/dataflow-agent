@@ -35,6 +35,10 @@ INTENDED = {
     ("evaluation.json", "token_usage_sut_reasoning"): (
         lambda base, gate: base is None and isinstance(gate, int),
         "BobFlow reports the reasoning tokens its turn streamed (the retired accounting module dropped them)"),
+    ("evaluation.json", "cost_usd_sut"): (
+        lambda base, gate: isinstance(base, (int, float)) and not isinstance(base, bool) and gate is None,
+        "Script ReAct's harness no longer prices an attempt (KramaBench's fallback table did); the runner prices its "
+        "request trace into stats.json as before"),
 }
 
 

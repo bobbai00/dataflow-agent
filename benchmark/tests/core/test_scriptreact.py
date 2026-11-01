@@ -10,45 +10,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Script-agent baselines: what their sandboxes expose, and how their runs are accounted."""
+"""Script ReAct's harness pieces: usage from the request trace, the explicit answer, the workspace record, the locked
+interpreter and the gateway relay."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from contextlib import redirect_stderr
-import importlib.util
-import io
 import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
-import sys
 import tempfile
 import threading
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-from urllib.request import urlopen
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[1]
-KB = REPO / "benchmark/Kramabench"
-sys.path.insert(0, str(HERE))
-from evaluate_script_task import discard_workspace  # noqa: E402
-import run_baselines  # noqa: E402
-from script_sandbox import gateway_socket  # noqa: E402
-
-
-def harness_module(path):
-    """One harness file by path: its packages collide with this repository's `benchmark`."""
-    spec = importlib.util.spec_from_file_location(path.stem, KB / path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-usage_totals = harness_module(Path("systems/dsgym_runner.py")).usage_totals
-parse_answer, parse_explicit_answer = (
-    getattr(harness_module(Path("utils/answer_parser.py")), name) for name in ("parse_answer", "parse_explicit_answer")
-)
+from bobbench.kramabench.prompt import parse_answer, parse_explicit_answer
+from bobbench.scriptreact import interpreter
+from bobbench.scriptreact.sandbox import discard_workspace, gateway_socket, usage_totals
 
 try:
     import httpx
@@ -109,82 +84,11 @@ class AccountingTests(unittest.TestCase):
             )
 
 
-class BaselineRunnerTests(unittest.TestCase):
-    def test_duplicate_systems_and_invalid_limits_are_rejected(self):
-        for arguments in (["--systems", "smolagents", "smolagents"], ["--max-steps", "0"]):
-            with self.subTest(arguments=arguments), tempfile.TemporaryDirectory() as temp:
-                command = [
-                    "run_baselines.py",
-                    "--output",
-                    str(Path(temp) / "round"),
-                    "--tasks",
-                    "legal-easy-3",
-                    *arguments,
-                ]
-                with (
-                    patch.object(sys, "argv", command),
-                    redirect_stderr(io.StringIO()),
-                    patch.object(
-                        run_baselines,
-                        "inventory",
-                        side_effect=AssertionError("Invalid arguments must stop before setup"),
-                    ),
-                ):
-                    with self.assertRaises(SystemExit) as error:
-                        run_baselines.main()
-                self.assertEqual(error.exception.code, 2)
-
-    def test_the_manifest_records_the_locked_interpreter(self):
-        class ManifestSaved(Exception):
-            pass
-
-        with tempfile.TemporaryDirectory() as temp:
-            output = Path(temp) / "round"
-            command = [
-                "run_baselines.py",
-                "--output",
-                str(output),
-                "--systems",
-                "smolagents",
-                "--tasks",
-                "legal-easy-3",
-            ]
-            cost_utils = SimpleNamespace(price_schedule=lambda model: {})
-            # Stop after the manifest is written, before any job or gateway call.
-            with (
-                patch.object(sys, "argv", command),
-                patch.object(sys, "path", sys.path.copy()),
-                patch.dict(os.environ, {"OPENAI_API_KEY": "offline-test", "LITELLM_MASTER_KEY": "offline-test"}),
-                patch.dict(
-                    sys.modules,
-                    {
-                        "kb": SimpleNamespace(),
-                        "requests": SimpleNamespace(),
-                        "systems": SimpleNamespace(cost_utils=cost_utils),
-                    },
-                ),
-                patch.object(run_baselines, "inventory", return_value=[{"task_id": "legal-easy-3", "bytes": 4}]),
-                patch.object(run_baselines, "install_provider_prices", return_value={}),
-                patch.object(
-                    run_baselines,
-                    "revision",
-                    side_effect=lambda path: "offline" if path in (REPO, KB) else self.fail(f"unexpected {path}"),
-                ),
-                patch.object(run_baselines, "prepare_artifacts", side_effect=ManifestSaved),
-                patch.object(run_baselines, "script_python", return_value={"path": "/locked/python"}),
-            ):
-                with self.assertRaises(ManifestSaved):
-                    run_baselines.main()
-            manifest = json.loads((output / "manifest.json").read_text())
-            self.assertEqual({job["arm"] for job in manifest["jobs"]}, {"smolagents"})
-            self.assertEqual(manifest["script_python"], {"path": "/locked/python"})
-
-
 class ScriptPythonTests(unittest.TestCase):
-    """smolagents runs only on script-agent/'s interpreter, on Texera's Python, numpy and pyarrow."""
+    """Script ReAct runs only on envs/scriptreact's interpreter, on Texera's Python, numpy and pyarrow."""
 
-    LOCKED_VERSION = (run_baselines.SCRIPT_AGENT / ".python-version").read_text().strip()
-    LOCKED = run_baselines.pinned((run_baselines.SCRIPT_AGENT / "requirements.txt").read_text().splitlines())
+    LOCKED_VERSION = (interpreter.LOCK / ".python-version").read_text().strip()
+    LOCKED = interpreter.pinned((interpreter.LOCK / "requirements.txt").read_text().splitlines())
 
     def fake(self, directory, name, version=None, **changes):
         """An executable that answers the interpreter probe like a Python with these packages."""
@@ -200,9 +104,9 @@ class ScriptPythonTests(unittest.TestCase):
     def test_the_locked_interpreter_is_accepted_and_recorded(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=False):
             os.environ.pop("NATIVE_ISOLATED_PYTHON", None)
-            found = run_baselines.script_python(self.fake(temp, "python"))
+            found = interpreter.locked(self.fake(temp, "python"))
         self.assertEqual(found["python"], self.LOCKED_VERSION)
-        self.assertEqual(run_baselines.pinned(found["packages"]), self.LOCKED)
+        self.assertEqual(interpreter.pinned(found["packages"]), self.LOCKED)
         self.assertIsNone(found["texera_sandbox"])
 
     def test_missing_or_drifted_interpreters_are_refused(self):
@@ -214,7 +118,7 @@ class ScriptPythonTests(unittest.TestCase):
                 self.fake(temp, "extra-package", **{"left-pad": "1.0"}),
             ):
                 with self.subTest(python=python.name), self.assertRaisesRegex(ValueError, "setup.sh"):
-                    run_baselines.script_python(python)
+                    interpreter.locked(python)
 
     def test_texera_sandbox_must_share_python_numpy_and_pyarrow(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -230,19 +134,17 @@ class ScriptPythonTests(unittest.TestCase):
                     patch.dict(os.environ, {"NATIVE_ISOLATED_PYTHON": str(texera)}),
                     self.assertRaisesRegex(ValueError, "Texera's operator sandbox"),
                 ):
-                    run_baselines.script_python(python)
+                    interpreter.locked(python)
             with patch.dict(os.environ, {"NATIVE_ISOLATED_PYTHON": str(same)}):
-                self.assertEqual(run_baselines.script_python(python)["texera_sandbox"], str(same))
+                self.assertEqual(interpreter.locked(python)["texera_sandbox"], str(same))
 
     @unittest.skipUnless(
-        (run_baselines.SCRIPT_AGENT / ".venv/bin/python").is_file() and os.environ.get("NATIVE_ISOLATED_PYTHON"),
-        "needs script-agent/setup.sh and Texera's NATIVE_ISOLATED_PYTHON",
+        (interpreter.LOCK / ".venv/bin/python").is_file() and os.environ.get("NATIVE_ISOLATED_PYTHON"),
+        "needs envs/scriptreact/setup.sh and Texera's NATIVE_ISOLATED_PYTHON",
     )
     def test_built_interpreter_matches_the_lock_and_texera(self):
-        found = run_baselines.script_python(run_baselines.SCRIPT_AGENT / ".venv/bin/python")
+        found = interpreter.locked(interpreter.LOCK / ".venv/bin/python")
         self.assertEqual(found["texera_sandbox"], os.environ["NATIVE_ISOLATED_PYTHON"])
-
-
 
 
 @unittest.skipUnless(httpx, "needs httpx")
@@ -276,7 +178,7 @@ class GatewayRelayTests(unittest.TestCase):
 
                 with (
                     self.subTest(endpoint=endpoint),
-                    patch("script_sandbox.socket.create_connection", side_effect=connect_gateway),
+                    patch("bobbench.scriptreact.sandbox.socket.create_connection", side_effect=connect_gateway),
                     patch("ssl.create_default_context") as context,
                 ):
                     # Verify HTTPS selects a validated TLS context; the local mock
@@ -303,9 +205,3 @@ class GatewayRelayTests(unittest.TestCase):
             with self.subTest(endpoint=endpoint), self.assertRaises(ValueError):
                 with gateway_socket(endpoint):
                     self.fail("An invalid gateway must not create a relay")
-
-
-
-
-if __name__ == "__main__":
-    unittest.main()
