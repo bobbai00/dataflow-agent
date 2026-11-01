@@ -16,7 +16,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Build the doctored CSV behind the Boston agent demo (docs/archived/agent-demo-playbook-boston.md).
+"""Build the doctored CSV behind the Boston agent demo (boston-housing.json) and the
+smolagents-service e2e (tests/e2e/script_flow.mjs).
 
     python3 prepare-boston-demo.py fy2026.csv boston_single_family_fy2026_demo.csv
 
