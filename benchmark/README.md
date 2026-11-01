@@ -40,7 +40,7 @@ benchmark/
     arms.py          the paper's settings; models.py: model tags and prices
     report.py, compare.py, audit.py, setup.py
   tests/           the offline tests and the $0 gate (tests/gate/)
-  campaign/        the stack (templates, launchers, watchers; README there)
+  campaign/        the stack (`bench stack`, templates, launchers, watchers; README there)
   tracker/         the context-tracker overhead experiments (README there)
   Kramabench/      submodule: KramaBench's evaluator, workloads, data and judge cache
   longds/          not tracked: the DataMind checkout and the prepared sessions
@@ -52,55 +52,72 @@ Needs `git`, `uv` and any `python3`.
 
 ```bash
 benchmark/bench setup all --dry-run    # what is there, what would be fetched
-benchmark/bench setup all              # or kramabench, prepbench, longds; safe to run again
+benchmark/bench setup all              # or base, kramabench, prepbench, longds; safe to run again
 ```
 
-Every target first makes what all benchmarks need (7.5 GB): the submodule at the pinned commit, `envs/kramabench/.venv`
-(Python 3.10.9), `envs/scriptreact/.venv` (3.12.12), the checkout's `.venv` (3.12.12; `uv sync --all-extras`, then the
-packages of `envs/engine/requirements.txt` that the lock lacks) and the engine's Python protos. The engine runs the
-model's code on `.venv`, so **a later `uv sync` removes packages the paper's runs had**: run `bench setup` again after one.
+`base` is what every target starts with: the submodule at the pinned commit, `envs/kramabench/.venv` (Python 3.10.9),
+`envs/scriptreact/.venv` (3.12.12), the checkout's `.venv` (3.12.12; `uv sync --all-extras`, then the packages of
+`envs/engine/requirements.txt` that the lock lacks) and the engine's Python protos. The engine runs the model's code on
+`.venv`, so **a later `uv sync` removes packages the paper's runs had**: run `bench setup base` again after one.
 
 | Target | Adds | Size | Options |
 |---|---|---|---|
 | `kramabench` | wildfire's WeatherEvents csv from Kaggle (no login needed so far; else a token in `~/.kaggle/access_token`) | 1 GB | `--copy-from <KramaBench checkout>` links or copies it |
 | `prepbench` | PrepBench at 993a313 in `~/datasets/prepbench`, staged into `Kramabench/data/prepbench` | 0.5 GB | `--datasets <dir>` clones it to `<dir>/prepbench`; then set `PREPBENCH_REPO=<dir>/prepbench` |
-| `longds` | DataMind at 4b49ef0 (judge prompt only), the Lite sessions' tasks and data from Hugging Face `zjunlp/LongDS` at bf41bb2, a copy of the data in the tree the engine mounts, the prepared sessions | 9.5 GB | `--sessions <domain/dataset/task> ...`, `--prepared <dir>` |
+| `longds` | DataMind at 4b49ef0 (judge prompt only), the Lite sessions' tasks and data from Hugging Face `zjunlp/LongDS` at bf41bb2, a copy of the data in the tree the engine mounts, the prepared sessions | 17 GB | `--sessions DOMAIN/DATASET/TASK ...` takes only those sessions; `--prepared <dir>` |
 
 `Kramabench/data/wildfire/input/ZHVI.csv` is 0 bytes in every paper run: leave it so. Setup reports 5 `legal` sources
 "not found by their exact name": upstream's folder names differ in case, and the prompts' fuzzy search finds them.
 
 ## The stack
 
-`bench run` and `bench longds run` need an isolated Texera stack: engine, agent, model gateway.
-[campaign/README.md](campaign/README.md) renders it and brings it up and down. Below, `S` is the stack's folder, all
-commands run from the repository root, and the provider keys are in the stack's `infra.env` and the checkout's `.env`.
+`bench run` and `bench longds run` need a Texera of their own: engine, agent, model gateway. It has its own ports,
+containers and volumes, so it runs beside `bin/local-dev.sh up` without touching it, and its state stays in one folder
+(`STACK_DIR`, default `/var/tmp/bobflow-bench`). Provider keys come from the checkout's `.env`.
+
+```bash
+benchmark/bench stack up       # write the stack on first use, build, start everything; safe to repeat
+benchmark/bench stack status
+benchmark/bench stack down     # stop everything; the data stays in its docker volumes
+```
+
+More about the stack: [campaign/README.md](campaign/README.md). Below, `S` is the stack's folder and all commands run
+from the repository root.
 
 ## One small run per benchmark and system
 
-With Claude Haiku 5.5, a few cents in all. The launchers run detached, with the paper's settings: results in
-`$S/runs/<run>`, log in `$S/logs/<run>.log`. Without task ids they run every task.
+With GPT-5.6 Luna, a few cents in all. `WAIT=1` keeps a launcher in the foreground until its run ends; without it the
+launcher returns at once. Each run has the paper's settings, its results in `$S/runs/<run>` and its log in
+`$S/logs/<run>.log`. Without task ids a launcher runs every task.
 
 ```bash
-export STACK_DIR=/var/tmp/texera-stable S=/var/tmp/texera-stable    # the launchers read STACK_DIR
+S=/var/tmp/bobflow-bench
 
 # KramaBench, BobFlow
-ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Haiku55 1 2 archeology-easy-6 legal-easy-25
-# KramaBench, Script ReAct (Haiku is on the stack's main gateway, offset + 4000)
-GATEWAY=60000 benchmark/campaign/launch-smol.sh demo-kb-script Haiku55 1 2 archeology-easy-6 legal-easy-25
-# PrepBench, BobFlow
-benchmark/campaign/launch-prep.sh demo-pb Haiku55 2 prepbench-hard-1 prepbench-hard-50
-# PrepBench, Script ReAct
-GATEWAY=60000 benchmark/campaign/launch-prep-smol.sh demo-pb-script Haiku55 2 prepbench-hard-1 prepbench-hard-50
+WAIT=1 ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Luna 1 2 archeology-easy-6 legal-easy-25
+benchmark/bench report $S/runs/demo-kb
+# KramaBench, Script ReAct
+WAIT=1 benchmark/campaign/launch-smol.sh demo-kb-script Luna 1 2 archeology-easy-6 legal-easy-25
+benchmark/bench report $S/runs/demo-kb-script
 
-# LongDS, BobFlow (the first 2 requests of a session; run these in the foreground)
+# PrepBench, BobFlow (PrepBench's own evaluator scores the output tables afterwards)
+WAIT=1 benchmark/campaign/launch-prep.sh demo-pb Luna 2 prepbench-hard-1 prepbench-hard-50
+benchmark/bench score prepbench $S/runs/demo-pb/scores.json $S/runs/demo-pb
+benchmark/bench report $S/runs/demo-pb --scores $S/runs/demo-pb/scores.json
+# PrepBench, Script ReAct
+WAIT=1 benchmark/campaign/launch-prep-smol.sh demo-pb-script Luna 2 prepbench-hard-1 prepbench-hard-50
+benchmark/bench score prepbench $S/runs/demo-pb-script/scores.json $S/runs/demo-pb-script
+benchmark/bench report $S/runs/demo-pb-script --scores $S/runs/demo-pb-script/scores.json
+
+# LongDS, the first 2 requests of a session (these run in the foreground)
 P=benchmark/longds/prepared/business__netflix_movies_and_tv_shows__task2
 bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/catalog-gold \
-  --arm catalog-gold --model claude-haiku-5.5 --turns 2
+  --arm catalog-gold --model gpt-5.6-luna --turns 2
 bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/transcript-depnote \
-  --arm transcript-depnote --model claude-haiku-5.5 --turns 2
+  --arm transcript-depnote --model gpt-5.6-luna --turns 2
 # LongDS, Script ReAct
 bash $S/run-env.sh benchmark/bench longds smolagents --prepared $P --out $S/runs/demo-longds/smolagents-depnote \
-  --note dependencies --model claude-haiku-5.5 --turns 2
+  --note dependencies --model gpt-5.6-luna --turns 2
 # LongDS is judged afterwards (deepseek-v4-pro through OpenRouter)
 bash $S/run-env.sh benchmark/bench longds judge --runs $S/runs/demo-longds
 benchmark/bench longds report --runs $S/runs/demo-longds
@@ -109,7 +126,7 @@ benchmark/bench longds report --runs $S/runs/demo-longds
 A launcher only adds defaults to `bench run`. The same KramaBench run directly:
 
 ```bash
-bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/demo-kb2 --models Haiku55 \
+bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/demo-kb2 --models Luna \
   --arms evidence_full_flow0 --tasks archeology-easy-6 legal-easy-25 --workers 2
 ```
 

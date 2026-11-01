@@ -10,17 +10,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Write an isolated benchmark stack (the texera-stable layout) into a state directory.
+"""Write an isolated benchmark stack into a state directory.
 
-The templates next to this file are the texera-stable stack of the 2026-10-16/17 runs with its paths and ports replaced:
+The templates next to this file are the stack of the paper's runs with its paths and ports replaced:
 @TEXERA_HOME@ (the checkout every service, the agent and the runners use), @STACK_DIR@ (state: profile, logs, wire
 traces, workspaces, runs), @KB_DATA@ (the KramaBench data the sandbox mounts), @PROJECT@ (docker compose project and
-container prefix), @P<base>@ (a local-dev base port plus --offset), @OFFSET@ and @AGENT_PORT@. The defaults, offset
-56000 and agent 3130, are the texera-stable ports; give each stack on a host its own offset and agent port.
-infra.env is written from infra.env.example only when missing, with mode 600; fill its provider keys.
+container prefix), @P<base>@ (a local-dev base port plus --offset), @OFFSET@ and @AGENT_PORT@. Give each stack on a
+host its own offset and agent port. infra.env is written from infra.env.example only when missing, with mode 600; every
+call copies the provider keys from the checkout's .env into it.
 
-Usage: render.py [--stack-dir /var/tmp/texera-stable] [--texera-home <this checkout>] [--kb-data <home>/benchmark/Kramabench/data]
-                 [--project <basename of the stack dir>] [--offset 56000] [--agent-port 3130] [--force]"""
+Usage: render.py [--stack-dir /var/tmp/bobflow-bench] [--texera-home <this checkout>] [--kb-data <home>/benchmark/Kramabench/data]
+                 [--project <basename of the stack dir>] [--offset 30000] [--agent-port 3100] [--force]"""
 import argparse
 import os
 import re
@@ -29,6 +29,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 FILES = {"profile.sh": 0o644, "run-env.sh": 0o755, "compose.json": 0o644, "empty-overlay.yml": 0o644}
 DIRS = ["logs", "wire", "native-workspaces", "native-workspaces-agent", "runs"]
+PROVIDER_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY")
 
 
 def render(text, values, offset):
@@ -44,14 +45,28 @@ def render(text, values, offset):
     return re.sub(r"@P(\d+)@", port, text)
 
 
+def copy_provider_keys(env_file, infra):
+    """Give infra.env the keys that .env sets, so a key lives in one place. Values are never printed."""
+    if not env_file.exists():
+        return
+    keys = {}
+    for line in env_file.read_text().splitlines():
+        name, _, value = line.removeprefix("export ").partition("=")
+        if name.strip() in PROVIDER_KEYS and value.strip():
+            keys[name.strip()] = value.strip().strip("\"'")
+    lines = [f"{line.split('=')[0]}={keys[line.split('=')[0]]}" if line.split("=")[0] in keys else line
+             for line in infra.read_text().splitlines()]
+    infra.write_text("\n".join(lines) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--stack-dir", type=Path, default=Path(os.environ.get("STACK_DIR", "/var/tmp/texera-stable")))
+    parser.add_argument("--stack-dir", type=Path, default=Path(os.environ.get("STACK_DIR", "/var/tmp/bobflow-bench")))
     parser.add_argument("--texera-home", type=Path, default=HERE.parents[2])
     parser.add_argument("--kb-data", type=Path)
     parser.add_argument("--project")
-    parser.add_argument("--offset", type=int, default=56000, help="added to every local-dev base port")
-    parser.add_argument("--agent-port", type=int, default=3130)
+    parser.add_argument("--offset", type=int, default=30000, help="added to every local-dev base port")
+    parser.add_argument("--agent-port", type=int, default=3100)
     parser.add_argument("--force", action="store_true", help="overwrite rendered files that already exist")
     args = parser.parse_args()
     home = args.texera_home.resolve()
@@ -73,8 +88,11 @@ def main():
         text = render((HERE / "infra.env.example").read_text(), values, args.offset)
         infra.write_text(text)
         infra.chmod(0o600)
-        empty = [line.split("=")[0] for line in text.splitlines() if line.endswith("=") and not line.startswith("#")]
-        print(f"wrote {infra}; fill: {', '.join(empty)}")
+        print(f"wrote {infra}")
+    copy_provider_keys(home / ".env", infra)
+    empty = [line.split("=")[0] for line in infra.read_text().splitlines() if line.endswith("=") and not line.startswith("#")]
+    if empty:
+        print(f"not in {home / '.env'}: {', '.join(empty)}")
     for name in DIRS:
         (args.stack_dir / name).mkdir(exist_ok=True)
     print(f"stack {values['@PROJECT@']} at {args.stack_dir} for {home}")

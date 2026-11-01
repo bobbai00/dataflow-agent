@@ -10,7 +10,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Memory guard and resource log for the runs of one benchmark stack ($STACK_DIR, default /var/tmp/texera-stable); touches only its own runs.
+"""Memory guard and resource log for the runs of one benchmark stack ($STACK_DIR, default /var/tmp/bobflow-bench); touches only its own runs.
 
 Pauses this campaign's runners (a PAUSE file starting "memory-guard:"; both runners wait, running attempts finish)
 below 5 GB available memory or 6 GB free swap and resumes above 7 GB and 6.5 GB. Never kills a process. Every minute
@@ -24,7 +24,7 @@ import sys
 import time
 if sys.argv[1:]:
     sys.exit(__doc__)
-S = os.environ.get("STACK_DIR", "/var/tmp/texera-stable").rstrip("/")
+S = os.environ.get("STACK_DIR", "/var/tmp/bobflow-bench").rstrip("/")
 PROJECT = os.environ.get("STACK_PROJECT", os.path.basename(S))
 LOG, STATUS, RUNS = S + "/logs/guard.log", S + "/status.txt", S + "/runs.txt"
 OWN = (S + "/",)

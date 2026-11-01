@@ -16,11 +16,11 @@
 # Stack profile plus the campaign agent overrides used since campaign 2: MODEL_RETRIES_PER_TURN=2, the checkout's
 # validation sandbox, the stack's own wire and workspace dirs. Model calls go through the stack's
 # access-control-service to its gateway. Non-watch mode: do not edit the checkout while runs are in flight.
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [CHECKOUT=<checkout>] start-agent.sh   (CHECKOUT: serve the agent from another
+# Usage: [STACK_DIR=/var/tmp/bobflow-bench] [CHECKOUT=<checkout>] start-agent.sh   (CHECKOUT: serve the agent from another
 #        checkout, such as a branch's worktree, against the same stack)
 case "${1:-}" in -h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 0;; esac
 set -euo pipefail
-S="${STACK_DIR:-/var/tmp/texera-stable}"
+S="${STACK_DIR:-/var/tmp/bobflow-bench}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
 W="${CHECKOUT:-$TEXERA_HOME}"

@@ -47,7 +47,7 @@ python3 -I benchmark/tracker/conversations.py smolagents conversations-smolagent
 ## Dataflow agent
 
 `run-arm.sh` starts an agent service of this checkout on the engine of a campaign stack (`benchmark/campaign`; `STACK_DIR`,
-default `/var/tmp/texera-stable`) and replays every conversation through it (`replay-dataflow.ts`). The service is started by `start-agent.sh`, with its own
+default `/var/tmp/bobflow-bench`) and replays every conversation through it (`replay-dataflow.ts`). The service is started by `start-agent.sh`, with its own
 port, trace database and workspace, and the memory route on (`AGENT_DEBUG_MEMORY=1`). It sends its model calls to the
 replayer, which answers each one with the next recorded response. Everything else runs as in a benchmark run: every
 edit, every execution on the engine, and the context of every call. The replay checks that each call's input is about

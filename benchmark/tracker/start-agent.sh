@@ -20,7 +20,7 @@
 case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 port="$1" model_port="$2" run="$3"
-S="${STACK_DIR:-/var/tmp/texera-stable}"
+S="${STACK_DIR:-/var/tmp/bobflow-bench}"
 W="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$run/workspace"
 cd "$W/agent-service"

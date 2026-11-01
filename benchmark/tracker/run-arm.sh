@@ -14,7 +14,7 @@
 
 # One arm of the overhead experiments: a fresh agent service of this checkout (start-agent.sh), the replay of every
 # conversation through it (replay-dataflow.ts), then the service stopped. Output in RUN_DIR: replay.jsonl, agent.log,
-# replay.log, traces.db. The stack is $STACK_DIR's (default /var/tmp/texera-stable).
+# replay.log, traces.db. The stack is $STACK_DIR's (default /var/tmp/bobflow-bench).
 #
 #   benchmark/tracker/run-arm.sh RUN_DIR AGENT_PORT MODEL_PORT CONVERSATIONS [replay-dataflow.ts options...]
 case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
@@ -22,7 +22,7 @@ set -euo pipefail
 run="$1" port="$2" model_port="$3" conversations="$4"
 shift 4
 here="$(cd "$(dirname "$0")" && pwd)"
-texera="$(. "${STACK_DIR:-/var/tmp/texera-stable}/profile.sh" && echo "$TEXERA_DASHBOARD_SERVICE_ENDPOINT")"
+texera="$(. "${STACK_DIR:-/var/tmp/bobflow-bench}/profile.sh" && echo "$TEXERA_DASHBOARD_SERVICE_ENDPOINT")"
 mkdir -p "$run"
 git -C "$here" rev-parse HEAD > "$run/revision.txt"
 git -C "$here" diff HEAD > "$run/uncommitted.diff"

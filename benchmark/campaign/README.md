@@ -23,47 +23,40 @@ The stack the paper's runs used: one isolated stack whose services, agent, gatew
 checkout, with its own ports, containers, volumes, logs, wire traces and run folders. Everything here reads the stack's
 profile, so the same scripts serve any checkout. What to run on it is in [the benchmark README](../README.md).
 
-## 1. Checkout prerequisites
+## 1. Before the first stack
 
 ```bash
-benchmark/bench setup all                              # submodule, interpreters, protos, data (benchmark/README.md)
-(cd agent-service && bun install --frozen-lockfile)
-cp .env.example .env                                   # then add the provider keys (OpenAI, Anthropic, OpenRouter, Gemini)
+cp .env.example .env                 # then add the provider keys (OpenAI, Anthropic, OpenRouter, Gemini)
+benchmark/bench setup all            # submodule, interpreters, protos, data (benchmark/README.md)
 ```
 
 The sandbox mounts `benchmark/Kramabench/data`; `bench setup` stages PrepBench's and LongDS's inputs there. Building the
-services (`up --build` below) needs sbt and a JDK; the containers need docker.
+services needs sbt and a JDK; the containers need docker.
 
-## 2. Write the stack
-
-```bash
-python3 benchmark/campaign/stack/render.py --stack-dir /var/tmp/texera-stable   # profile.sh, run-env.sh, compose.json, ...
-```
-
-Fill the provider keys in `<stack>/infra.env` (written with mode 600; every other value is the repository's local-dev
-default). The ports are the texera-stable set: Postgres 61432, MinIO 65000, LakeFS 64000, gateway 60000, web 64080,
-computing-unit master 64085, manager 64888, agent 3130; the smolagents gateway uses 60001. All scripts take
-`STACK_DIR` (default `/var/tmp/texera-stable`).
-
-## 3. Bring it up
+## 2. Bring it up
 
 ```bash
-S=/var/tmp/texera-stable
-TEXERA_LOCAL_DEV_PROFILE=$S/profile.sh bash $S/run-env.sh bin/local-dev.sh up --build --skip=frontend,agent-service
-docker exec texera-stable-postgres psql -U texera -d texera_db -c "DROP INDEX IF EXISTS texera_db.idx_workflow_pgroonga;"
-benchmark/campaign/start-agent.sh                      # dataflow agent on :3130, non-watch
-benchmark/campaign/start-smol-gateway.sh               # smolagents gateway on :60001
-echo $S/runs/<run> >> $S/runs.txt; setsid -f python3 -I benchmark/campaign/guard.py   # memory guard (pause-only)
+benchmark/bench stack up             # safe to repeat; rebuilds what changed and restarts the agent
+benchmark/bench stack status
 ```
 
-The pgroonga index rejects workflows over ~1.8 MB (MeCab), so it is dropped. A gateway reads its config and keys only at
-start: restart one only between runs. After changing a key in `infra.env`:
+This writes the stack into `STACK_DIR` (default `/var/tmp/bobflow-bench`: `profile.sh`, `run-env.sh`, `compose.json`,
+`infra.env`, and the `logs`, `wire`, `runs` folders), copies the provider keys from `.env` into `infra.env` (mode 600),
+builds and starts Texera's services, drops the workflow search index (it did not exist in the paper's runs), and starts the
+agent, the smolagents gateway and the memory guard.
+
+The ports are the local-dev base ports plus an offset of 30000: Postgres 35432, MinIO 39000, LakeFS 38000, gateway 34000,
+smolagents gateway 34001, web 38080, computing-unit master 38085, manager 38888; the agent is on 3100. For a second stack
+on one host, write it with its own folder, offset and agent port first:
 
 ```bash
-docker compose -p <project> --env-file $S/infra.env -f $S/compose.json -f $S/empty-overlay.yml up -d --force-recreate litellm
+python3 benchmark/campaign/stack/render.py --stack-dir /var/tmp/second-stack --offset 20000 --agent-port 3101
+STACK_DIR=/var/tmp/second-stack benchmark/bench stack up
 ```
 
-## 4. Launch runs
+Every script here reads `STACK_DIR`. A gateway reads its config only at start: run `bench stack up` only between runs.
+
+## 3. Launch runs
 
 | Script | Runs |
 |---|---|
@@ -73,7 +66,8 @@ docker compose -p <project> --env-file $S/infra.env -f $S/compose.json -f $S/emp
 | `launch-prep-smol.sh <run> <model tag> <workers> [tasks]` | smolagents on PrepBench |
 
 Model tags are `MODEL_TYPES` in `benchmark/src/bobbench/models.py` (`Sol61`, `Gemini4ArgonMedium`, `Haiku55LowThink`,
-...). Haiku smolagents runs used the main gateway: `GATEWAY=60000`. Each launcher calls `benchmark/bench run` with the
+...). Haiku smolagents runs used the main gateway: `GATEWAY=34000`. `WAIT=1` keeps a launcher in the foreground until its
+run ends. Each launcher calls `benchmark/bench run` with the
 paper's settings. Examples of the 10-17 runs:
 
 ```bash
@@ -88,16 +82,15 @@ run's end). After a run, `python3 -I benchmark/campaign/integrity_scan.py $S/run
 outside the task data, and `provider_failures.py $S/runs/<run>` lists timeouts caused by slow providers (calls of
 >= 120 s adding up to >= 300 s), which the campaigns rerun.
 
-## 5. Score
+## 4. Score
 
 KramaBench attempts are scored by the runner (`progress.json`). PrepBench attempts are scored by PrepBench's evaluator,
 `benchmark/bench score prepbench`. `benchmark/bench report` gives the tables; see [the benchmark README](../README.md).
 
-## 6. Bring it down
+## 5. Bring it down
 
 ```bash
-TEXERA_LOCAL_DEV_PROFILE=$S/profile.sh bash $S/run-env.sh bin/local-dev.sh down
-kill "$(lsof -tiTCP:3130 -sTCP:LISTEN)"; docker rm -f texera-stable-litellm-smol
+benchmark/bench stack down           # the data stays in the stack's docker volumes
 ```
 
 Known traps from the campaigns: the first concurrent executions on a fresh stack can race on

@@ -67,7 +67,7 @@ From the repository root, with the stack's environment (`run-env.sh`) for the st
 call the agent or the judge:
 
 ```bash
-S=/var/tmp/texera-stable R=$S/runs/longds-luna
+S=/var/tmp/bobflow-bench R=$S/runs/longds-luna
 bash $S/run-env.sh benchmark/bench longds campaign --root $R --model gpt-5.6-luna --parallel 6 \
     --sessions sports__nfl_big_data_bowl_2023__task1    # default: every prepared session
 bash $S/run-env.sh benchmark/bench longds judge --runs $R/runs   # deepseek-v4-pro via OpenRouter

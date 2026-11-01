@@ -281,7 +281,7 @@ def main():
     parser = argparse.ArgumentParser(prog="bench setup", description=__doc__.split("\n\n")[0],
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=__doc__.split("\n\n", 1)[1])
-    parser.add_argument("what", nargs="?", default="all", choices=["kramabench", "prepbench", "longds", "all"])
+    parser.add_argument("what", nargs="?", default="all", choices=["base", "kramabench", "prepbench", "longds", "all"])
     parser.add_argument("--datasets", type=Path, help="parent folder of the PrepBench checkout (default: ~/datasets, "
                         "or $PREPBENCH_REPO)")
     parser.add_argument("--prepared", type=Path, default=LONGDS_PREPARED, help="where the prepared LongDS sessions go")
@@ -292,6 +292,8 @@ def main():
     args = parser.parse_args()
     args.prepared = args.prepared.resolve()  # the prepare step runs from the repository root
     setup = Setup(args.dry_run)
+    if args.what == "base":
+        setup.base()
     if args.what in ("kramabench", "all"):
         setup.kramabench(args.copy_from)
     if args.what in ("prepbench", "all"):

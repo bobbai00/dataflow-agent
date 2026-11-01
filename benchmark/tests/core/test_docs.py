@@ -47,7 +47,7 @@ def test_relative_links_resolve(readme):
 def test_named_bench_commands_exist(readme):
     commands = set(re.findall(r"^#   bench (\w+)", header(), re.M))
     longds = set(re.search(r"bench longds \{([\w|]+)\}", header()).group(1).split("|"))
-    assert {"setup", "run", "score", "longds", "report", "compare", "recost", "audit", "test"} == commands
+    assert {"setup", "stack", "run", "score", "longds", "report", "compare", "recost", "audit", "test"} == commands
     text = (BENCHMARK / readme).read_text()
     for command in re.findall(r"benchmark/bench (\w+)", text):
         assert command in commands, f"{readme} runs bench {command}"

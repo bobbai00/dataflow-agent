@@ -14,7 +14,8 @@
 # bench: the benchmark harness's command line (benchmark/README.md). It picks the interpreter and PYTHONPATH each
 # command needs.
 #
-#   bench setup [kramabench|prepbench|longds|all] [--dry-run]   submodule, venvs, data, PrepBench, LongDS Lite
+#   bench setup [base|kramabench|prepbench|longds|all] [--dry-run]   submodule, venvs, data, PrepBench, LongDS Lite
+#   bench stack {up|status|down}                                 the benchmark stack: services, agent, model gateways
 #   bench run {kramabench|prepbench} {bobflow|scriptreact} ...   one run on a stack (inside its run-env.sh)
 #   bench score prepbench <out.json> <run>...                    PrepBench's evaluator on the runs' output tables
 #   bench longds {prepare|run|smolagents|campaign|judge|report}  LongDS v1.1 Lite sessions (the root .venv)
@@ -54,6 +55,7 @@ case "${1:-}" in
     shift
     # A fresh clone has no venv yet: setup runs on the system Python and builds the venvs it needs.
     PYTHONPATH="$B/src" exec "${BENCH_SETUP_PYTHON:-python3}" -m bobbench.setup "$@" ;;
+  stack) shift; exec "$B/campaign/stack.sh" "$@" ;;
   run) shift; kb bobbench.kramabench.cli "$@" ;;
   score)
     shift

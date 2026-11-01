@@ -16,12 +16,12 @@
 # compare_smoke.py compares two smokes, and a smoke can serve as the gate's baseline (GATE_PREFIX=<prefix>). It restarts
 # the stack's agent from this checkout, so never run it during a campaign. The checkout must be clean: the runs record
 # its revision.
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [GATEWAY=<offset + 4000>] [LONGDS_SESSION=<prepared session>] smoke.sh <prefix>
+# Usage: [STACK_DIR=/var/tmp/bobflow-bench] [GATEWAY=<offset + 4000>] [LONGDS_SESSION=<prepared session>] smoke.sh <prefix>
 case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -uo pipefail
 PREFIX=$1
 W=$(cd "$(dirname "$0")/../../.." && pwd)
-S=${STACK_DIR:-/var/tmp/texera-stable}
+S=${STACK_DIR:-/var/tmp/bobflow-bench}
 R=$S/runs
 SES=${LONGDS_SESSION:-$W/benchmark/longds/prepared/business__netflix_movies_and_tv_shows__task2}
 for r in kb kbflow pb kbsmol pbsmol longds; do [ -e "$R/$PREFIX-$r" ] && { echo "exists: $R/$PREFIX-$r"; exit 1; }; done

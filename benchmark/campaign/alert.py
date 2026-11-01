@@ -10,7 +10,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Event stream for the runs of one benchmark stack ($STACK_DIR, default /var/tmp/texera-stable) (one line per event, for a Monitor): attempts with a problem (no score, non-zero
+"""Event stream for the runs of one benchmark stack ($STACK_DIR, default /var/tmp/bobflow-bench) (one line per event, for a Monitor): attempts with a problem (no score, non-zero
 exit, timeout, audit violations, no billed cost), a PAUSE file not written by the memory guard, non-200 answers from the
 proxy stand-in, memory-guard pauses, a progress line every 20 attempts per run, and each run's end. Exits when every run
 has ended. Usage: alert.py <run name>..."""
@@ -20,7 +20,7 @@ import sys
 import time
 if not sys.argv[1:] or sys.argv[1] in ("-h", "--help"):
     sys.exit(__doc__)
-G = os.environ.get("STACK_DIR", "/var/tmp/texera-stable").rstrip("/")
+G = os.environ.get("STACK_DIR", "/var/tmp/bobflow-bench").rstrip("/")
 RUNS = sys.argv[1:]
 state = {r: {"pos": 0, "n": 0, "pass": 0, "cost": 0.0, "secs": 0.0, "ended": False, "pause": None} for r in RUNS}
 proxy_pos = os.path.getsize(f"{G}/logs/computing-unit-master.log") if os.path.exists(f"{G}/logs/computing-unit-master.log") else 0

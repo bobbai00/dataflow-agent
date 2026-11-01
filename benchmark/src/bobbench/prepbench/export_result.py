@@ -19,7 +19,7 @@ written the way pandas writes a DataFrame (df.to_csv(index=False)), as a script 
 
 The stack comes from the environment the stack profile sets (run-env.sh): STORAGE_JDBC_URL,
 STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME, STORAGE_S3_ENDPOINT and TEXERA_HOME; the defaults are the
-texera-stable stack's. Credentials default to the repository's local-dev values.
+stack's. Credentials default to the repository's local-dev values.
 
 Usage: export_result.py --workflow-id W --execution-id E --operator-id OP [--port 0] --out file.csv
 Run with the engine's Python (the checkout's .venv) and PYTHONPATH=<checkout>/amber/src/main/python. It imports nothing
@@ -34,14 +34,14 @@ import pyarrow as pa
 import sqlalchemy as sa
 
 HOME = os.environ.get("TEXERA_HOME") or str(Path(__file__).resolve().parents[4])  # the checkout
-JDBC = os.environ.get("STORAGE_JDBC_URL", "jdbc:postgresql://localhost:61432/texera_db")
+JDBC = os.environ.get("STORAGE_JDBC_URL", "jdbc:postgresql://localhost:35432/texera_db")
 TEXERA_DB = re.match(r"jdbc:postgresql://([^/?]+)/([^?]+)", JDBC.strip("'\""))
 PG_USER = os.environ.get("STORAGE_JDBC_USERNAME", "texera")
 PG_PASSWORD = os.environ.get("TEXERA_PG_PASSWORD") or os.environ.get("STORAGE_JDBC_PASSWORD", "password")
 STACK = {  # the stack, as the engine passes it to its Python workers
     "catalog_type": "postgres",
     "postgres_uri_without_scheme": os.environ.get("STORAGE_ICEBERG_CATALOG_POSTGRES_URI_WITHOUT_SCHEME",
-                                                  "localhost:61432/texera_iceberg_catalog"),
+                                                  "localhost:35432/texera_iceberg_catalog"),
     "postgres_username": os.environ.get("STORAGE_ICEBERG_CATALOG_POSTGRES_USERNAME", "texera"),
     "postgres_password": os.environ.get("TEXERA_PG_PASSWORD") or os.environ.get("STORAGE_ICEBERG_CATALOG_POSTGRES_PASSWORD", "password"),
     "rest_catalog_uri": "", "rest_catalog_warehouse_name": "",

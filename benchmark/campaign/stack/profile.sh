@@ -12,8 +12,7 @@
 # limitations under the License.
 # Stack profile template (rendered by render.py into the stack directory): bin/local-dev.sh reads it
 # through TEXERA_LOCAL_DEV_PROFILE, and run-env.sh exports it for agents, runners and engine workers.
-# Ports are the local-dev base ports plus the stack offset (render.py --offset; texera-stable: offset 56000,
-# agent 3130).
+# Ports are the local-dev base ports plus the stack offset (render.py --offset).
 export AMBER_MASTER_PORT=@P2552@
 export CODE_AGENT_API_BASE=http://localhost:@P4000@
 export FILE_SERVICE_GET_PRESIGNED_URL_ENDPOINT=http://localhost:@P9092@/api/dataset/presign-download
@@ -58,7 +57,6 @@ export NATIVE_ISOLATED_PYTHON=@TEXERA_HOME@/.venv/bin/python
 export NATIVE_SOURCE_DATA=@KB_DATA@
 export NATIVE_WORKSPACE=@STACK_DIR@/native-workspaces
 # Agent and engine settings carried over from the single-task-final stack (via texera-gemini).
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export JAVA_OPTS='-Xms256m -Xmx3g -XX:ActiveProcessorCount=3'
 # 16,000 since 2026-10-21: thinking counts toward the cap, and Haiku 5.5 cut tool calls at 8,192 (PrepBench).
 export MODEL_MAX_OUTPUT_TOKENS=16000

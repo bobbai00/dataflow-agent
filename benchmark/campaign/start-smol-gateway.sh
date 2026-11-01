@@ -13,13 +13,13 @@
 # limitations under the License.
 
 # (Re)create the smolagents gateway: LiteLLM 1.83.10 with bin/single-node/litellm-config.smolagents.yaml and the
-# strict-tools hook of the stack's checkout, on 127.0.0.1:$SMOL_GATEWAY_PORT (default: the stack offset + 4001, 60001 on texera-stable), container
+# strict-tools hook of the stack's checkout, on 127.0.0.1:$SMOL_GATEWAY_PORT (default: the stack offset + 4001), container
 # <project>-litellm-smol. Provider keys come from the checkout's .env. The gateway reads its config only at start:
 # recreate it only between runs.
-# Usage: [STACK_DIR=/var/tmp/texera-stable] [SMOL_GATEWAY_PORT=<offset + 4001>] start-smol-gateway.sh
+# Usage: [STACK_DIR=/var/tmp/bobflow-bench] [SMOL_GATEWAY_PORT=<offset + 4001>] start-smol-gateway.sh
 case "${1:-}" in -h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 0;; esac
 set -euo pipefail
-S="${STACK_DIR:-/var/tmp/texera-stable}"
+S="${STACK_DIR:-/var/tmp/bobflow-bench}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
 W="$TEXERA_HOME"; PORT=${SMOL_GATEWAY_PORT:-$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4001))}; NAME="$TEXERA_DOCKER_PROJECT-litellm-smol"
