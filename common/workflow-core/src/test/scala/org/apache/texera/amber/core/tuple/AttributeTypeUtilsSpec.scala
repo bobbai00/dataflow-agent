@@ -606,7 +606,7 @@ class AttributeTypeUtilsSpec extends AnyFunSuite {
 
   test("inferSchemaFromRows widens a column only in one direction") {
     // Once a column has widened to STRING it never narrows back, even if later rows
-    // would parse as integers on their own.
+    // would parse as numbers on their own.
     val rows: Iterator[Array[Any]] = Iterator(
       Array[Any]("1", "1"),
       Array[Any]("not-a-number-or-date", "2"),
@@ -614,17 +614,17 @@ class AttributeTypeUtilsSpec extends AnyFunSuite {
     )
     val attributeTypes = inferSchemaFromRows(rows)
     assert(attributeTypes(0) == STRING)
-    assert(attributeTypes(1) == INTEGER)
+    assert(attributeTypes(1) == LONG)
   }
 
-  test("inferSchemaFromRows keeps INTEGER for a column of only nulls") {
+  test("inferSchemaFromRows keeps LONG for a column of only nulls") {
     // Null carries no evidence, so the seed type survives.
     val rows: Iterator[Array[Any]] = Iterator(Array[Any](null), Array[Any](null))
-    assert(inferSchemaFromRows(rows).sameElements(Array(INTEGER)))
+    assert(inferSchemaFromRows(rows).sameElements(Array(LONG)))
   }
 
   test("inferField with no prior type falls back through the type ladder") {
-    assert(inferField(null) == INTEGER)
+    assert(inferField(null) == LONG)
     assert(inferField("9223372036854775807") == LONG)
     assert(inferField("not parseable at all") == STRING)
   }
