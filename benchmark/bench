@@ -14,9 +14,12 @@
 # bench: the benchmark harness's command line (benchmark/README.md). It picks the interpreter and PYTHONPATH each
 # command needs.
 #
+#   bench setup [kramabench|prepbench|longds|all] [--dry-run]   submodule, venvs, data, PrepBench, LongDS Lite
 #   bench run {kramabench|prepbench} {bobflow|scriptreact} ...   one run on a stack (inside its run-env.sh)
 #   bench score prepbench <out.json> <run>...                    PrepBench's evaluator on the runs' output tables
 #   bench longds {prepare|run|smolagents|campaign|judge|report}  LongDS v1.1 Lite sessions (the root .venv)
+#   bench report <run>... [--scores ...] [--fail RUN:TASK ...]   accuracy and cost per (benchmark, model, arm)
+#   bench compare <run>[:<arm>] <run>[:<arm>]                     A/B: who solves what, and at what cost
 #   bench recost <run>                                           re-price a run from its exact responses
 #   bench audit <run>                                            re-run the per-attempt checks offline
 #   bench test [pytest args]                                     the offline tests, on both interpreters
@@ -31,7 +34,7 @@ ROOT_PY=${BENCH_ROOT_PYTHON:-$REPO/.venv/bin/python}
 PREPBENCH_REPO=${PREPBENCH_REPO:-$HOME/datasets/prepbench}
 export PREPBENCH_REPO
 
-usage() { sed -n '14,28p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; next } NR > 13 { exit }' "$0"; exit "${1:-0}"; }
 need() { [ -x "$1" ] || { echo "bench: no interpreter at $1 (bench setup kramabench builds it)" >&2; exit 2; }; }
 kb() { need "$KB_PY"; cd "$B" && PYTHONPATH="$B/src" exec "$KB_PY" -m "$@"; }
 
@@ -47,6 +50,10 @@ cmd_test() {
 }
 
 case "${1:-}" in
+  setup)
+    shift
+    # A fresh clone has no venv yet: setup runs on the system Python and builds the venvs it needs.
+    cd "$B" && PYTHONPATH="$B/src" exec "${BENCH_SETUP_PYTHON:-python3}" -m bobbench.setup "$@" ;;
   run) shift; kb bobbench.kramabench.cli "$@" ;;
   score)
     shift
@@ -63,6 +70,8 @@ case "${1:-}" in
     m=${MODULE[$1]}; shift
     # From the repository root: requests name the session data as data/longds/<task>/data/... (the engine's view).
     cd "$REPO" && PYTHONPATH="$B/src" exec "$ROOT_PY" -m "bobbench.longds.$m" "$@" ;;
+  report) shift; kb bobbench.report "$@" ;;
+  compare) shift; kb bobbench.compare "$@" ;;
   recost) shift; kb bobbench.profiling.usage "$@" ;;
   audit) shift; kb bobbench.audit "$@" ;;
   test) shift; cmd_test "$@" ;;
