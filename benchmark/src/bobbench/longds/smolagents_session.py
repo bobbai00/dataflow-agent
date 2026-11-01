@@ -12,10 +12,9 @@
 # limitations under the License.
 """A LongDS session solved by smolagents' `CodeAgent`, the script-agent baseline.
 
-Set up the way the KramaBench harness sets it up (its `code_agent.py`, loaded
-from a KramaBench checkout at the revision this repository pins): no tools,
-its authorized imports, `open`, and its model wrapper, which reads cache and
-reasoning tokens from each response. The system prompt is smolagents' own and
+Set up the way the KramaBench harness sets it up (bobbench/scriptreact/code_agent.py,
+whose sha256 protocol.json records): no tools, its authorized imports, `open`, and its
+model wrapper, which reads cache and reasoning tokens from each response. The system prompt is smolagents' own and
 a request gets smolagents' default of 20 steps. One agent serves the whole
 session: every request after the first continues it (`reset=False`), so the
 conversation and the Python variables persist.
@@ -34,8 +33,8 @@ tasks it builds on (common.dependency_note), as run_session's
 `transcript-depnote`.
 
 Usage (from the repository root, inside the stack's environment):
-    python -m benchmark.longds.smolagents_session --prepared R/prepared/<key> \\
-        --out R/runs/<key>__smolagents-depnote__r1 --kramabench PATH --note dependencies
+    bench longds smolagents_session --prepared R/prepared/<key> \\
+        --out R/runs/<key>__smolagents-depnote__r1 --note dependencies
 """
 import argparse
 from datetime import datetime, timezone
@@ -50,7 +49,9 @@ import sys
 import threading
 import time
 
-from benchmark.longds.common import DATA, HERE, ROOT, dependency_note, load, save
+from bobbench.longds.common import DATA, HERE, dependency_note, load, save
+from bobbench.paths import REPO as ROOT
+from bobbench.provenance import sha256
 from bobbench.sandbox.isolation import isolated_command
 from bobbench.models import price_schedule
 from bobbench.profiling.usage import cost_for_usage
@@ -61,18 +62,6 @@ WORKER = HERE / "smolagents_worker.py"
 class SessionLost(BaseException):
     """The interpreter process is gone, and the session's variables with it.
     Not an `Exception`: the agent would record it as a failed step and go on."""
-
-
-def kramabench(path):
-    """KramaBench's agent setup from a checkout at the pinned revision."""
-    path = Path(path).resolve()
-    pinned = subprocess.check_output(["git", "ls-tree", "HEAD", "benchmark/Kramabench"], cwd=ROOT, text=True).split()[2]
-    actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=path, text=True).strip()
-    if actual != pinned:
-        raise SystemExit(f"KramaBench checkout {path} is at {actual[:9]}; this repository pins {pinned[:9]}")
-    sys.path.insert(0, str(path))
-    import code_agent  # noqa: E402
-    return code_agent, actual
 
 
 def available_imports(names):
@@ -187,7 +176,7 @@ def request_record(turn, prompt, calls, pricing, *, output, error, out_of_steps,
     }
 
 
-def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_steps=None):
+def run(prepared, out, model, turns=None, spend_limit=5.0, max_steps=None):
     import smolagents
     from smolagents import CodeAgent
     from smolagents.local_python_executor import CodeOutput, PythonExecutor
@@ -195,7 +184,7 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
     from smolagents.monitoring import LogLevel
     from smolagents.utils import AgentMaxStepsError
 
-    code_agent, kb_revision = kramabench(kramabench_path)
+    from bobbench.scriptreact import code_agent
 
     class RecordingModel(code_agent.UsageTrackingOpenAIModel):
         """KramaBench's model wrapper, also keeping each call's token counts."""
@@ -226,7 +215,7 @@ def run(prepared, out, model, kramabench_path, turns=None, spend_limit=5.0, max_
         "prepared": str(prepared.resolve()), "model": model, "turns": len(prompts),
         "arm": "smolagents-depnote", "selection": None, "note": "gold dependencies",
         "settings": {"smolagents": smolagents.__version__, "max_steps": agent.max_steps, "instructions": None,
-                     "kramabench_revision": kb_revision, "python": sys.version.split()[0],
+                     "harness_sha256": sha256(code_agent.__file__), "python": sys.version.split()[0],
                      "authorized_imports": imports, "request_text": "prepared prompts.json"},
         "spend_limit_usd": spend_limit,
         "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -300,8 +289,6 @@ def main():
     parser.add_argument("--prepared", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--model", default="gpt-5.6-luna")
-    parser.add_argument("--kramabench", type=Path, default=os.environ.get("KRAMABENCH_ROOT", ROOT / "benchmark/Kramabench"),
-                        help="a KramaBench checkout at the pinned revision (default: the submodule, or KRAMABENCH_ROOT)")
     parser.add_argument("--turns", type=int)
     parser.add_argument("--spend-limit", type=float, default=5.0)
     parser.add_argument("--max-steps", type=int, help="default: smolagents' own (20 a request)")
@@ -310,7 +297,7 @@ def main():
     args = parser.parse_args()
     if price_schedule(args.model) is None:
         raise SystemExit(f"No price schedule for {args.model}; costs would be unknown")
-    run(args.prepared, args.out, args.model, args.kramabench, args.turns, args.spend_limit, args.max_steps)
+    run(args.prepared, args.out, args.model, args.turns, args.spend_limit, args.max_steps)
 
 
 if __name__ == "__main__":

@@ -18,12 +18,12 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from benchmark.longds.behavior import session_behavior
-from benchmark.longds.common import committed_calls, parse_delete, parse_set, python_functions, save, statement_blocks
-from benchmark.longds.judge import judge_run, verdict
-from benchmark.longds.prepare import build_prompts, turn_ids
-from benchmark.longds.report import run_summary
-from benchmark.longds.run_session import request_record
+from bobbench.longds.behavior import session_behavior
+from bobbench.longds.common import committed_calls, parse_delete, parse_set, python_functions, save, statement_blocks
+from bobbench.longds.judge import judge_run, verdict
+from bobbench.longds.prepare import build_prompts, turn_ids
+from bobbench.longds.report import run_summary
+from bobbench.longds.run_session import request_record
 
 RULES = '''def eligible_units(orders, *, min_orders=5):
     """Units with at least min_orders orders."""

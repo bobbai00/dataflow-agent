@@ -19,8 +19,8 @@ import shutil
 import tempfile
 import unittest
 
-from benchmark.longds.campaign import command
-from benchmark.longds.smolagents_session import answer_text, make_interpreter_class, request_record
+from bobbench.longds.campaign import command
+from bobbench.longds.smolagents_session import answer_text, make_interpreter_class, request_record
 from bobbench.models import price_schedule as current_price_schedule
 
 try:
@@ -98,15 +98,15 @@ class RecordTest(unittest.TestCase):
     def test_the_campaign_sends_the_smolagents_arm_to_its_own_runner(self):
         job = {"prepared": Path("P"), "out": Path("O"), "arm": "smolagents-depnote"}
         noted = command(job, "gpt-5.6-luna", [])
-        self.assertIn("benchmark.longds.smolagents_session", noted)
+        self.assertIn("bobbench.longds.smolagents_session", noted)
         self.assertNotIn("--arm", noted)
         self.assertEqual(noted[noted.index("--note") + 1], "dependencies")
         dataflow = command({**job, "arm": "catalog-gold"}, "gpt-5.6-luna", [])
-        self.assertIn("benchmark.longds.run_session", dataflow)
+        self.assertIn("bobbench.longds.run_session", dataflow)
         self.assertEqual(dataflow[dataflow.index("--arm") + 1], "catalog-gold")
 
     def test_the_dependency_note_names_the_annotated_earlier_tasks(self):
-        from benchmark.longds.common import dependency_note
+        from bobbench.longds.common import dependency_note
         gold = {"turns": [{"turn_id": 1, "depends_tasks": []}, {"turn_id": 2, "depends_tasks": [1]},
                           {"turn_id": 5, "depends_tasks": [3, 2]}, {"turn_id": 9, "depends_tasks": [7, 9, 12, 1]}]}
         self.assertEqual(dependency_note(gold, 1), "")

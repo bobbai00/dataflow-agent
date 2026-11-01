@@ -53,15 +53,15 @@ for _ in $(seq 1 60); do curl -sf localhost:$AGENT_PORT/api/healthcheck >/dev/nu
 cd "$W"
 for arm in catalog-gold transcript-depnote; do
   stub $arm
-  setsid -w bash "$S/run-env.sh" env TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:$AGENT_PORT PYTHONPATH="$W/benchmark/src" \
-    .venv/bin/python -m benchmark.longds.run_session --prepared "$SES" --out "$OUT/longds/$arm" --arm $arm \
+  setsid -w bash "$S/run-env.sh" env TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:$AGENT_PORT \
+    "$W/benchmark/bench" longds run --prepared "$SES" --out "$OUT/longds/$arm" --arm $arm \
     --model claude-haiku-5.5 --turns 2 --spend-limit 1 > "$OUT/$arm.log" 2>&1 || echo "$arm runner failed"
   echo "$arm: $(tail -n 1 "$OUT/$arm.log" | cut -c1-120)"
   kill $STUB; wait $STUB 2>/dev/null || true
 done
 stub smolagents-depnote
-setsid -w bash "$S/run-env.sh" env LITELLM_BASE_URL=http://localhost:$STUB_PORT PYTHONPATH="$W/benchmark/src" \
-  .venv/bin/python -m benchmark.longds.smolagents_session --prepared "$SES" --out "$OUT/longds/smolagents-depnote" \
+setsid -w bash "$S/run-env.sh" env LITELLM_BASE_URL=http://localhost:$STUB_PORT \
+  "$W/benchmark/bench" longds smolagents --prepared "$SES" --out "$OUT/longds/smolagents-depnote" \
   --model claude-haiku-5.5 --turns 2 --spend-limit 1 --note dependencies > "$OUT/smolagents-depnote.log" 2>&1 \
   || echo "smolagents-depnote runner failed"
 echo "smolagents-depnote: $(tail -n 1 "$OUT/smolagents-depnote.log" | cut -c1-120)"

@@ -17,11 +17,12 @@ import json
 from pathlib import Path
 import re
 
+from bobbench.paths import DATAMIND as CHECKOUT
+
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-# The upstream checkout (github.com/DataMind-Lab, not vendored): tasks, gold
-# answers, session data, and the judge prompt.
-DATAMIND = HERE / "DataMind" / "longds"
+# The upstream checkout (github.com/zjunlp/DataMind, not vendored; bench setup longds fetches what the Lite sessions
+# need): tasks, gold answers, session data, and the judge prompt.
+DATAMIND = CHECKOUT / "longds"
 TASKS = DATAMIND / "dataset" / "task" / "longds_v1.1"
 DATA = DATAMIND / "dataset" / "data" / "longds"
 JUDGE_PROMPT = DATAMIND / "runners" / "DSGym" / "scripts" / "prompt.py"

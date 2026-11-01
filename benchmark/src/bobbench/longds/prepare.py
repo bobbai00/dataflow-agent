@@ -20,7 +20,7 @@ For each session, `<out>/<key>/` gets
 - gold.json: answers, state types and dependencies (never sent to an agent).
 
 Usage (from the repository root):
-    python -m benchmark.longds.prepare --out R/prepared sports/nfl_big_data_bowl_2023/task1
+    bench longds prepare --out R/prepared sports/nfl_big_data_bowl_2023/task1
 """
 import argparse
 import json
@@ -28,7 +28,7 @@ import os
 from pathlib import Path
 import re
 
-from benchmark.longds.common import DATA, TASKS, save, session_key
+from bobbench.longds.common import DATA, TASKS, save, session_key
 
 
 def lite_sessions():

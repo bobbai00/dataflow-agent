@@ -20,7 +20,7 @@ with no score is left unscored (None) rather than counted as a failure.
 Verdicts are cached by (model, prompt, turn), so re-judging costs nothing.
 
 Usage (from the repository root):
-    python -m benchmark.longds.judge --runs R/runs
+    bench longds judge --runs R/runs
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 import re
 
-from benchmark.longds.common import JUDGE_PROMPT, load, save
+from bobbench.longds.common import JUDGE_PROMPT, load, save
 
 MODEL = "deepseek/deepseek-v4-pro"
 BASE_URL = "https://openrouter.ai/api/v1"

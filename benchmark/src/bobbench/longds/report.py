@@ -14,16 +14,15 @@
 and per arm.
 
 Usage (from the repository root, after judge.py):
-    python -m benchmark.longds.report --runs R/runs [--json R/summary.json]
+    bench longds report --runs R/runs [--json R/summary.json]
 """
 import argparse
 from collections import defaultdict
-import json
 from pathlib import Path
 import statistics
 
-from benchmark.longds.behavior import run_behavior
-from benchmark.longds.common import load, save
+from bobbench.longds.behavior import run_behavior
+from bobbench.longds.common import load, save
 
 LABELS = ("Initial", "Update", "Rollback", "Counterfactual")
 

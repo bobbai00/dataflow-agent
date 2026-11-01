@@ -32,7 +32,7 @@ from collections import Counter
 from pathlib import Path
 import statistics
 
-from benchmark.longds.common import committed_calls, load, parse_delete, parse_set, statement_blocks, without_trailing_star
+from bobbench.longds.common import committed_calls, load, parse_delete, parse_set, statement_blocks, without_trailing_star
 
 REVISIT = {"Update", "Rollback", "Counterfactual"}
 

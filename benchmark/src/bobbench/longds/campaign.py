@@ -13,8 +13,7 @@
 """Run sessions x arms x repetitions, a few at a time.
 
 The arm `smolagents-depnote` runs the script-agent baseline
-(smolagents_session.py; KRAMABENCH_ROOT names a KramaBench checkout at the
-pinned revision); the other arms, `catalog-gold` and `transcript-depnote`, are
+(smolagents_session.py); the other arms, `catalog-gold` and `transcript-depnote`, are
 dataflow agents (run_session.py).
 
 Jobs are ordered repetition by repetition, so every arm of a session runs
@@ -22,7 +21,7 @@ under similar load, and a job whose run folder exists is skipped (a crashed
 session is rerun from its first request after its folder is moved aside).
 
 Usage (from the repository root, inside the stack's environment):
-    python -m benchmark.longds.campaign --root R --sessions <key> <key> --reps 3 --parallel 6
+    bench longds campaign --root R --sessions <key> <key> --reps 3 --parallel 6
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -41,8 +40,8 @@ def command(job, model, extra):
     """The script agent has its own runner; every other arm is a dataflow agent."""
     common = ["--prepared", str(job["prepared"]), "--out", str(job["out"]), "--model", model, *extra]
     if job["arm"] == "smolagents-depnote":
-        return [sys.executable, "-m", "benchmark.longds.smolagents_session", "--note", "dependencies", *common]
-    return [sys.executable, "-m", "benchmark.longds.run_session", "--arm", job["arm"], *common]
+        return [sys.executable, "-m", "bobbench.longds.smolagents_session", "--note", "dependencies", *common]
+    return [sys.executable, "-m", "bobbench.longds.run_session", "--arm", job["arm"], *common]
 
 
 def launch(job, model, extra):

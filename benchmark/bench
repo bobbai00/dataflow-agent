@@ -16,6 +16,7 @@
 #
 #   bench run {kramabench|prepbench} {bobflow|scriptreact} ...   one run on a stack (inside its run-env.sh)
 #   bench score prepbench <out.json> <run>...                    PrepBench's evaluator on the runs' output tables
+#   bench longds {prepare|run|smolagents|campaign|judge|report}  LongDS v1.1 Lite sessions (the root .venv)
 #   bench recost <run>                                           re-price a run from its exact responses
 #   bench audit <run>                                            re-run the per-attempt checks offline
 #   bench test [pytest args]                                     the offline tests, on both interpreters
@@ -30,7 +31,7 @@ ROOT_PY=${BENCH_ROOT_PYTHON:-$REPO/.venv/bin/python}
 PREPBENCH_REPO=${PREPBENCH_REPO:-$HOME/datasets/prepbench}
 export PREPBENCH_REPO
 
-usage() { sed -n '14,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '14,28p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 need() { [ -x "$1" ] || { echo "bench: no interpreter at $1 (bench setup kramabench builds it)" >&2; exit 2; }; }
 kb() { need "$KB_PY"; cd "$B" && PYTHONPATH="$B/src" exec "$KB_PY" -m "$@"; }
 
@@ -53,6 +54,15 @@ case "${1:-}" in
     shift; need "$KB_PY"
     # PrepBench's src/ holds its `evaluate` package; KramaBench's root (its evaluate.py) stays off the path.
     cd "$B" && PYTHONPATH="$B/src:$PREPBENCH_REPO/src" exec "$KB_PY" -m bobbench.prepbench.score "$@" ;;
+  longds)
+    shift
+    declare -A MODULE=([prepare]=prepare [run]=run_session [smolagents]=smolagents_session [campaign]=campaign
+                       [judge]=judge [report]=report)
+    [ -n "${1:-}" ] && [ -n "${MODULE[$1]:-}" ] || { echo "usage: bench longds {prepare|run|smolagents|campaign|judge|report} ..." >&2; exit 2; }
+    need "$ROOT_PY"
+    m=${MODULE[$1]}; shift
+    # From the repository root: requests name the session data as data/longds/<task>/data/... (the engine's view).
+    cd "$REPO" && PYTHONPATH="$B/src" exec "$ROOT_PY" -m "bobbench.longds.$m" "$@" ;;
   recost) shift; kb bobbench.profiling.usage "$@" ;;
   audit) shift; kb bobbench.audit "$@" ;;
   test) shift; cmd_test "$@" ;;

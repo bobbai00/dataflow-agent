@@ -33,21 +33,22 @@ Output: protocol.json, resource.json, system-info.json, settings.json, then
 per request tNN/record.json and tNN/steps.json.gz, and records.json.
 
 Usage (from the repository root, inside the stack's environment):
-    python -m benchmark.longds.run_session --prepared R/prepared/<key> \\
+    bench longds run_session --prepared R/prepared/<key> \\
         --out R/runs/<key>__catalog-gold__r1 --arm catalog-gold --model gpt-5.6-luna
 """
 import argparse
 from datetime import datetime, timezone
 import gzip
 import json
-import os
 from pathlib import Path
 import subprocess
 import time
 
 import requests
 
-from benchmark.longds.common import ROOT, dependency_note, load, save
+from bobbench import agent_client
+from bobbench.longds.common import dependency_note, load, save
+from bobbench.paths import REPO as ROOT
 from bobbench.models import price_schedule
 from bobbench.profiling.usage import cost_for_usage, normalize_usage
 from bobbench.react_steps import final_reply
@@ -64,51 +65,29 @@ EMPTY_WORKFLOW = {"operators": [], "operatorPositions": {}, "links": [], "commen
                   "settings": {"dataTransferBatchSize": 400}}
 
 
-def endpoints():
-    names = {"web": "TEXERA_DASHBOARD_SERVICE_ENDPOINT", "units": "TEXERA_COMPUTING_UNIT_ENDPOINT",
-             "engine": "WORKFLOW_EXECUTION_SERVICE_ENDPOINT", "agent": "TEXERA_AGENT_SERVICE_ENDPOINT"}
-    missing = [name for name in names.values() if not os.environ.get(name)]
-    if missing:
-        raise SystemExit(f"Run inside the stack's environment; missing {', '.join(missing)}")
-    return {key: os.environ[name].rstrip("/") for key, name in names.items()}
-
-
-def checked(response):
-    if not response.ok:
-        raise RuntimeError(f"{response.request.method} {response.url}: {response.status_code} {response.text[:500]}")
-    return response.json() if response.content else {}
-
-
 class Session:
-    """The agent, workflow and computing unit one session owns."""
+    """The agent, workflow and computing unit one session owns (bobbench.agent_client, LongDS's own bodies)."""
 
-    def __init__(self, urls, out, model, settings):
-        self.urls, self.out = urls, out
+    def __init__(self, endpoints, out, model, settings):
+        self.endpoints, self.out = endpoints, out
         self.http = requests.Session()
-        self.token = checked(self.http.post(f"{urls['web']}/api/auth/login", timeout=30, json={
-            "username": os.environ.get("TEXERA_USERNAME", "texera"),
-            "password": os.environ.get("TEXERA_PASSWORD", "texera")}))["accessToken"]
-        auth = {"Authorization": f"Bearer {self.token}"}
+        self.token = agent_client.login(endpoints.web, http=self.http)
         name = f"longds-{out.name}-{int(time.time())}"
         self.resource = {}
         try:
-            unit = checked(self.http.post(f"{urls['units']}/api/computing-unit/create", headers=auth, timeout=60, json={
-                "name": name, "unitType": "local", "cpuLimit": "NaN", "memoryLimit": "NaN", "gpuLimit": "NaN",
-                "jvmMemorySize": "NaN", "shmSize": "NaN", "uri": urls["engine"]}))
-            self.resource["cuid"] = (unit.get("computingUnit") or unit)["cuid"]
-            workflow = checked(self.http.post(f"{urls['web']}/api/workflow/create", headers=auth, timeout=60, json={
-                "name": name, "description": "", "content": json.dumps(EMPTY_WORKFLOW), "isPublic": False}))
-            self.resource["wid"] = workflow["workflow"]["wid"]
-            agent = checked(self.http.post(f"{urls['agent']}/api/agents", headers=auth, timeout=60, json={
+            self.resource["cuid"] = agent_client.create_computing_unit(endpoints, self.token, name, http=self.http,
+                                                                       timeout=60)
+            self.resource["wid"] = agent_client.create_workflow(endpoints, self.token, {
+                "name": name, "description": "", "content": json.dumps(EMPTY_WORKFLOW), "isPublic": False},
+                http=self.http, timeout=60)
+            self.resource["agentId"] = agent_client.create_agent(endpoints, self.token, {
                 "modelType": model, "name": name, "workflowId": self.resource["wid"],
-                "computingUnitId": self.resource["cuid"], "settings": settings}))
-            self.resource["agentId"] = agent["id"]
+                "computingUnitId": self.resource["cuid"], "settings": settings}, http=self.http)["id"]
         finally:
             save(out / "resource.json", self.resource)
-        self.base = f"{urls['agent']}/api/agents/{self.resource['agentId']}"
 
     def get(self, path=""):
-        return checked(self.http.get(self.base + path, timeout=300))
+        return agent_client.get(self.endpoints, self.resource["agentId"], path, http=self.http, timeout=300)
 
     def wait_available(self, seconds):
         deadline = time.monotonic() + seconds
@@ -123,31 +102,33 @@ class Session:
         running after `minutes` is stopped: its steps so far are its record.
         `context_tasks` names the earlier tasks it builds on, for the task
         catalog."""
-        before = {step["id"] for step in self.get("/react-steps")["steps"]}
+        before = {step["id"] for step in self.get("react-steps")["steps"]}
         watchdog = False
         body = {"content": content, **({"contextTasks": context_tasks} if context_tasks is not None else {})}
         try:
-            checked(self.http.post(self.base + "/message", json=body, timeout=(30, minutes * 60)))
+            agent_client.post_message(self.endpoints, self.resource["agentId"], body, timeout=(30, minutes * 60),
+                                      http=self.http)
         except requests.exceptions.ReadTimeout:
             watchdog = True
-            self.http.post(self.base + "/stop", timeout=30)
+            agent_client.stop(self.endpoints, self.resource["agentId"], http=self.http)
         except requests.exceptions.ConnectionError:
             # The reply was lost, not the request: never send it again.
             pass
         if not self.wait_available(minutes * 60 if not watchdog else 300):
             raise RuntimeError("The agent did not become available; stop the session")
-        steps = [step for step in self.get("/react-steps")["steps"] if step["id"] not in before]
+        steps = [step for step in self.get("react-steps")["steps"] if step["id"] not in before]
         return steps, watchdog
 
     def close(self):
-        auth = {"Authorization": f"Bearer {self.token}"}
         report = {}
         for name, call in (
-                ("agent", lambda: self.http.delete(self.base, timeout=60)),
-                ("unit", lambda: self.http.delete(
-                    f"{self.urls['units']}/api/computing-unit/{self.resource['cuid']}/terminate", headers=auth, timeout=60)),
-                ("workflow", lambda: self.http.post(f"{self.urls['web']}/api/workflow/delete", headers=auth, timeout=60,
-                                                    json={"wids": [self.resource["wid"]], "pid": None}))):
+                ("agent", lambda: agent_client.delete_agent(self.endpoints, self.resource["agentId"], http=self.http,
+                                                            timeout=60)),
+                ("unit", lambda: agent_client.terminate_computing_unit(self.endpoints, self.token, self.resource["cuid"],
+                                                                       http=self.http, timeout=60)),
+                ("workflow", lambda: agent_client.delete_workflow(self.endpoints, self.token,
+                                                                  {"wids": [self.resource["wid"]], "pid": None},
+                                                                  http=self.http, timeout=60))):
             try:
                 report[name] = call().status_code
             except Exception as error:  # noqa: BLE001 - cleanup reports, never raises
@@ -199,11 +180,11 @@ def run(prepared, out, arm, model, turns=None, spend_limit=5.0, minutes=30):
         "source_status": subprocess.check_output(["git", "status", "--short", "--", "agent-service", "benchmark"],
                                                  cwd=ROOT, text=True),
         "started": datetime.now(timezone.utc).isoformat()})
-    session = Session(endpoints(), out, model, settings)
+    session = Session(agent_client.Endpoints.from_env(), out, model, settings)
     records, spent = [], 0.0
     try:
-        save(out / "system-info.json", session.get("/system-info"))
-        save(out / "settings.json", session.get("/settings"))
+        save(out / "system-info.json", session.get("system-info"))
+        save(out / "settings.json", session.get("settings"))
         for entry in prompts:
             if spent >= spend_limit:
                 print(json.dumps({"stopped": "spend limit", "spent_usd": spent}), flush=True)
