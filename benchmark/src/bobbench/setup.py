@@ -14,7 +14,8 @@
 
 - kramabench: the KramaBench submodule at the pinned commit; the runners' venv (envs/kramabench) and Script ReAct's
   locked interpreter (envs/scriptreact); KramaBench's data, whose one untracked input (wildfire's
-  WeatherEvents_Jan2016-Dec2022.csv, ~900 MB) comes from Kaggle (sobhanmoosavi/us-weather-events) or --copy-from.
+  WeatherEvents_Jan2016-Dec2022.csv, 1.0 GB) comes from Kaggle (sobhanmoosavi/us-weather-events) or --copy-from.
+  The tracked data/wildfire/input/ZHVI.csv is 0 bytes in every paper run: leave it so.
 - prepbench: TsinghuaDatabaseGroup/prepbench at 993a313 in $PREPBENCH_REPO (default ~/datasets/prepbench), staged as
   the KramaBench workload `prepbench` (data/prepbench/input/case_NNN/; the workload and format-hint files it writes
   must equal the committed ones).
@@ -40,6 +41,7 @@ PREPBENCH = ("https://github.com/TsinghuaDatabaseGroup/prepbench.git", "993a3139
 DATAMIND_GIT = ("https://github.com/zjunlp/DataMind.git", "4b49ef052500c73b07b5a4955e1115da6cd9da16")
 LONGDS_HF = ("zjunlp/LongDS", "bf41bb28474fa9540d98922a6f5e6310ed014e51")
 WEATHER = "data/wildfire/input/WeatherEvents_Jan2016-Dec2022.csv"
+WEATHER_BYTES = 1_085_964_816
 # Files a 2026-09-23 run left in netflix task3's data folder; the paper's prepared netflix task3 lists them (its
 # requests name them), LongDS does not ship them.
 NETFLIX_TASK3_EXTRA = "business/netflix_movies_and_tv_shows/task3/data/working_tables"
@@ -86,19 +88,29 @@ class Setup:
     def weather(self, copy_from):
         target = KB / WEATHER
         if target.exists():
-            self.say(f"{WEATHER} present ({target.stat().st_size // 2**20} MB)")
+            size = target.stat().st_size
+            self.say(f"{WEATHER} present ({size // 2**20} MB)")
+            if size != WEATHER_BYTES:
+                self.note(f"{WEATHER} is {size} bytes; the paper's runs read {WEATHER_BYTES}")
             return
         if copy_from:
             source = Path(copy_from)
             source = source / WEATHER if source.is_dir() else source
-            self.say(f"copy {source} -> {target}")
+            self.say(f"link or copy {source} -> {target}")
             if not self.dry_run:
-                shutil.copy2(source, target)
+                try:
+                    os.link(source, target)
+                except OSError:  # another filesystem
+                    shutil.copy2(source, target)
             return
         script = ("import kagglehub, pathlib, shutil, sys; p = pathlib.Path(kagglehub.dataset_download("
                   "'sobhanmoosavi/us-weather-events')); csvs = list(p.rglob('WeatherEvents_*.csv')); "
                   "shutil.copy2(csvs[0], sys.argv[1])")
-        self.run([ENVS / "kramabench" / ".venv" / "bin" / "python", "-c", script, target])
+        try:
+            self.run([ENVS / "kramabench" / ".venv" / "bin" / "python", "-c", script, target])
+        except subprocess.CalledProcessError:
+            self.note(f"could not download {WEATHER} from Kaggle (if it asks for a login: a token in "
+                      "~/.kaggle/access_token, or --copy-from <a KramaBench checkout>). Only wildfire-hard-19 needs it.")
 
     def check_sources(self):
         """Report data sources that do not resolve by their exact name (globs allowed). Upstream's own warts: legal's

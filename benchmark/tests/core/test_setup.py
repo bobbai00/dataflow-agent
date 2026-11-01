@@ -15,7 +15,8 @@ import subprocess
 
 import pytest
 
-from bobbench.setup import Setup
+import bobbench.setup
+from bobbench.setup import Setup, WEATHER
 
 
 def git(*args, cwd=None):
@@ -74,3 +75,46 @@ def test_a_dry_run_runs_and_clones_nothing(upstream, tmp_path, capsys):
     setup.checkout(f"file://{repo}", first, target)
     setup.run(["false"])  # would raise if it ran
     assert not target.parent.exists() and "[dry-run] $ git clone" in capsys.readouterr().out
+
+
+@pytest.fixture
+def kramabench(tmp_path, monkeypatch):
+    root = tmp_path / "Kramabench"
+    (root / WEATHER).parent.mkdir(parents=True)
+    monkeypatch.setattr(bobbench.setup, "KB", root)
+    return root
+
+
+def test_the_weather_csv_links_from_another_checkout_and_copies_across_filesystems(kramabench, tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    (other / WEATHER).parent.mkdir(parents=True)
+    (other / WEATHER).write_text("rows\n")
+    Setup(dry_run=False).weather(other)
+    assert (kramabench / WEATHER).samefile(other / WEATHER)
+
+    (kramabench / WEATHER).unlink()
+
+    def another_filesystem(source, target):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(bobbench.setup.os, "link", another_filesystem)
+    Setup(dry_run=False).weather(other)
+    assert (kramabench / WEATHER).read_text() == "rows\n" and not (kramabench / WEATHER).samefile(other / WEATHER)
+
+
+def test_a_weather_csv_of_another_size_is_reported(kramabench):
+    (kramabench / WEATHER).write_text("truncated")
+    setup = Setup(dry_run=False)
+    setup.weather(None)
+    assert len(setup.notes) == 1 and "9 bytes" in setup.notes[0]
+
+
+def test_a_failed_weather_download_is_a_note_and_setup_goes_on(kramabench, tmp_path, monkeypatch):
+    monkeypatch.setattr(bobbench.setup, "ENVS", tmp_path / "envs")
+    (tmp_path / "envs" / "kramabench" / ".venv" / "bin").mkdir(parents=True)
+    python = tmp_path / "envs" / "kramabench" / ".venv" / "bin" / "python"
+    python.write_text("#!/bin/sh\nexit 1\n")
+    python.chmod(0o755)
+    setup = Setup(dry_run=False)
+    setup.weather(None)
+    assert len(setup.notes) == 1 and "wildfire-hard-19" in setup.notes[0]
