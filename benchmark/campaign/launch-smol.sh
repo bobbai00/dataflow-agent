@@ -14,17 +14,29 @@
 
 # Launch one run, detached (WAIT=1: stay until it ends): a Script ReAct (smolagents) KramaBench run with the paper's settings: custom instructions, 25 steps,
 # 5,000 output characters per step, 1,200 s per attempt, inputs over 100 MB one at a time, the locked interpreter
-# (checked against Texera's sandbox Python, numpy and pyarrow), bubblewrap sandbox. Model calls go straight to the
-# smolagents gateway (start-smol-gateway.sh, offset + 4001). Haiku runs used the main gateway:
-# GATEWAY=<offset + 4000>.
-# Usage: [WAIT=1] [STACK_DIR=/var/tmp/bobflow-bench] [GATEWAY=<offset + 4001>] launch-smol.sh <run name> <model tag> <reps>
+# (checked against Texera's sandbox Python, numpy and pyarrow), bubblewrap sandbox. Model calls go straight to a
+# gateway: the smolagents gateway (start-smol-gateway.sh, offset + 4001) for the models it carries (GPT-6.1 Sol,
+# Gemini 4 Argon), the main gateway (offset + 4000) for the rest, as in the paper's runs. GATEWAY=<port> overrides.
+# Usage: [WAIT=1] [STACK_DIR=/var/tmp/bobflow-bench] [GATEWAY=<port>] launch-smol.sh <run name> <model tag> <reps>
 #        <workers> [task ids...]   (no task ids = all 104 tasks)
 case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/bobflow-bench}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
 set -a; . "$S/profile.sh"; set +a
-W="$TEXERA_HOME"; GATEWAY=${GATEWAY:-$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4001))}
+W="$TEXERA_HOME"
+if [ -z "${GATEWAY:-}" ]; then
+  # The smolagents gateway carries only the routes Script ReAct needs set up differently (GPT-6.1 Sol, Gemini 4 Argon);
+  # every other model's Script ReAct runs used the main gateway, as the paper's did.
+  ROUTE=$(PYTHONPATH="$W/benchmark/src" "$W/benchmark/envs/kramabench/.venv/bin/python" -c \
+    'import sys; from bobbench.models import MODEL_TYPES; print(MODEL_TYPES[sys.argv[1]])' "$2")
+  for suffix in -high -medium -low; do ROUTE=${ROUTE%"$suffix"}; done
+  if grep -qx "  - model_name: $ROUTE" "$W/bin/single-node/litellm-config.smolagents.yaml"; then
+    GATEWAY=$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4001))
+  else
+    GATEWAY=$((TEXERA_LOCAL_DEV_PORT_OFFSET + 4000))
+  fi
+fi
 OUT=$1 MODEL=$2 REPS=$3 WORKERS=$4; shift 4
 if [ $# -gt 0 ]; then TASKS="--tasks $*"; else TASKS="--all-tasks"; fi
 if [ -e "$S/runs/$OUT" ]; then echo "refusing: $S/runs/$OUT exists"; exit 1; fi

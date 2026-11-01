@@ -66,7 +66,8 @@ Every script here reads `STACK_DIR`. A gateway reads its config only at start: r
 | `launch-prep-smol.sh <run> <model tag> <workers> [tasks]` | smolagents on PrepBench |
 
 Model tags are `MODEL_TYPES` in `benchmark/src/bobbench/models.py` (`Sol61`, `Gemini4ArgonMedium`, `Haiku55LowThink`,
-...). Haiku smolagents runs used the main gateway: `GATEWAY=34000`. `WAIT=1` keeps a launcher in the foreground until its
+...). The Script ReAct launchers send GPT-6.1 Sol and Gemini 4 Argon to the smolagents gateway, which sets their
+routes up for Script ReAct, and every other model to the main gateway, as the paper's runs did. `WAIT=1` keeps a launcher in the foreground until its
 run ends. Each launcher calls `benchmark/bench run` with the
 paper's settings. Examples of the 10-17 runs:
 

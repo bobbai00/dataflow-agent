@@ -97,39 +97,42 @@ launcher returns at once. Each run has the paper's settings, its results in `$S/
 S=/var/tmp/bobflow-bench
 
 # KramaBench, BobFlow
-WAIT=1 ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Luna 1 2 archeology-easy-6 legal-easy-25
-benchmark/bench report $S/runs/demo-kb
+WAIT=1 ARMS=evidence_full_flow0 benchmark/campaign/launch.sh try-kb Luna 1 2 archeology-easy-6 legal-easy-25
+benchmark/bench report $S/runs/try-kb
 # KramaBench, Script ReAct
-WAIT=1 benchmark/campaign/launch-smol.sh demo-kb-script Luna 1 2 archeology-easy-6 legal-easy-25
-benchmark/bench report $S/runs/demo-kb-script
+WAIT=1 benchmark/campaign/launch-smol.sh try-kb-script Luna 1 2 archeology-easy-6 legal-easy-25
+benchmark/bench report $S/runs/try-kb-script
 
 # PrepBench, BobFlow (PrepBench's own evaluator scores the output tables afterwards)
-WAIT=1 benchmark/campaign/launch-prep.sh demo-pb Luna 2 prepbench-hard-1 prepbench-hard-50
-benchmark/bench score prepbench $S/runs/demo-pb/scores.json $S/runs/demo-pb
-benchmark/bench report $S/runs/demo-pb --scores $S/runs/demo-pb/scores.json
+WAIT=1 benchmark/campaign/launch-prep.sh try-pb Luna 2 prepbench-hard-1 prepbench-hard-50
+benchmark/bench score prepbench $S/runs/try-pb/scores.json $S/runs/try-pb
+benchmark/bench report $S/runs/try-pb --scores $S/runs/try-pb/scores.json
 # PrepBench, Script ReAct
-WAIT=1 benchmark/campaign/launch-prep-smol.sh demo-pb-script Luna 2 prepbench-hard-1 prepbench-hard-50
-benchmark/bench score prepbench $S/runs/demo-pb-script/scores.json $S/runs/demo-pb-script
-benchmark/bench report $S/runs/demo-pb-script --scores $S/runs/demo-pb-script/scores.json
+WAIT=1 benchmark/campaign/launch-prep-smol.sh try-pb-script Luna 2 prepbench-hard-1 prepbench-hard-50
+benchmark/bench score prepbench $S/runs/try-pb-script/scores.json $S/runs/try-pb-script
+benchmark/bench report $S/runs/try-pb-script --scores $S/runs/try-pb-script/scores.json
 
 # LongDS, the first 2 requests of a session (these run in the foreground)
 P=benchmark/longds/prepared/business__netflix_movies_and_tv_shows__task2
-bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/catalog-gold \
+bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/try-longds/catalog-gold \
   --arm catalog-gold --model gpt-5.6-luna --turns 2
-bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/transcript-depnote \
+bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/try-longds/transcript-depnote \
   --arm transcript-depnote --model gpt-5.6-luna --turns 2
 # LongDS, Script ReAct
-bash $S/run-env.sh benchmark/bench longds smolagents --prepared $P --out $S/runs/demo-longds/smolagents-depnote \
+bash $S/run-env.sh benchmark/bench longds smolagents --prepared $P --out $S/runs/try-longds/smolagents-depnote \
   --note dependencies --model gpt-5.6-luna --turns 2
 # LongDS is judged afterwards (deepseek-v4-pro through OpenRouter)
-bash $S/run-env.sh benchmark/bench longds judge --runs $S/runs/demo-longds
-benchmark/bench longds report --runs $S/runs/demo-longds
+bash $S/run-env.sh benchmark/bench longds judge --runs $S/runs/try-longds
+benchmark/bench longds report --runs $S/runs/try-longds
 ```
+
+These two requests are hard: in the paper's runs Luna answered each correctly in about one run of three (Terra in five of
+six), so a run of these two often reports 0 of 2. The judge's reasons are in each request's `judge.json`.
 
 A launcher only adds defaults to `bench run`. The same KramaBench run directly:
 
 ```bash
-bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/demo-kb2 --models Luna \
+bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/try-kb2 --models Luna \
   --arms evidence_full_flow0 --tasks archeology-easy-6 legal-easy-25 --workers 2
 ```
 
