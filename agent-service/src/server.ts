@@ -58,7 +58,6 @@ import { withRequestTimeout } from "./agent/llm-drivers/request-timeout";
 import type { ContextAssembler } from "./agent/llm-drivers/types";
 import { heapStats } from "bun:jsc";
 import { assembleContext } from "./agent/util/context-utils";
-import { dashboardPlugin } from "./dashboard/static";
 
 const log = createLogger("Server");
 const wsLog = createLogger("WS");
@@ -768,7 +767,7 @@ const agentsRouter = new Elysia({ prefix: "/agents", normalize: false })
   /**
    * Snapshot tree shape — every node in the agent's
    * `WorkflowSnapshotStorage`, parent links, owning ReAct step, and a few
-   * size hints. Powers the dashboard's "Snapshot tree" view. Full workflow
+   * size hints. Powers the agent panel's version tree. Full workflow
    * + results bodies are still fetched lazily via `/snapshots/:stepId`.
    */
   .get("/:id/snapshot-tree", ({ params: { id } }) => {
@@ -1358,7 +1357,6 @@ function broadcastNextContext(agentId: string, agent: TexeraAgent): void {
 export function buildApp() {
   return new Elysia({ normalize: false })
     .use(cors())
-    .use(dashboardPlugin)
     .group(env.API_PREFIX, app =>
       app
         .get("/healthcheck", () => ({
@@ -1545,7 +1543,6 @@ function printStartupMessage(app: ReturnType<typeof buildApp>) {
   console.log("Texera Agent Service (Elysia.js + RxJS)");
   console.log(LINE);
   console.log(`Server running at http://localhost:${env.PORT}`);
-  console.log(`Trace dashboard:  http://localhost:${env.PORT}/dashboard`);
   console.log("");
 
   console.log("Registered Routes:");

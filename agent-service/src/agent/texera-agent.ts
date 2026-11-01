@@ -1901,7 +1901,7 @@ export class TexeraAgent {
     // `runPostStepExecution` immediately after a step's actions run. That
     // doesn't fire during import — without this pass the snapshot tree's
     // workflow is faithful but every snapshot's `results` map stays empty,
-    // so callers (the dashboard, the agent's own context assembler if the
+    // so callers (the agent panel, the agent's own context assembler if the
     // import is followed by `sendMessage`) see no operator state.
     //
     // The agent service's context assemblers already serialized that state

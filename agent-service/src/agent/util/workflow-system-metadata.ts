@@ -84,8 +84,8 @@ export class WorkflowSystemMetadata {
    * compile to (`DataLoading` and `DataProcessing`), but only for types not
    * already known. Backend-loaded metadata always wins — this is just a
    * fallback so graph edits can land operators when the Texera backend is
-   * unreachable (most commonly: when the dashboard imports a trace into a
-   * fresh agent service that boots without its backend cluster up).
+   * unreachable (most commonly: when a trace is imported into a fresh agent
+   * service that boots without its backend cluster up).
    *
    * The seeded `additionalMetadata` gives DataLoading 0 input ports and
    * DataProcessing 1. The JSON schema accepts a `code` string and nothing

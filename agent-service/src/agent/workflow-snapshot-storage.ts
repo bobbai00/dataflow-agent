@@ -626,11 +626,11 @@ export class WorkflowSnapshotStorage {
   }
 
   /**
-   * Tree shape of every snapshot — used by the dashboard's snapshot-tree
-   * view to render branches without pulling the full workflow / results
-   * payload for each node. Returns the empty root and every step-owned
-   * snapshot; callers can fetch the full body of a node lazily through
-   * `getResolvedWorkflow` / `getAllVisibleResults`.
+   * Tree shape of every snapshot — used by `GET /:id/snapshot-tree` (the
+   * agent panel's version tree) to render branches without pulling the full
+   * workflow / results payload for each node. Returns the empty root and
+   * every step-owned snapshot; callers can fetch the full body of a node
+   * lazily through `getResolvedWorkflow` / `getAllVisibleResults`.
    */
   getSnapshotTreeNodes(): SnapshotTreeNode[] {
     const out: SnapshotTreeNode[] = [];
@@ -1187,7 +1187,7 @@ export function computeStaleResultOps(prev: WorkflowContent, curr: WorkflowConte
  * Equality predicate over the fields of `OperatorPredicate` that affect
  * execution. UI-only fields (`customDisplayName`, `viewResult`,
  * `markedForReuse`, `showAdvanced`) are intentionally ignored — toggling
- * them on the dashboard should not blow away a perfectly good cached
+ * them in the UI should not blow away a perfectly good cached
  * result. Uses `JSON.stringify` deep-compare on the nested shape fields;
  * the agent constructs these objects programmatically so key ordering is
  * deterministic in practice (matches the pattern in `context-utils.ts`'s
