@@ -18,7 +18,7 @@
  */
 
 /** Zero-model-call check that model-written Python cannot read the repository.
- * Run against an engine whose UDF_PYTHON_PATH is benchmark/retrieval/native_isolated_python.py.
+ * Run against an engine whose UDF_PYTHON_PATH is benchmark/src/bobbench/sandbox/engine_python.py.
  * A scan of real task data must still work. Uses TEXERA_AGENT_SERVICE_ENDPOINT and backend env.
  * Usage: bun benchmark/e2e/sandbox-escape-probe.ts <repo root>
  */

@@ -154,8 +154,6 @@ agent-service/CLAUDE.md
 /texera.egg-info/
 /amber/uv.lock
 
-# Benchmark artifacts (benchmark/bench.sh) — data and run outputs, never sources
-/benchmark/DSGym/
 # The upstream LongDS checkout (or a link to it) and prepared sessions
 /benchmark/longds/DataMind
 /benchmark/longds/prepared/

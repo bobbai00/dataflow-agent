@@ -205,7 +205,7 @@ a question, and all of it again after a reload.
 - **Agents.** Each tab has its own agent memory and its own interpreter process, so variables, figures and crashes stay with it.
 - **Your own code** runs as plain Python only when a sandbox contains the worker. Without one (`--sandbox none`) it goes through smolagents' restricted interpreter, like the agent's code. Plain Python there would let any signed-in user run commands and read other users' files.
 - **Files.** On macOS each worker runs under a `sandbox-exec` profile. The profile denies the whole data directory except the owner's folder, which shuts out other users' files and the trace database. It also denies the server's `.env` and outbound network. A worker's environment is built from scratch, so the gateway key never reaches model code.
-- **Not covered.** On other platforms (`--sandbox none`) the workers are only separate processes and can read each other's files. A bubblewrap profile like `benchmark/retrieval/execution_isolation.py` would be the Linux counterpart. This is not hardened against a determined attacker: all workers run as one OS user, and there is no login rate limit. Keep it on localhost, or behind HTTPS with `--secure-cookies`.
+- **Not covered.** On other platforms (`--sandbox none`) the workers are only separate processes and can read each other's files. A bubblewrap profile like `benchmark/src/bobbench/sandbox/isolation.py` would be the Linux counterpart. This is not hardened against a determined attacker: all workers run as one OS user, and there is no login rate limit. Keep it on localhost, or behind HTTPS with `--secure-cookies`.
 
 ## Tests
 

@@ -454,8 +454,8 @@ async function executeWorkflowHttp(
  * been gated on the operator and its upstream being unchanged from the
  * parent). Without this guard the model would see `(no result data)` in
  * place of a still-valid prior value and loop trying to fix an operator
- * that is fine — exactly the failure mode that caused
- * `DataflowSystemGPT5Mini` to burn 50 steps on legal-hard-2.
+ * that is fine — exactly the failure mode that made a GPT-5 Mini run burn
+ * 50 steps on legal-hard-2.
  *
  * Exported for unit tests; production callers go through
  * `executeWorkflowAndPersist` below.

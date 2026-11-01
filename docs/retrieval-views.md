@@ -222,8 +222,7 @@ result version or the engine's cache key.
 
 ## Experiment arms
 
-`benchmark/retrieval/run.py` runs the arms in
-`benchmark/retrieval/configuration.py`. `evidence_full_flow{0,1}` offer only
+`benchmark/bench run` runs the arms in `benchmark/src/bobbench/arms.py`. `evidence_full_flow{0,1}` offer only
 `full`; `evidence_data1_flow{0,1}` offer `sample_stats` and `full`; the flow
 digit sets `flowEvidence`. The runner keeps `nativeProfileCollection` on for
 every arm, so the arms differ in what the model sees, not in what the engine

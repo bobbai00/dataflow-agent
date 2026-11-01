@@ -299,7 +299,7 @@ its artifacts to a new temp directory.
 | `bun benchmark/e2e/registered-python-run.ts` | none | registered-Python probes through the engine, each one `dataflow(python, statements)` call sent as debug input |
 | `bun benchmark/e2e/process-input-run.ts` | none | registered Python inputs through the engine transport: nullable and extreme integers, reshaped and empty tables |
 | `bun benchmark/e2e/file-io-probe.ts` | none | a registered loader may read a file with `open()` |
-| `bun benchmark/e2e/sandbox-escape-probe.ts <repo root>` | none | model-written Python cannot read the repository; run against an engine whose `UDF_PYTHON_PATH` is `benchmark/retrieval/native_isolated_python.py` |
+| `bun benchmark/e2e/sandbox-escape-probe.ts <repo root>` | none | model-written Python cannot read the repository; run against an engine whose `UDF_PYTHON_PATH` is `benchmark/src/bobbench/sandbox/engine_python.py` |
 | `bun benchmark/e2e/dataflow-actions-run.ts` | one live task (`TEXERA_AGENT_MODEL`, default `gpt-5.6-luna`); `--probes-only` skips it | `dataflow` call and cache checks |
 | `bun benchmark/e2e/demo/demo-driver.ts benchmark/e2e/demo/<scenario>.json` | every turn | a multi-turn demo through the REST API that keeps the agent and workflow for the frontend; set `AGENT_BASE`, `DEMO_USER`, `DEMO_PASSWORD`, `DEMO_CUID` and `PROBE_MODEL` for your stack |
 
