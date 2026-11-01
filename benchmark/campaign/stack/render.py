@@ -51,7 +51,7 @@ def copy_provider_keys(env_file, infra):
         return
     keys = {}
     for line in env_file.read_text().splitlines():
-        name, _, value = line.removeprefix("export ").partition("=")
+        name, _, value = re.sub(r"^export\s+", "", line).partition("=")
         if name.strip() in PROVIDER_KEYS and value.strip():
             keys[name.strip()] = value.strip().strip("\"'")
     lines = [f"{line.split('=')[0]}={keys[line.split('=')[0]]}" if line.split("=")[0] in keys else line
