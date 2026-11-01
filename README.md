@@ -287,8 +287,8 @@ With the stack up, these exercise the real system:
 | Command | What it covers |
 |---|---|
 | `(cd agent-service && bun run e2e)` | Workflows through the engine, without the agent or a model |
-| `(cd frontend && npx playwright install chromium && node e2e/agent-jump.e2e.mjs)` | The UI in a real browser: going back to a version. It replays a recorded run, so it calls no model |
-| `(cd frontend && node e2e/agent-panel.e2e.mjs)` | The UI in a real browser: the chat panel, on Claude Haiku 5.5 (a few cents). `agent-dataflow-ux`, `agent-drop-upload` and `agent-operator-actions` work the same way |
+| `(cd frontend && npx playwright install chromium && node e2e/agent-panel.e2e.mjs)` | The UI in a real browser: a new workflow opens a chat, the agent answers, settings, versions, a new chat. It calls Claude Haiku 5.5, a few cents |
+| `(cd frontend && node e2e/agent-operator-actions.e2e.mjs)` | Run, Edit and Feedback on an operator, its versions and docs. `agent-dataflow-ux` and `agent-drop-upload` work the same way; `agent-jump` replays recorded runs instead of calling a model and needs the tracker's agent (its header says how) |
 
 ## 5. If something goes wrong
 
