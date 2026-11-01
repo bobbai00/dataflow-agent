@@ -46,8 +46,7 @@ import re
 import resource
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from execution_isolation import isolated_command  # noqa: E402
+from isolation import isolated_command  # the sibling module: this script's folder is sys.path[0]
 
 
 def worker_memory_limit():
@@ -58,7 +57,7 @@ def worker_memory_limit():
 
 def main():
     python = Path(os.environ["NATIVE_ISOLATED_PYTHON"]).absolute()
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[4]  # benchmark/src/bobbench/sandbox -> the checkout
     source_data = Path(os.environ["NATIVE_SOURCE_DATA"]).resolve()
     args = sys.argv[1:]
     if args[:1] == ["-u"]:
@@ -82,9 +81,9 @@ def main():
     python_source = amber / "src/main/python"
     warehouse = Path(config["icebergFileStorageDirectoryPath"])
     # The warehouse holds every attempt's results; the engine writes there, but
-    # model code may not read or list it (sandbox_site/sitecustomize.py), so one
+    # model code may not read or list it (guard/sitecustomize.py), so one
     # attempt cannot see another's work. Model code also lists only task data.
-    guard = Path(__file__).resolve().parent / "sandbox_site"
+    guard = Path(__file__).resolve().parent / "guard"
     listable = [amber / "data", root / "data", source_data, Path("/workspace"), Path("/tmp")]
     # The data root is also mounted at its real path, read-only, so absolute
     # paths a receipt showed still open.

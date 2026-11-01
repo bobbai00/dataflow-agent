@@ -34,7 +34,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from execution_isolation import isolated_command
+from bobbench.sandbox.isolation import isolated_command
 
 CHILD = Path(__file__).with_name("script_agent_child.py")
 WRAPPER_SETTINGS = (

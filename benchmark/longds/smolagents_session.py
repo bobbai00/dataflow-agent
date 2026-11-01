@@ -51,7 +51,7 @@ import threading
 import time
 
 from benchmark.longds.common import DATA, HERE, ROOT, dependency_note, load, save
-from benchmark.retrieval.execution_isolation import isolated_command
+from bobbench.sandbox.isolation import isolated_command
 from benchmark.retrieval.metrics import cost_for_usage, current_price_schedule
 
 WORKER = HERE / "smolagents_worker.py"

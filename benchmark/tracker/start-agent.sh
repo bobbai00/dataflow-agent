@@ -25,5 +25,5 @@ mkdir -p "$run/workspace"
 cd "$W/agent-service"
 exec bash "$S/run-env.sh" env -u TEXERA_LLM_TRACE_DIR PORT="$port" LLM_ENDPOINT="http://localhost:$model_port" \
   AGENT_DEBUG_MEMORY=1 AGENT_TRACE_DB="$run/traces.db" NATIVE_WORKSPACE="$run/workspace" \
-  MODEL_RETRIES_PER_TURN=0 UDF_PYTHON_PATH="$W/benchmark/retrieval/native_isolated_python.py" \
+  MODEL_RETRIES_PER_TURN=0 UDF_PYTHON_PATH="$W/benchmark/src/bobbench/sandbox/engine_python.py" \
   bun run src/server.ts

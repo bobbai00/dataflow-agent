@@ -318,6 +318,7 @@ def main():
             RETRIEVAL_MANIFEST=str(output / "manifest.json"),
             RETRIEVAL_JOB=json.dumps(job),
             PYTHONUNBUFFERED="1",
+            PYTHONPATH=str(ROOT / "benchmark/src"),
         )
         started, timed_out = time.monotonic(), False
         with log.open("x") as stream:

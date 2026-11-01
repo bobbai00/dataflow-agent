@@ -16,6 +16,7 @@
 # under the License.
 
 """Regression: benchmark execution must not see reference answers, reports or other runs."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -25,10 +26,25 @@ import tempfile
 import unittest
 from unittest import mock
 
-from benchmark.retrieval import execution_isolation
-from benchmark.retrieval.execution_isolation import isolated_command
+from bobbench.sandbox import isolation as execution_isolation
+from bobbench.sandbox.isolation import isolated_command
 
-REPO = Path(__file__).resolve().parents[2]
+import bobbench.sandbox
+
+REPO = Path(__file__).resolve().parents[3]
+SANDBOX = Path(bobbench.sandbox.__file__).resolve().parent
+
+
+def engine_python():
+    """The engine wrapper script as a module (it imports `isolation` as its sibling, as it does when run)."""
+    sys.path.insert(0, str(SANDBOX))
+    try:
+        spec = importlib.util.spec_from_file_location("engine_python", SANDBOX / "engine_python.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.remove(str(SANDBOX))
 
 
 class ExecutionIsolationTests(unittest.TestCase):
@@ -52,8 +68,8 @@ assert sum(int(v) for v in (data / 'input.csv').read_text().split()[1:]) == 10
 assert not Path({str(secret)!r}).exists()
 assert not Path('/proc/{os.getpid()}/root{secret}').exists()
 # Mount points create empty parent directories; repository contents stay absent.
-assert not Path({str(REPO / 'benchmark/retrieval/results')!r}).exists()
-assert not Path({str(REPO / 'benchmark/retrieval/run.py')!r}).exists()
+assert not Path({str(REPO / 'benchmark/tests/fixtures')!r}).exists()
+assert not Path({str(REPO / 'benchmark/src/bobbench/runner.py')!r}).exists()
 assert not Path({str(REPO / '.git')!r}).exists()
 git = subprocess.run(['git', '-C', {str(REPO)!r}, 'log', '-1'], capture_output=True, text=True)
 assert git.returncode != 0, git.stdout
@@ -88,7 +104,7 @@ print(json.dumps({{'isolated': True}}))
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_guard_limits_model_code_to_task_data_and_keeps_the_warehouse_private(self):
-        guard = Path(__file__).resolve().parent / "sandbox_site"
+        guard = SANDBOX / "guard"
         probe_source = """
 import json, os, subprocess, sys
 DATA, WAREHOUSE, ROOT = sys.argv[1:4]
@@ -136,7 +152,7 @@ print(json.dumps(out))
             })
 
     def test_worker_memory_cap_raises_memory_error_instead_of_taking_the_machine(self):
-        from benchmark.retrieval.native_isolated_python import worker_memory_limit
+        worker_memory_limit = engine_python().worker_memory_limit
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("NATIVE_WORKER_MEMORY_GB", None)
             self.assertEqual(worker_memory_limit(), 10 * 1024**3)

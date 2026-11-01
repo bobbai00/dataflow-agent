@@ -18,7 +18,6 @@
 
 """Filesystem isolation for local benchmark execution, using an empty mount root.
 
-Ported from feat/task-history-dataflow benchmark/longds/execution_isolation.py.
 Only interpreter/runtime files, read-only source data and explicitly selected
 scratch paths are mounted. Benchmark questions, reference code, gold answers,
 reports, credentials and the repository are not mounted. The judge and runner

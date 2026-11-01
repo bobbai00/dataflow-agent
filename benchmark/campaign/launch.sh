@@ -40,7 +40,7 @@ cd "$W"
 REV=$(git -C "$W" rev-parse HEAD)
 setsid -f bash "$S/run-env.sh" env TEXERA_API_ENDPOINT="$TEXERA_DASHBOARD_SERVICE_ENDPOINT" \
   TEXERA_COMPUTING_UNIT_ENDPOINT="$TEXERA_COMPUTING_UNIT_ENDPOINT" TEXERA_WORKFLOW_EXECUTION_ENDPOINT="$WORKFLOW_EXECUTION_SERVICE_ENDPOINT" \
-  PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py --output "$S/runs/$OUT" \
+  PYTHONPATH="$W/benchmark/src" benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run.py --output "$S/runs/$OUT" \
   --endpoint "$TEXERA_AGENT_SERVICE_ENDPOINT" --models "$MODEL" --arms $ARMS $TASKS --repetitions "$REPS" \
   --large-workers 1 --large-input-bytes 100000000 --workers "$WORKERS" --timeout "$TIMEOUT" --direct-artifacts \
   --full-result-char-limit 5000 --sample-char-limit "$SAMPLE" --wire-dir "$S/wire" \

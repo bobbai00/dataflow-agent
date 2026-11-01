@@ -42,7 +42,7 @@ stub() {  # one stub per arm: catalog-gold and transcript-depnote send identical
 STUB=
 (cd "$W/agent-service" && exec setsid bash "$S/run-env.sh" env PORT=$AGENT_PORT LLM_ENDPOINT=http://localhost:$STUB_PORT \
   MODEL_RETRIES_PER_TURN=0 TEXERA_LLM_TRACE_DIR="$OUT/wire" NATIVE_WORKSPACE="$OUT/workspace" \
-  AGENT_TRACE_DB="$OUT/traces.db" UDF_PYTHON_PATH="$W/benchmark/retrieval/native_isolated_python.py" \
+  AGENT_TRACE_DB="$OUT/traces.db" UDF_PYTHON_PATH="$W/benchmark/src/bobbench/sandbox/engine_python.py" \
   bun run src/server.ts > "$OUT/agent.log" 2>&1) &
 AGENT=$!
 cleanup() { kill $STUB 2>/dev/null; kill -- -$AGENT 2>/dev/null || kill $AGENT 2>/dev/null; true; }
@@ -53,14 +53,14 @@ for _ in $(seq 1 60); do curl -sf localhost:$AGENT_PORT/api/healthcheck >/dev/nu
 cd "$W"
 for arm in catalog-gold transcript-depnote; do
   stub $arm
-  setsid -w bash "$S/run-env.sh" env TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:$AGENT_PORT \
+  setsid -w bash "$S/run-env.sh" env TEXERA_AGENT_SERVICE_ENDPOINT=http://localhost:$AGENT_PORT PYTHONPATH="$W/benchmark/src" \
     .venv/bin/python -m benchmark.longds.run_session --prepared "$SES" --out "$OUT/longds/$arm" --arm $arm \
     --model claude-haiku-5.5 --turns 2 --spend-limit 1 > "$OUT/$arm.log" 2>&1 || echo "$arm runner failed"
   echo "$arm: $(tail -n 1 "$OUT/$arm.log" | cut -c1-120)"
   kill $STUB; wait $STUB 2>/dev/null || true
 done
 stub smolagents-depnote
-setsid -w bash "$S/run-env.sh" env LITELLM_BASE_URL=http://localhost:$STUB_PORT \
+setsid -w bash "$S/run-env.sh" env LITELLM_BASE_URL=http://localhost:$STUB_PORT PYTHONPATH="$W/benchmark/src" \
   .venv/bin/python -m benchmark.longds.smolagents_session --prepared "$SES" --out "$OUT/longds/smolagents-depnote" \
   --model claude-haiku-5.5 --turns 2 --spend-limit 1 --note dependencies > "$OUT/smolagents-depnote.log" 2>&1 \
   || echo "smolagents-depnote runner failed"

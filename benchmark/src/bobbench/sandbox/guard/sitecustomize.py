@@ -14,7 +14,7 @@
 # KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Loaded at startup by every sandboxed engine Python worker (native_isolated_python.py).
+"""Loaded at startup by every sandboxed engine Python worker (engine_python.py puts this folder on its PYTHONPATH).
 
 Model-written code, the frames compiled as ``<definitions:N>``, may list only the task data
 directories, may not read the shared result warehouse, and may not start processes. The

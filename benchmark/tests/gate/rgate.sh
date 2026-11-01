@@ -46,7 +46,7 @@ python3 -I "$HERE/replay_model.py" --port 3192 --log "$OUT/model-requests.jsonl"
 STUB=$!
 (cd "$W/agent-service" && exec setsid bash "$S/run-env.sh" env PORT=3152 LLM_ENDPOINT=http://localhost:3192 \
   MODEL_RETRIES_PER_TURN=0 TEXERA_LLM_TRACE_DIR="$OUT/wire" NATIVE_WORKSPACE="$OUT/workspace" \
-  AGENT_TRACE_DB="$OUT/traces.db" UDF_PYTHON_PATH="$W/benchmark/retrieval/native_isolated_python.py" \
+  AGENT_TRACE_DB="$OUT/traces.db" UDF_PYTHON_PATH="$W/benchmark/src/bobbench/sandbox/engine_python.py" \
   bun run src/server.ts > "$OUT/agent.log" 2>&1) &
 AGENT=$!
 cleanup() { kill $STUB 2>/dev/null; kill -- -$AGENT 2>/dev/null || kill $AGENT 2>/dev/null; unlink_gate_suts; true; }
@@ -64,28 +64,28 @@ PY=benchmark/Kramabench/.venv/bin/python
 cd "$W"
 for r in "${RUNS[@]}"; do
   case $r in
-    kb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --output "$OUT/kb" \
+    kb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH="$W/benchmark/src" $PY benchmark/retrieval/run.py --output "$OUT/kb" \
           --endpoint http://localhost:3152 --models Haiku55 \
           --arms evidence_full_flow0 evidence_data1_flow0 evidence_data1_flow0_opt --tasks $KB_TASKS --repetitions 1 \
           --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 900 --direct-artifacts \
           --full-result-char-limit 5000 --sample-char-limit 2000 --wire-dir "$OUT/wire" \
           --agent-revision "$REV" --engine-revision "$REV" --selection "rgate replay of ${REF[kb]}" > "$OUT/kb.log" 2>&1 ;;
-    kbflow) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --output "$OUT/kbflow" \
+    kbflow) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH="$W/benchmark/src" $PY benchmark/retrieval/run.py --output "$OUT/kbflow" \
           --endpoint http://localhost:3152 --models Haiku55 \
           --arms evidence_data1_flow1 evidence_full_flow1 --tasks $KBFLOW_TASKS --repetitions 1 \
           --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 900 --direct-artifacts \
           --full-result-char-limit 5000 --sample-char-limit 2000 --wire-dir "$OUT/wire" \
           --agent-revision "$REV" --engine-revision "$REV" --selection "rgate replay of ${REF[kbflow]}" > "$OUT/kbflow.log" 2>&1 ;;
-    pb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run.py --benchmark prepbench --output "$OUT/pb" \
+    pb) setsid -w bash "$S/run-env.sh" "${ENV[@]}" PYTHONPATH="$W/benchmark/src" $PY benchmark/retrieval/run.py --benchmark prepbench --output "$OUT/pb" \
           --endpoint http://localhost:3152 --agent-revision "$REV" --engine-revision "$REV" --models Haiku55 \
           --arms evidence_full_flow0 evidence_data1_flow0_opt --repetitions 1 --workers 2 --timeout 900 \
           --large-input-bytes 5000000000 --full-result-char-limit 5000 --sample-char-limit 2000 --direct-artifacts \
           --wire-dir "$OUT/wire" --selection "rgate replay of ${REF[pb]}" --tasks $PB_TASKS > "$OUT/pb.log" 2>&1 ;;
-    kbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run_baselines.py --output "$OUT/kbsmol" \
+    kbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH="$W/benchmark/src" $PY benchmark/retrieval/run_baselines.py --output "$OUT/kbsmol" \
           --script-endpoint http://localhost:3192/v1 --model Haiku55 --systems smolagents --tasks $KB_TASKS \
           --repetitions 1 --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 1200 \
           --max-steps 25 --output-chars 5000 --prompt custom > "$OUT/kbsmol.log" 2>&1 ;;
-    pbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH=benchmark/src $PY benchmark/prepbench/smol_run.py --output "$OUT/pbsmol" \
+    pbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH="$W/benchmark/src" $PY benchmark/prepbench/smol_run.py --output "$OUT/pbsmol" \
           --script-endpoint http://localhost:3192/v1 --model Haiku55 --systems smolagents --repetitions 1 \
           --workers 2 --timeout 900 --large-input-bytes 5000000000 --tasks $PB_TASKS > "$OUT/pbsmol.log" 2>&1 ;;
   esac

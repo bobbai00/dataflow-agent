@@ -29,7 +29,7 @@ if [ $# -gt 0 ]; then TASKS="--tasks $*"; else TASKS="--all-tasks"; fi
 if [ -e "$S/runs/$OUT" ]; then echo "refusing: $S/runs/$OUT exists"; exit 1; fi
 mkdir -p "$S/runs" "$S/logs"
 cd "$W"
-setsid -f bash "$S/run-env.sh" env PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run_baselines.py \
+setsid -f bash "$S/run-env.sh" env PYTHONPATH="$W/benchmark/src" benchmark/Kramabench/.venv/bin/python benchmark/retrieval/run_baselines.py \
   --output "$S/runs/$OUT" --script-endpoint "http://localhost:$GATEWAY/v1" --model "$MODEL" --systems smolagents $TASKS \
   --repetitions "$REPS" --large-workers 1 --large-input-bytes 100000000 --workers "$WORKERS" --timeout 1200 \
   --max-steps 25 --output-chars 5000 --prompt custom > "$S/logs/$OUT.log" 2>&1 < /dev/null

@@ -26,7 +26,7 @@ W="${CHECKOUT:-$TEXERA_HOME}"
 mkdir -p "$S/wire" "$S/native-workspaces-agent" "$S/logs"
 cd "$W/agent-service"
 setsid -f bash "$S/run-env.sh" env PORT="$TEXERA_AGENT_SERVICE_PORT" MODEL_RETRIES_PER_TURN=2 \
-  UDF_PYTHON_PATH="$W/benchmark/retrieval/native_isolated_python.py" \
+  UDF_PYTHON_PATH="$W/benchmark/src/bobbench/sandbox/engine_python.py" \
   TEXERA_LLM_TRACE_DIR="$S/wire" NATIVE_WORKSPACE="$S/native-workspaces-agent" \
   bun run src/server.ts >> "$S/logs/agent-$TEXERA_AGENT_SERVICE_PORT.log" 2>&1 < /dev/null
 echo "agent starting on :$TEXERA_AGENT_SERVICE_PORT from $W (log $S/logs/agent-$TEXERA_AGENT_SERVICE_PORT.log)"
