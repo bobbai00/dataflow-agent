@@ -39,17 +39,23 @@ class IcebergRestCatalogIntegrationSpec extends AnyFlatSpec with BeforeAndAfterA
 
   private val testNamespace = "rest_integration_test"
 
+  // Connecting needs a running Lakekeeper, which only the REST catalog setting promises.
+  private val restCatalogConfigured = StorageConfig.icebergCatalogType == "rest"
+
   override def beforeAll(): Unit = {
     super.beforeAll()
-    restCatalog = IcebergUtil.createRestCatalog(
-      "rest_integration_test",
-      StorageConfig.icebergRESTCatalogWarehouseName
-    )
+    if (restCatalogConfigured) {
+      restCatalog = IcebergUtil.createRestCatalog(
+        "rest_integration_test",
+        StorageConfig.icebergRESTCatalogWarehouseName
+      )
+    }
   }
 
   behavior of "Iceberg REST catalog"
 
   it should "round-trip table metadata via the REST catalog" in {
+    assume(restCatalogConfigured, "the iceberg catalog type is not rest")
     val amberSchema = Schema(
       List(
         new Attribute("id", AttributeType.INTEGER),
