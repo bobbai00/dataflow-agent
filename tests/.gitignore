@@ -1,6 +1,1 @@
-.logs/
-*.bak
-live-result.json
-python-runtime-result.json
 result.json
-python-runtime-summary.json
