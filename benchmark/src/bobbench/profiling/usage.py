@@ -17,7 +17,7 @@ meta}.json, copied into <attempt>/wire/); Script ReAct attempts from model-reque
 at the provider's own charge when it reports one (OpenRouter's usage.cost), else at the frozen token rates
 (bobbench.models). A run whose usage is incomplete keeps cost_usd null rather than calling unpriced work free.
 
-    python -m bobbench.profiling.usage recost <run> [--stopped]     (bench recost)
+    python -m bobbench.profiling.usage <run> [--stopped]     (bench recost)
 """
 import argparse
 from datetime import datetime

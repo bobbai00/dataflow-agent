@@ -15,7 +15,14 @@ smolagents: response content in model-request-trace.jsonl) for reaching outside 
 spawning, network clients, home/repo/warehouse paths, root-level directory walks, gold or answer files. Also tallies the
 serving provider and service tier the responses report. Prints each match with context for review.
 Usage: integrity_scan.py <run dir>..."""
-import collections, glob, json, os, re, sys
+import collections
+import glob
+import json
+import os
+import re
+import sys
+if not sys.argv[1:] or sys.argv[1] in ("-h", "--help"):
+    sys.exit(__doc__)
 PATTERNS = {
     "process": r"\bsubprocess\b|\bos\.system\(|\bos\.popen\(|\bPopen\(|\bpty\b|\bos\.exec",
     "git": r"\bgit\s+(show|log|grep|diff|ls-files|clone)\b|\.git\b",

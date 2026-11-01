@@ -33,7 +33,7 @@ tasks it builds on (common.dependency_note), as run_session's
 `transcript-depnote`.
 
 Usage (from the repository root, inside the stack's environment):
-    bench longds smolagents_session --prepared R/prepared/<key> \\
+    bench longds smolagents --prepared R/prepared/<key> \\
         --out R/runs/<key>__smolagents-depnote__r1 --note dependencies
 """
 import argparse

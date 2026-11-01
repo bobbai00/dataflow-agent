@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 import re
 
-from bobbench.paths import DATAMIND as CHECKOUT
+from bobbench.paths import DATAMIND as CHECKOUT, LONGDS_PREPARED
 
 HERE = Path(__file__).resolve().parent
 # The upstream checkout (github.com/zjunlp/DataMind, not vendored; bench setup longds fetches what the Lite sessions
@@ -35,6 +35,13 @@ def save(path, value):
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
     tmp.replace(path)
+
+
+def session_gold(protocol):
+    """A run's gold: from where it was prepared or, for a run recorded elsewhere, from LONGDS_PREPARED (the same bytes:
+    bench longds prepare is deterministic)."""
+    folder = Path(protocol["prepared"])
+    return load((folder if folder.exists() else LONGDS_PREPARED / folder.name) / "gold.json")
 
 
 def load(path):

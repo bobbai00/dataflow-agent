@@ -14,7 +14,12 @@
 exit, timeout, audit violations, no billed cost), a PAUSE file not written by the memory guard, non-200 answers from the
 proxy stand-in, memory-guard pauses, a progress line every 20 attempts per run, and each run's end. Exits when every run
 has ended. Usage: alert.py <run name>..."""
-import ast, json, os, re, sys, time
+import ast
+import os
+import sys
+import time
+if not sys.argv[1:] or sys.argv[1] in ("-h", "--help"):
+    sys.exit(__doc__)
 G = os.environ.get("STACK_DIR", "/var/tmp/texera-stable").rstrip("/")
 RUNS = sys.argv[1:]
 state = {r: {"pos": 0, "n": 0, "pass": 0, "cost": 0.0, "secs": 0.0, "ended": False, "pause": None} for r in RUNS}

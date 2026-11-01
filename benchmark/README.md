@@ -1,178 +1,239 @@
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing,
+  software distributed under the License is distributed on an
+  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.  See the License for the
+  specific language governing permissions and limitations
+  under the License.
+-->
+
 # Benchmarks
 
-KramaBench drives the dataflow agent end-to-end; `bench.sh` is the single
-entry point. The full Texera stack must be up first
-(`bin/local-dev.sh up` — see [docs/local-dev-with-agent.md](../docs/local-dev-with-agent.md)).
+The harness behind the paper's numbers: KramaBench (104 tasks), PrepBench (306 cases) and LongDS v1.1 Lite (24 sessions,
+777 requests), on BobFlow (the dataflow agent) and Script ReAct (smolagents' `CodeAgent`). `benchmark/bench` is the one
+command line. Every subcommand takes `--help`.
 
-| | KramaBench |
+## Layout
+
+```
+benchmark/
+  bench            the command line
+  envs/            exact package lists: kramabench (runner, evaluator), scriptreact (Script ReAct), engine (.venv)
+  src/bobbench/    the harness
+    runner.py        one run: jobs, workers, watchdog, progress.json
+    kramabench/      one attempt, BobFlow or Script ReAct; `bench run`
+    scriptreact/     smolagents' CodeAgent as the paper set it up, its sandbox and interpreter check
+    prepbench/       PrepBench as a KramaBench domain: workload build, result export, PrepBench's evaluator
+    longds/          LongDS sessions: prepare, run, judge, report (README there)
+    sandbox/         the bubblewrap sandbox around the engine's Python
+    profiling/       what an attempt cost (usage.py), what the host did (host.py)
+    arms.py          the paper's settings; models.py: model tags and prices
+    report.py, compare.py, audit.py, setup.py
+  tests/           the offline tests and the $0 gate (tests/gate/)
+  campaign/        the stack (templates, launchers, watchers; README there)
+  tracker/         the context-tracker overhead experiments (README there)
+  Kramabench/      submodule: KramaBench's evaluator, workloads, data and judge cache
+  longds/          not tracked: the DataMind checkout and the prepared sessions
+```
+
+## Setup
+
+Needs `git`, `uv` and any `python3`.
+
+```bash
+benchmark/bench setup all --dry-run    # what is there, what would be fetched
+benchmark/bench setup all              # or kramabench, prepbench, longds; safe to run again
+```
+
+Every target first makes what all benchmarks need: the submodule at the pinned commit, `envs/kramabench/.venv` (Python
+3.10.9), `envs/scriptreact/.venv` (3.12.12), the checkout's `.venv` (3.12.12; `uv sync --all-extras`, then the packages
+of `envs/engine/requirements.txt` that the lock lacks) and the engine's Python protos. The engine runs the model's code
+on `.venv`, so **a later `uv sync` removes packages the paper's runs had**: run `bench setup` again after one.
+
+| Target | Adds | Size | Options |
+|---|---|---|---|
+| `kramabench` | wildfire's WeatherEvents csv from Kaggle (no login needed so far; else a token in `~/.kaggle/access_token`) | 1 GB | `--copy-from <KramaBench checkout>` links or copies it |
+| `prepbench` | PrepBench at 993a313 in `~/datasets/prepbench`, staged into `Kramabench/data/prepbench` | 0.5 GB | `--datasets <dir>` clones it to `<dir>/prepbench`; then set `PREPBENCH_REPO=<dir>/prepbench` |
+| `longds` | DataMind at 4b49ef0 (judge prompt only), the Lite sessions' tasks and data from Hugging Face `zjunlp/LongDS` at bf41bb2, a copy of the data in the tree the engine mounts, the prepared sessions | 9.5 GB | `--sessions <domain/dataset/task> ...`, `--prepared <dir>` |
+
+`Kramabench/data/wildfire/input/ZHVI.csv` is 0 bytes in every paper run: leave it so. Setup reports 5 `legal` sources
+"not found by their exact name": upstream's folder names differ in case, and the prompts' fuzzy search finds them.
+
+## The stack
+
+`bench run` and `bench longds run` need an isolated Texera stack: engine, agent, model gateway.
+[campaign/README.md](campaign/README.md) renders it and brings it up and down. Below, `S` is the stack's folder, all
+commands run from the repository root, and the provider keys are in the stack's `infra.env` and the checkout's `.env`.
+
+## One small run per benchmark and system
+
+With Claude Haiku 5.5, a few cents in all. The launchers run detached, with the paper's settings: results in
+`$S/runs/<run>`, log in `$S/logs/<run>.log`. Without task ids they run every task.
+
+```bash
+S=/var/tmp/texera-stable
+
+# KramaBench, BobFlow
+ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Haiku55 1 2 archeology-easy-6 legal-easy-25
+# KramaBench, Script ReAct (Haiku is on the stack's main gateway, offset + 4000)
+GATEWAY=60000 benchmark/campaign/launch-smol.sh demo-kb-script Haiku55 1 2 archeology-easy-6 legal-easy-25
+# PrepBench, BobFlow
+benchmark/campaign/launch-prep.sh demo-pb Haiku55 2 prepbench-hard-1 prepbench-hard-50
+# PrepBench, Script ReAct
+GATEWAY=60000 benchmark/campaign/launch-prep-smol.sh demo-pb-script Haiku55 2 prepbench-hard-1 prepbench-hard-50
+
+# LongDS, BobFlow (the first 2 requests of a session; run these in the foreground)
+P=benchmark/longds/prepared/business__netflix_movies_and_tv_shows__task2
+bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/catalog-gold \
+  --arm catalog-gold --model claude-haiku-5.5 --turns 2
+bash $S/run-env.sh benchmark/bench longds run --prepared $P --out $S/runs/demo-longds/transcript-depnote \
+  --arm transcript-depnote --model claude-haiku-5.5 --turns 2
+# LongDS, Script ReAct
+bash $S/run-env.sh benchmark/bench longds smolagents --prepared $P --out $S/runs/demo-longds/smolagents-depnote \
+  --note dependencies --model claude-haiku-5.5 --turns 2
+# LongDS is judged afterwards (deepseek-v4-pro through OpenRouter)
+bash $S/run-env.sh benchmark/bench longds judge --runs $S/runs/demo-longds
+benchmark/bench longds report --runs $S/runs/demo-longds
+```
+
+A launcher only adds defaults to `bench run`. The same KramaBench run directly:
+
+```bash
+bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/demo-kb2 --models Haiku55 \
+  --arms evidence_full_flow0 --tasks archeology-easy-6 legal-easy-25 --workers 2
+```
+
+## The paper's cells
+
+**KramaBench and PrepBench.** Each cell is one model tag and one system.
+
+| Paper name | Model tag |
 |---|---|
-| Where | `benchmark/Kramabench` — git **submodule**, branch `stable` |
-| Shape | 104 single-question tasks over 6 domain data lakes |
-| Driver | `kb.py` (inside the submodule); native campaigns through `benchmark/retrieval/run.py` |
-| Scoring | repo's `evaluate.py` (gpt-5-mini metrics — needs `OPENAI_API_KEY` in `Kramabench/.env`) |
-| Data | committed in the submodule, except wildfire's WeatherEvents csv (Kaggle) |
+| GPT-5.6 Luna, Terra, Sol | `Luna`, `Terra`, `Sol` |
+| GPT-6.1 Sol | `Sol61` |
+| Gemini 3.8 Flash | `Gemini38Flash`; with optimizations `Gemini38FlashVertex` |
+| Gemini 4 Argon | `Gemini4ArgonMedium` |
+| DeepSeek V4.1 Flash | `DeepSeek41Flash` |
+| Claude Opus 5.5 | `Opus55` |
 
-## One-time setup
+| System | Arm | KramaBench | PrepBench |
+|---|---|---|---|
+| Script ReAct | none (`launch-smol.sh`, `launch-prep-smol.sh`) | 3 repetitions | 1 |
+| BobFlow | `evidence_full_flow0` | 3 repetitions | 1 |
+| + statistics | `evidence_data1_flow0` | 3 repetitions | - |
+| + optimizations | `evidence_data1_flow0_opt` on Opus, `evidence_data1_flow0_opt_strict` on the others | 1 | 1 |
+| Flow Evidence | `evidence_full_flow1`, `evidence_data1_flow1` | 3 repetitions | - |
 
-```bash
-bin/bench.sh setup [--copy-from ~/path/to/old/Kramabench]
-```
-
-Creates the submodule venv, wires the symlinks, and fetches the Kaggle csv
-(or copies it from an existing checkout).
-
-Symlink layout (one relative `data/...` path resolves in this harness, the JVM
-services, and the Python UDF workers):
-
-```
-dataflow-agent/data              -> benchmark/Kramabench/data
-```
-
-API keys come from the repo-root `.env` (see `.env.example`) — `bin/bench.sh`
-exports it before every command. KramaBench's paraphrase/f1 metrics call
-gpt-5-mini via `OPENAI_API_KEY` directly, and a dummy key silently zeroes
-scores. (`Kramabench/.env` still works as a fallback for standalone use.)
-
-## KramaBench
+GPT-6.1 Sol and Gemini 4 Argon first ran once on KramaBench; their two later repetitions are the `r3-kb-*` runs. For the
+four close "+ optimizations" KramaBench cells (GPT-6.1 Sol, Gemini 4 Argon, DeepSeek, Opus) the package also holds two
+reruns of their flip-prone tasks.
 
 ```bash
-bin/bench.sh kb systems                                    # list SUTs
-bin/bench.sh kb tasks --sut DataflowSystemStableHaiku \
-    --ids "legal-easy-3 wildfire-easy-1" --parallel              # run specific tasks
-bin/bench.sh kb run --sut DataflowSystemStableHaiku --parallel   # all 6 workloads
-bin/bench.sh kb scores --sut DataflowSystemStableHaiku     # leaderboard
-bin/bench.sh kb failed --sut DataflowSystemStableHaiku --zero-only --ids-only
-bin/bench.sh kb setup-data                                 # verify/fetch data lake
+benchmark/campaign/launch.sh kb-luna Luna 3 6      # the default arms: evidence_full_flow0, evidence_data1_flow0
+ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch.sh opt-kb-luna Luna 1 6
+ARMS=evidence_data1_flow0_opt benchmark/campaign/launch.sh opt-kb-opus55 Opus55 1 6
+ARMS="evidence_full_flow1 evidence_data1_flow1" benchmark/campaign/launch.sh flow-kb-luna Luna 3 6
+benchmark/campaign/launch-smol.sh smol-kb-luna Luna 3 3
+benchmark/campaign/launch-prep.sh pb-luna Luna 6
+ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch-prep.sh opt-pb-luna Luna 6
+benchmark/campaign/launch-prep-smol.sh smol-pb-luna Luna 3
 ```
 
-`DataflowSystemStableHaiku` (claude-haiku-4.5 on the converge stack) is the
-cheap smoke arm; the sweep arms live in `Kramabench/systems/dataflow_system.py`.
-A "system" is one of those classes — subclass `DataflowSystem` with your knob
-set and export it from `systems/__init__.py` to add one.
+Workers change how long a run takes, not its settings. Run heavy runs one at a time. `campaign/provider_failures.py`
+lists attempts killed by a slow provider: rerun those tasks into a new run and read both with `bench report --merge`.
 
-Known upstream wart: `astronomy-hard-7/-10` reference `STORM-AI` file names
-whose date suffixes don't match the shipped files; `setup-data` reports them
-as missing. Pre-existing on every branch.
+`bench report` on the recorded runs gives these (accuracy, cost of one full pass):
 
-Matched native pilots use the same official evaluator:
+| Model | KramaBench + optimizations | KramaBench Script ReAct | PrepBench + optimizations | PrepBench Script ReAct |
+|---|---|---|---|---|
+| GPT-5.6 Luna | 72.1% $0.30 | 58.3% $0.40 | 83.3% $0.99 | 69.9% $1.21 |
+| GPT-5.6 Terra | 68.3% $2.76 | 65.4% $6.99 | 86.3% $8.67 | 79.4% $24.56 |
+| GPT-5.6 Sol | 73.1% $5.09 | 60.6% $10.22 | 88.6% $16.50 | 71.9% $45.97 |
+| GPT-6.1 Sol | 74.0% $1.67 | 75.0% $3.35 | 90.8% $6.33 | 90.5% $17.33 |
+| Gemini 3.8 Flash | 78.8% $7.24 | 66.3% $11.27 | 89.5% $15.80 | 70.9% $40.87 |
+| Gemini 4 Argon | 72.1% $6.15 | 74.0% $11.68 | 91.5% $15.42 | 88.6% $33.41 |
+| DeepSeek V4.1 Flash | 69.2% $0.66 | 66.7% $0.62 | 88.9% $1.31 | 85.6% $1.40 |
+| Claude Opus 5.5 | 73.1% $4.35 | 74.7% $4.76 | 90.5% $16.89 | 90.2% $17.76 |
+
+The 89.5% for Gemini 3.8 Flash on PrepBench counts one attempt as failed: `--fail opt2-pb-gemflash:prepbench-hard-277`
+(it fetched the published solution).
+
+**LongDS.** Three arms, 24 sessions, one run per model:
+
+| System | Arm | `gpt-5.6-luna` | `gpt-5.6-terra` | `deepseek-v4.1-flash` |
+|---|---|---|---|---|
+| BobFlow, task catalog | `catalog-gold` | 333 $4.85 | 454 $43.47 | 458 $7.28 |
+| BobFlow, full history | `transcript-depnote` | 333 $3.54 | 424 $29.52 | 451 $2.57 |
+| Script ReAct | `smolagents-depnote` | 332 $3.59 | 450 $25.49 | 453 $2.83 |
+
+(correct of 777, billed.)
 
 ```bash
-bin/bench.sh retrieval run --help
-bin/bench.sh retrieval analyze benchmark/retrieval/runs/<campaign>
-bin/bench.sh retrieval reconcile benchmark/retrieval/runs/<campaign> # offline accounting refresh
-bin/bench.sh retrieval audit benchmark/retrieval/runs/<campaign>     # after analyze
+R=$S/runs/longds-luna
+bash $S/run-env.sh benchmark/bench longds campaign --root $R --model gpt-5.6-luna --parallel 6
+bash $S/run-env.sh benchmark/bench longds judge --runs $R/runs
+benchmark/bench longds report --runs $R/runs --json $R/summary.json
 ```
 
-For audited provider usage, launch agent-service with `TEXERA_LLM_TRACE_DIR`
-and pass that directory as `retrieval run --wire-dir`. The campaign archives
-exact request/response bodies without headers or credentials, preserves the
-original harness statistics, and reconciles cache reads, cache writes, and
-reasoning tokens. Costs use frozen per-request token rates; incomplete usage
-or unknown rates remain unpriced. Agent wall time, gateway latency, and total
-attempt time are reported separately. Raw campaigns under
-`benchmark/retrieval/runs/` are gitignored.
-Provider-reported `usage.cost` is recorded separately from token-rate estimates;
-whole-call validation failures are counted even when no actions ran.
+## Report, score, compare
 
-To compare data statistics and flow evidence independently, select the four
-`evidence_full_flow{0,1}` and `evidence_data1_flow{0,1}` arms. Every arm retains full
-retrieval and full-table profile collection; data-off reads only `full`, while
-data-on offers `sample_stats` and `full`. This isolates evidence exposure, not
-collection cost.
-The system prompt and tool schema follow each arm's enabled retrieval views.
+All of these read files only: no model, judge or service, $0.
 
 ```bash
-bin/bench.sh retrieval run \
-    --output benchmark/retrieval/runs/<new-campaign> --endpoint http://localhost:3001 \
-    --tasks archeology-easy-6 legal-easy-3 biomedical-hard-3 \
-    --models Luna Terra Sol Opus48 Qwen38_27B DeepSeek41Flash \
-    --arms evidence_full_flow0 evidence_full_flow1 evidence_data1_flow0 evidence_data1_flow1 \
-    --repetitions 1 --workers 2 --full-result-char-limit 5000
+benchmark/bench report $S/runs/kb-luna                        # KramaBench attempts are scored during the run
+benchmark/bench score prepbench scores.json $S/runs/pb-luna   # PrepBench's own evaluator; the runner's score is 0 there
+benchmark/bench report $S/runs/pb-luna --scores scores.json
+benchmark/bench report $S/runs/kb-luna $S/runs/kb-luna-rerun --merge      # a later run replaces the same attempts
+benchmark/bench compare $S/runs/kb-luna:evidence_full_flow0 $S/runs/kb-luna:evidence_data1_flow0   # who solves what
+benchmark/bench recost $S/runs/kb-luna                        # re-price from the exact responses
+benchmark/bench audit $S/runs/kb-luna                         # re-run the per-attempt checks
 ```
 
-This example runs 72 model/task/arm attempts. The agent makes one
-`dataflow(python, statements)` tool call per step, and a reply without a tool call
-is the answer; see `docs/native-registered-python-design.md`. `--full-result-char-limit` controls
-the display budget independently of retained data and records it in the campaign
-manifest. Its default remains 100,000 for existing campaign compatibility; pass
-5,000 explicitly to match the current service default. Valid values are
-128–100,000.
+A pass is a score of 1.0 (KramaBench) or PrepBench's evaluator's pass; the last attempt per task and repetition counts;
+the cost of one full pass is the mean billed cost per attempt times the task count. `bench report --help` has the rest.
 
-For an opt-in infrastructure project with independent names and volumes, use
-the supported launcher with the isolated overlay. Standard host ports must be
-available; existing deployments are left running.
+## Run folders and profiling
+
+```
+<run>/manifest.json            settings, revisions, prices, judge cache hash
+<run>/progress.json            one row per attempt
+<run>/host-resources.jsonl     host CPU, memory and load, every 15 s (profiling/host.py)
+<run>/logs/                    one log per attempt
+<run>/system_scratch/<system>/<task>/
+  prompt.txt, response.txt, answer.json, evaluation.json, ground_truth.json, settings.json, provenance.json
+  stats.json                   tokens, billed cost and how it was priced, steps, elapsed seconds (profiling/usage.py)
+  wire/                        BobFlow: every model request and response; Script ReAct: model-request-trace.jsonl
+  react_steps.json, workflow.json, snapshot.json   BobFlow: the steps and the final dataflow
+  attempt-audit.json, metrics-audit.json           the per-attempt checks
+  outputs/                     PrepBench: the output tables
+```
+
+Cost is each response's provider charge when it reports one, else the frozen rates in `models.py`. The memory guard
+(`campaign/guard.py`) pauses runs when the host is short of memory. The context tracker's overhead (agent memory and
+jump time, the paper's "Human Interaction Support") has its own experiments: [tracker/README.md](tracker/README.md).
+
+## Tests and gates
 
 ```bash
-export TEXERA_DOCKER_PROJECT=texera-python-pilot
-export TEXERA_POSTGRES_CONTAINER=texera-python-pilot-postgres
-export TEXERA_DOCKER_OVERLAY_FILE="$PWD/bin/local-dev/docker-compose.isolated.yml"
-export LITELLM_BASE_URL=http://localhost:4000
-export TEXERA_LLM_TRACE_DIR=/tmp/registered-python-wire
-# Registered loaders call open(); the engine's static UDF scan must not reject them.
-export UDF_PYTHON_ALLOW_FILE_IO=true
-bin/local-dev.sh up --build --skip=frontend
-bin/local-dev.sh status
+benchmark/bench test                     # the whole offline tree on both interpreters, about 20 s, no stack
+benchmark/bench test tests/longds -k judge    # pytest's arguments work
 ```
 
-Reuse those environment overrides for later launcher commands. `--build`
-forces a fresh JVM distribution; subsequent `up` commands use verified build
-stamps and rebuild when relevant sources change. Trace bodies include prompts
-and task data, so keep the trace directory private and outside Git.
-
-### Script-agent baselines
-
-Two agents that write Python against the task's files run on the same tasks,
-file lists, format hints, model gateway and official evaluator as the dataflow
-agent. They need Linux with bubblewrap (`bwrap`) and the LiteLLM gateway.
-
-| | smolagents | DSGym |
-|---|---|---|
-| Agent | `CodeAgent` (smolagents 1.23, in the KramaBench venv) with its default prompts | upstream `ReActDSAgent` ([fannie1208/DSGym](https://github.com/fannie1208/DSGym), pinned at `461a464`) with its `SYSTEM_PROMPT` and custom-task template |
-| System class | `CodeAgentSystem` (`systems/code_agent_system.py`) | `DSGymSystem` (`systems/dsgym_system.py`) |
-| Code runs in | smolagents' interpreter, inside the agent's process | a persistent Jupyter kernel behind DSGym's executor manager |
-| Answer | `final_answer(value)` | `<answer>value</answer>` |
-
-One-time setup for DSGym, which needs Python 3.12 and so its own interpreter:
+The gate replays recorded Haiku smokes through this checkout's runners with a stub model, $0, and fails on any change in
+what a model sees or how an attempt ends. It needs a stack's services up and the baseline runs:
+[tests/gate/README.md](tests/gate/README.md).
 
 ```bash
-git clone https://github.com/fannie1208/DSGym.git benchmark/DSGym
-git -C benchmark/DSGym checkout --detach 461a464da3e5d2bbea409462c61c8999527b4616
-uv venv --python 3.12 benchmark/DSGym/.venv
-VIRTUAL_ENV=benchmark/DSGym/.venv uv pip install -r benchmark/retrieval/dsgym-requirements.txt
+benchmark/tests/gate/rgate.sh <out>          # kb, kbflow, pb, kbsmol, pbsmol: 28 attempts
+benchmark/tests/gate/rgate-longds.sh <out>   # the 3 LongDS arms
 ```
-
-A round of both, from `benchmark/Kramabench` with the provider keys and
-`LITELLM_MASTER_KEY` in the environment:
-
-```bash
-.venv/bin/python ../retrieval/run_baselines.py --output <new dir> --model Luna --all-tasks
-.venv/bin/python ../retrieval/baseline_report.py <dir>     # score, cost, tokens, latency
-```
-
-Use `--systems smolagents` to run that baseline without installing DSGym.
-
-`--max-steps` (25) and `--output-chars` (5,000) apply to both agents. Each task
-runs once per system in its own process and leaves, under
-`<dir>/system_scratch/<SUT>/<task>/`: the prompt, every model request and
-response with its token usage and seconds (`model-request-trace.jsonl`), every
-code execution with its seconds (`executions.jsonl`; DSGym also has the
-kernel-side `kernel-executions.jsonl`), the full conversation, `stats.json`
-and the official `evaluation.json`.
-
-Model-written code never sees the workload's answers, the reference solutions,
-other runs or the repository. Both agents run it under bubblewrap with the
-task's input directory mounted read-only at the relative path the prompt
-names, a private working directory and no network:
-
-- smolagents executes code in the agent's own process, so the whole agent runs
-  in the sandbox and reaches the gateway through a Unix socket
-  (`script_sandbox.py`).
-- DSGym's agent loop runs outside; `dsgym_executor.py` stands in for its
-  docker executor manager and starts DSGym's own `KernelExecutor` in the
-  sandbox.
-
-Two things differ from upstream DSGym, both in `systems/dsgym_runner.py`:
-token usage and seconds are recorded, and execution output is cut at
-`--output-chars`. Upstream declares that limit (`max_stdout_length=5000`) and
-never applies it. `DSGymSystem` alone works against DSGym's docker manager as
-well: pass `manager_url`.

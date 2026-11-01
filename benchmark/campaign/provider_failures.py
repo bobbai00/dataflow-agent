@@ -12,7 +12,12 @@
 # limitations under the License.
 """Timed-out smolagents attempts of a run that count as provider failures under the campaign rule: model calls that
 took >= 120 s (or never answered before the wall clock) add up to >= 300 s. Prints the task ids, space-separated. Usage: provider_failures.py <run dir>"""
-import json, glob, sys, datetime
+import json
+import glob
+import sys
+import datetime
+if not sys.argv[1:] or sys.argv[1] in ("-h", "--help"):
+    sys.exit(__doc__)
 run = sys.argv[1]
 progress = json.load(open(f"{run}/progress.json"))
 out = []
@@ -22,7 +27,7 @@ for d in progress["completed"]:
     f = glob.glob(f"{run}/system_scratch/*/{d['task']}/model-request-trace.jsonl")
     if not f:
         continue
-    rows = [json.loads(l) for l in open(f[0])]
+    rows = [json.loads(line) for line in open(f[0])]
     sent, slow, finished = {}, 0.0, set()
     for r in rows:
         if r["phase"] == "transport_request":

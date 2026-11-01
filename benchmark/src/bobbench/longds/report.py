@@ -22,7 +22,7 @@ from pathlib import Path
 import statistics
 
 from bobbench.longds.behavior import run_behavior
-from bobbench.longds.common import load, save
+from bobbench.longds.common import load, save, session_gold
 
 LABELS = ("Initial", "Update", "Rollback", "Counterfactual")
 
@@ -30,7 +30,7 @@ LABELS = ("Initial", "Update", "Rollback", "Counterfactual")
 def run_summary(run):
     protocol = load(run / "protocol.json")
     # A run of the first N requests is scored against those N.
-    gold = {t["turn_id"]: t for t in load(Path(protocol["prepared"]) / "gold.json")["turns"]
+    gold = {t["turn_id"]: t for t in session_gold(protocol)["turns"]
             if t["turn_id"] <= protocol.get("turns", t["turn_id"])}
     records = load(run / "records.json") if (run / "records.json").exists() else []
     scores = {}

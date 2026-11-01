@@ -31,7 +31,7 @@ import os
 from pathlib import Path
 import re
 
-from bobbench.longds.common import JUDGE_PROMPT, load, save
+from bobbench.longds.common import JUDGE_PROMPT, load, save, session_gold
 
 MODEL = "deepseek/deepseek-v4-pro"
 BASE_URL = "https://openrouter.ai/api/v1"
@@ -75,7 +75,7 @@ def verdict(client, template, gold_turn, answer, retries=2):
 def judge_run(run, client, template, cache, workers=8):
     """Judge every request of one session run; writes tNN/judge.json."""
     protocol = load(run / "protocol.json")
-    gold = {turn["turn_id"]: turn for turn in load(Path(protocol["prepared"]) / "gold.json")["turns"]}
+    gold = {turn["turn_id"]: turn for turn in session_gold(protocol)["turns"]}
     records = load(run / "records.json") if (run / "records.json").exists() else []
 
     def one(record):

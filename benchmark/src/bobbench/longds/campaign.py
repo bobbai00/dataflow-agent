@@ -21,7 +21,7 @@ under similar load, and a job whose run folder exists is skipped (a crashed
 session is rerun from its first request after its folder is moved aside).
 
 Usage (from the repository root, inside the stack's environment):
-    bench longds campaign --root R --sessions <key> <key> --reps 3 --parallel 6
+    bench longds campaign --root R --model gpt-5.6-luna --parallel 6
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -29,9 +29,11 @@ from pathlib import Path
 import subprocess
 import sys
 
+from bobbench.paths import LONGDS_PREPARED
 
-def jobs(root, sessions, arms, reps):
-    return [{"prepared": root / "prepared" / session, "arm": arm, "rep": rep,
+
+def jobs(root, prepared, sessions, arms, reps):
+    return [{"prepared": prepared / session, "arm": arm, "rep": rep,
              "out": root / "runs" / f"{session}__{arm}__r{rep}"}
             for rep in range(1, reps + 1) for session in sessions for arm in arms]
 
@@ -55,15 +57,18 @@ def launch(job, model, extra):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", type=Path, required=True, help="holds prepared/; runs/ and logs/ are written")
-    parser.add_argument("--sessions", nargs="+", required=True, help="prepared session keys")
+    parser.add_argument("--root", type=Path, required=True, help="runs/ and logs/ are written here")
+    parser.add_argument("--prepared", type=Path, default=LONGDS_PREPARED, help="the prepared sessions")
+    parser.add_argument("--sessions", nargs="+", help="prepared session keys (default: every prepared session)")
     parser.add_argument("--arms", nargs="+", default=["catalog-gold", "transcript-depnote", "smolagents-depnote"])
     parser.add_argument("--reps", type=int, default=1)
     parser.add_argument("--parallel", type=int, default=3)
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--spend-limit", type=float, default=5.0)
     args = parser.parse_args()
-    pending = [job for job in jobs(args.root, args.sessions, args.arms, args.reps) if not job["out"].exists()]
+    sessions = args.sessions or sorted(path.name for path in args.prepared.iterdir() if path.is_dir())
+    pending = [job for job in jobs(args.root, args.prepared, sessions, args.arms, args.reps)
+               if not job["out"].exists()]
     extra = ["--spend-limit", str(args.spend_limit)]
     with ThreadPoolExecutor(max_workers=args.parallel) as pool:
         codes = list(pool.map(lambda job: launch(job, args.model, extra), pending))

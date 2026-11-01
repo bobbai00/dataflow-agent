@@ -29,10 +29,9 @@ expected; `revisits_reusing` is the share of them with any reuse.
 """
 import ast
 from collections import Counter
-from pathlib import Path
 import statistics
 
-from bobbench.longds.common import committed_calls, load, parse_delete, parse_set, statement_blocks, without_trailing_star
+from bobbench.longds.common import committed_calls, load, parse_delete, parse_set, session_gold, statement_blocks, without_trailing_star
 
 REVISIT = {"Update", "Rollback", "Counterfactual"}
 
@@ -123,7 +122,7 @@ def session_behavior(requests, labels=None):
 def run_behavior(run):
     """The behavior of one session run folder (see run_session.py)."""
     protocol = load(run / "protocol.json")
-    gold = load(Path(protocol["prepared"]) / "gold.json")
+    gold = session_gold(protocol)
     labels = {turn["turn_id"]: turn.get("state_type", []) for turn in gold["turns"]}
     folders = sorted(path for path in run.glob("t[0-9][0-9]") if (path / "steps.json.gz").exists())
     return session_behavior([load(folder / "steps.json.gz") for folder in folders], labels)

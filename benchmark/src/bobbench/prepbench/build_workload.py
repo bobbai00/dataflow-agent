@@ -38,7 +38,8 @@ out = Path(sys.argv[3]) if len(sys.argv) > 3 else HERE / "data"
 cases = sorted(p for p in (repo / "data").iterdir() if p.is_dir() and p.name.startswith("case_"))
 workload, dataflow_hints, script_hints, index = [], [], [], {}
 for case in cases:
-    n = int(case.name.split("_")[1]); task = f"prepbench-hard-{n}"
+    n = int(case.name.split("_")[1])
+    task = f"prepbench-hard-{n}"
     inputs = sorted(p.name for p in (case / "inputs").glob("*.csv"))
     target = kb / "data" / "prepbench" / "input" / case.name
     target.mkdir(parents=True, exist_ok=True)

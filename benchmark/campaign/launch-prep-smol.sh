@@ -19,6 +19,7 @@
 # gateway (offset + 4000), which carries the Haiku routes.
 # Usage: [STACK_DIR=/var/tmp/texera-stable] [GATEWAY=<offset + 4001>] launch-prep-smol.sh <run name> <model tag>
 #        <workers> [task ids...]   (default: all 306 cases)
+case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }

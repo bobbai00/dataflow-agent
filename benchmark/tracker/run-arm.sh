@@ -17,6 +17,7 @@
 # replay.log, traces.db.
 #
 #   benchmark/tracker/run-arm.sh RUN_DIR AGENT_PORT MODEL_PORT CONVERSATIONS [replay-dataflow.ts options...]
+case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 run="$1" port="$2" model_port="$3" conversations="$4"
 shift 4

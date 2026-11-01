@@ -24,7 +24,11 @@ texera-stable stack's. Credentials default to the repository's local-dev values.
 Usage: export_result.py --workflow-id W --execution-id E --operator-id OP [--port 0] --out file.csv
 Run with the engine's Python (the checkout's .venv) and PYTHONPATH=<checkout>/amber/src/main/python. It imports nothing
 of bobbench: it runs on the engine's interpreter, not the harness's."""
-import argparse, json, os, re, sys
+import argparse
+import json
+import os
+import re
+import sys
 from pathlib import Path
 import pyarrow as pa
 import sqlalchemy as sa
@@ -71,13 +75,17 @@ def result_uri(workflow, execution, operator, port):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--workflow-id", required=True); p.add_argument("--execution-id", required=True)
-    p.add_argument("--operator-id", required=True); p.add_argument("--port", type=int, default=0)
-    p.add_argument("--out", required=True); p.add_argument("--uri")
+    p.add_argument("--workflow-id", required=True)
+    p.add_argument("--execution-id", required=True)
+    p.add_argument("--operator-id", required=True)
+    p.add_argument("--port", type=int, default=0)
+    p.add_argument("--out", required=True)
+    p.add_argument("--uri")
     a = p.parse_args()
     uri, source = (a.uri, "given") if a.uri else result_uri(a.workflow_id, a.execution_id, a.operator_id, a.port)
     if not uri:
-        print(json.dumps({"ok": False, "error": "no stored result for this operator and execution"})); return 2
+        print(json.dumps({"ok": False, "error": "no stored result for this operator and execution"}))
+        return 2
     from core.storage.storage_config import StorageConfig
     StorageConfig.initialize(**STACK)
     from core.storage.document_factory import DocumentFactory
@@ -85,7 +93,8 @@ def main():
     tables = list(document.get_arrow_tables())
     table = pa.concat_tables(tables) if tables else None
     if table is None:
-        print(json.dumps({"ok": False, "error": "stored result has no data files", "uri": uri})); return 2
+        print(json.dumps({"ok": False, "error": "stored result has no data files", "uri": uri}))
+        return 2
     frame = table.to_pandas(integer_object_nulls=True)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     frame.to_csv(a.out, index=False)

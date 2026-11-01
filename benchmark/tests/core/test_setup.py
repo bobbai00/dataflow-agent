@@ -174,3 +174,11 @@ def test_a_venv_that_left_its_requirements_is_reported(tmp_path, monkeypatch):
 def test_every_interpreter_is_pinned_exactly(name):
     lines = pinned(ENVS / name / "requirements.txt")
     assert len(lines) > 200 and all(line.count("==") == 1 and " " not in line for line in lines)
+
+
+def test_netflix_task3s_working_tables_are_those_of_the_paper_runs():
+    sizes = {path.name: path.stat().st_size for path in bobbench.setup.WORKING_TABLES.iterdir()}
+    assert sizes == {"cleaned_titles.csv": 2203239, "country_search_interest_summary.csv": 1568,
+                     "early_opportunity_scan_top5.csv": 376, "title_cast_detail.csv": 1425404,
+                     "title_category_detail.csv": 444662, "title_country_detail.csv": 260384,
+                     "title_director_detail.csv": 155768}

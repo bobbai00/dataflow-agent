@@ -29,3 +29,5 @@ AMBER_PYTHON = REPO / "amber" / "src" / "main" / "python"
 PREPBENCH_REPO = Path(os.environ.get("PREPBENCH_REPO", "~/datasets/prepbench")).expanduser()
 # LongDS: the DataMind checkout (github.com/zjunlp/DataMind) holding longds/dataset (tasks, data) and the judge prompt.
 DATAMIND = Path(os.environ.get("LONGDS_DATAMIND") or BENCHMARK / "longds" / "DataMind")
+# The prepared LongDS sessions (bench setup longds).
+LONGDS_PREPARED = Path(os.environ.get("LONGDS_PREPARED") or BENCHMARK / "longds" / "prepared")

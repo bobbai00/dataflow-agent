@@ -117,25 +117,23 @@ python3 -I benchmark/tracker/compare_replays.py requests $R/requests-old/request
 ## smolagents
 
 ```bash
-.venv/bin/python benchmark/tracker/replay_smolagents.py conversations-smolagents.jsonl smolagents-memory.jsonl \
-  --kramabench benchmark/Kramabench
+.venv/bin/python benchmark/tracker/replay_smolagents.py conversations-smolagents.jsonl smolagents-memory.jsonl
 ```
 
-This is the benchmarks' baseline, built by KramaBench's `CodeAgentWrapper`. It runs every conversation in one session
+This is the benchmarks' baseline, built by the harness's `CodeAgentWrapper` (`benchmark/src/bobbench/scriptreact`). It runs every conversation in one session
 with `reset=False`, as the smolagents service continues a chat. Its model returns the recorded responses. Its executor
 returns what each step's code printed, returned or raised, so no code runs and the memory is the agent's history,
 without execution variables. After every step the replayer records the Python memory traced after a full collection.
 
 smolagents keeps no snapshot of its Python state, so it cannot jump. To go back to step k, it would have to run the
 code of steps 1 to k again. `restore_smolagents.py` times that for random steps. It uses the baseline's interpreter
-(`benchmark/retrieval/script-agent/setup.sh` builds it) and executor, with the task data mounted where the benchmark
+(`benchmark/bench setup` builds it) and executor, with the task data mounted where the benchmark
 mounted it. Each step runs in a fresh process; the process start and loading pandas and numpy are not counted, since a
 running session has done both already.
 
 ```bash
-benchmark/retrieval/script-agent/.venv/bin/python benchmark/tracker/restore_smolagents.py \
-  conversations-smolagents.jsonl smolagents-restore.jsonl --data benchmark/Kramabench/data \
-  --kramabench benchmark/Kramabench --samples 300
+benchmark/envs/scriptreact/.venv/bin/python benchmark/tracker/restore_smolagents.py \
+  conversations-smolagents.jsonl smolagents-restore.jsonl --data benchmark/Kramabench/data --samples 300
 ```
 
 ## The paper's data

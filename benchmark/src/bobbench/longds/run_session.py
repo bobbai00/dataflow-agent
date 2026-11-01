@@ -33,7 +33,7 @@ Output: protocol.json, resource.json, system-info.json, settings.json, then
 per request tNN/record.json and tNN/steps.json.gz, and records.json.
 
 Usage (from the repository root, inside the stack's environment):
-    bench longds run_session --prepared R/prepared/<key> \\
+    bench longds run --prepared R/prepared/<key> \\
         --out R/runs/<key>__catalog-gold__r1 --arm catalog-gold --model gpt-5.6-luna
 """
 import argparse

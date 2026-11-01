@@ -13,14 +13,17 @@
 """Memory guard and resource log for the runs of one benchmark stack ($STACK_DIR, default /var/tmp/texera-stable); touches only its own runs.
 
 Pauses this campaign's runners (a PAUSE file starting "memory-guard:"; both runners wait, running attempts finish)
-below 5 GB available memory or 6 GB free swap and resumes above 7 GB and 8 GB (swap lines raised 05:50 after another
-session's process took free swap to 1.6 GB at 04:22) (2026-10-14 04:20: was 6/8 GB, which kept
-the runs paused 96% of the time on the busy machine; now the same lines as the flow-trim guard). The flow-trim guard pauses at the same
-line and the LongDS guards below 4 GB. Never kills a process. Every minute it logs memory, swap,
-load, this stack's processes (JVMs, agent, runners, engine workers, smolagents children) and containers, and run
-progress to logs/guard.log; the latest snapshot goes to status.txt.
+below 5 GB available memory or 6 GB free swap and resumes above 7 GB and 6.5 GB. Never kills a process. Every minute
+it logs memory, swap, load, this stack's processes (JVMs, agent, runners, engine workers, Script ReAct children) and
+containers, and run progress to logs/guard.log; the latest snapshot goes to status.txt.
 Usage: [STACK_DIR=...] guard.py   (runs listed in $STACK_DIR/runs.txt, one directory per line)"""
-import json, os, subprocess, time
+import json
+import os
+import subprocess
+import sys
+import time
+if sys.argv[1:]:
+    sys.exit(__doc__)
 S = os.environ.get("STACK_DIR", "/var/tmp/texera-stable").rstrip("/")
 PROJECT = os.environ.get("STACK_PROJECT", os.path.basename(S))
 LOG, STATUS, RUNS = S + "/logs/guard.log", S + "/status.txt", S + "/runs.txt"
@@ -70,7 +73,7 @@ def own_processes():
                 env_hit = f"TEXERA_LOCAL_DEV_DIR={S}".encode() in environ
                 if not env_hit:
                     continue
-            rss = int([l for l in open(f"/proc/{pid}/status") if l.startswith("VmRSS")][0].split()[1]) // 1024
+            rss = int([line for line in open(f"/proc/{pid}/status") if line.startswith("VmRSS")][0].split()[1]) // 1024
         except (OSError, IndexError, ValueError):
             continue
         total += rss
@@ -83,7 +86,7 @@ def containers():
         out = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.Name}}={{.MemUsage}}"], capture_output=True, text=True, timeout=30).stdout
     except Exception:
         return "?"
-    return " ".join(l.split("=")[0].replace(PROJECT + "-", "") + "=" + l.split("=")[1].split(" /")[0] for l in out.splitlines() if l.startswith(PROJECT + "-"))
+    return " ".join(line.split("=")[0].replace(PROJECT + "-", "") + "=" + line.split("=")[1].split(" /")[0] for line in out.splitlines() if line.startswith(PROJECT + "-"))
 
 
 def progress():

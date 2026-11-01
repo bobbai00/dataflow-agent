@@ -19,6 +19,7 @@
 # Usage: [STACK_DIR=/var/tmp/texera-stable] [ARMS="evidence_full_flow0 evidence_data1_flow0"] [TIMEOUT=900] [SAMPLE=2000]
 #        [CHECKOUT=<checkout>] launch.sh <run name> <model tag> <reps> <workers> [task ids...]   (no task ids = all
 #        104 tasks; CHECKOUT runs the runner from another checkout, matching an agent started with the same CHECKOUT)
+case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }

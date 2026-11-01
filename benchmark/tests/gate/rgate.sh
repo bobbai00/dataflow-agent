@@ -14,10 +14,12 @@
 # The $0 runner gate: replay the baseline smokes' recorded model responses through this checkout's runners and compare
 # every attempt with its baseline. A stub model (replay_model.py, :3192) serves the recorded responses; a gate agent
 # from this checkout (:3152) sends its model calls to the stub; Script ReAct calls the stub directly.
-# Usage: [STACK_DIR=/var/tmp/texera-cleanup] [GATE_BASELINE=$STACK_DIR/runs] rgate.sh <out dir>
-#        [kb] [kbflow] [pb] [kbsmol] [pbsmol] [--allow key ...]   (default: all five runs; allow: allow-keys.txt)
+# Usage: [STACK_DIR=/var/tmp/texera-cleanup] [GATE_BASELINE=$STACK_DIR/runs] [GATE_PREFIX=<smoke.sh prefix>] rgate.sh
+#        <out dir> [kb] [kbflow] [pb] [kbsmol] [pbsmol] [--allow key ...]   (default: all five runs; allow:
+#        allow-keys.txt; without GATE_PREFIX the baselines are smk2-kb, smk5-kbflow, smk2-pb, smk0-kbsmol, smk0-pbsmol)
 # kbflow replays smk5-kbflow: both Flow Evidence arms on five tasks whose pipelines filter, join, group and window, so
 # 7 of its 10 attempts carry runtime-stats lines (no paper arm turns Flow Evidence on).
+case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 OUT=$1; shift
 RUNS=(); ALLOW=()
@@ -29,6 +31,7 @@ S=${STACK_DIR:-/var/tmp/texera-cleanup}
 BASE=${GATE_BASELINE:-$S/runs}
 [ ${#ALLOW[@]} -gt 0 ] || read -r -a ALLOW <<< "$(grep -v '^#' "$HERE/allow-keys.txt" | tr '\n' ' ')"
 declare -A REF=([kb]=smk2-kb [kbflow]=smk5-kbflow [pb]=smk2-pb [kbsmol]=smk0-kbsmol [pbsmol]=smk0-pbsmol)
+if [ -n "${GATE_PREFIX:-}" ]; then for r in "${!REF[@]}"; do REF[$r]=$GATE_PREFIX-$r; done; fi
 KB_TASKS="archeology-easy-6 astronomy-easy-1 legal-easy-25"; PB_TASKS="prepbench-hard-1 prepbench-hard-50"
 KBFLOW_TASKS="wildfire-easy-15 environment-easy-6 archeology-easy-11 wildfire-hard-17 legal-hard-15"
 [ -e "$OUT" ] && { echo "exists: $OUT"; exit 1; }

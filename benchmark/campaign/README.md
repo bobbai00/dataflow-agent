@@ -19,23 +19,20 @@
 
 # Benchmark campaigns: KramaBench and PrepBench
 
-How the 2026-10-16/17 runs (GPT-6.1 Sol, Gemini 4 Argon, Haiku 5.5 low thinking; dataflow agent and smolagents) were
-run: one isolated stack whose services, agent, gateway config and runners all come from one checkout, with its own
-ports, containers, volumes, logs, wire traces and run folders. Everything here reads the stack's profile, so the same
-scripts serve any checkout. PrepBench's harness is in `benchmark/prepbench/`.
+The stack the paper's runs used: one isolated stack whose services, agent, gateway config and runners all come from one
+checkout, with its own ports, containers, volumes, logs, wire traces and run folders. Everything here reads the stack's
+profile, so the same scripts serve any checkout. What to run on it is in [the benchmark README](../README.md).
 
 ## 1. Checkout prerequisites
 
 ```bash
-uv sync --all-extras                                   # .venv: engine workers and the model-code sandbox
-bin/python-proto-gen.sh                                # Python protos for the engine and the result exporter
+benchmark/bench setup all                              # submodule, interpreters, protos, data (benchmark/README.md)
 (cd agent-service && bun install --frozen-lockfile)
-git submodule update --init benchmark/Kramabench       # plus its .venv (the KramaBench venv the runners use)
-benchmark/retrieval/script-agent/setup.sh              # smolagents' locked interpreter
 cp .env.example .env                                   # then add the provider keys (OpenAI, Anthropic, OpenRouter, Gemini)
 ```
 
-The sandbox mounts `benchmark/Kramabench/data`; PrepBench's inputs come from `benchmark/prepbench/build_workload.py`.
+The sandbox mounts `benchmark/Kramabench/data`; `bench setup` stages PrepBench's and LongDS's inputs there. Building the
+services (`up --build` below) needs sbt and a JDK; the containers need docker.
 
 ## 2. Write the stack
 
@@ -71,8 +68,9 @@ start: restart one only between runs.
 | `launch-prep.sh <run> <model tag> <workers> [tasks]` | dataflow on PrepBench (default `evidence_full_flow0`) |
 | `launch-prep-smol.sh <run> <model tag> <workers> [tasks]` | smolagents on PrepBench |
 
-Model tags are `benchmark/retrieval/run.py`'s `MODEL_TYPES` (`Sol61`, `Gemini4ArgonMedium`, `Haiku55LowThink`, ...).
-Haiku smolagents runs used the main gateway: `GATEWAY=60000`. Examples of the 10-17 runs:
+Model tags are `MODEL_TYPES` in `benchmark/src/bobbench/models.py` (`Sol61`, `Gemini4ArgonMedium`, `Haiku55LowThink`,
+...). Haiku smolagents runs used the main gateway: `GATEWAY=60000`. Each launcher calls `benchmark/bench run` with the
+paper's settings. Examples of the 10-17 runs:
 
 ```bash
 benchmark/campaign/launch.sh st-sol61-r1 Sol61 1 3
@@ -88,11 +86,8 @@ outside the task data, and `provider_failures.py $S/runs/<run>` lists timeouts c
 
 ## 5. Score
 
-KramaBench attempts are scored by the runner (`progress.json`). PrepBench attempts are scored by PrepBench's evaluator:
-`benchmark/prepbench/score.py` (see `benchmark/prepbench/README.md`). `analysis/final_tables_20261017.py` and
-`analysis/haiku_tests_20261017.py` are the code behind the 10-17 tables (run names are that campaign's);
-`analysis/tables_from_index.py` and `analysis/run_inventory.py` rebuild the tables from a results package's
-`scores/index.csv`.
+KramaBench attempts are scored by the runner (`progress.json`). PrepBench attempts are scored by PrepBench's evaluator,
+`benchmark/bench score prepbench`. `benchmark/bench report` gives the tables; see [the benchmark README](../README.md).
 
 ## 6. Bring it down
 

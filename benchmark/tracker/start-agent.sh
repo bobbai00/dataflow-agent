@@ -17,6 +17,7 @@
 # the replayer's port. Run in the foreground; stop it with Ctrl-C or by killing the port's listener.
 #
 #   benchmark/tracker/start-agent.sh PORT MODEL_PORT RUN_DIR
+case "${1:-}" in ""|-h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 2;; esac
 set -euo pipefail
 port="$1" model_port="$2" run="$3"
 S="${STACK_DIR:-/var/tmp/texera-stable}"

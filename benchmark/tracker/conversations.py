@@ -91,6 +91,8 @@ def smolagents(attempt: Path):
 
 
 def main():
+    if len(sys.argv) < 4:
+        sys.exit(__doc__)
     kind, out, runs = sys.argv[1], Path(sys.argv[2]), [Path(run) for run in sys.argv[3:]]
     read = {"dataflow": dataflow, "smolagents": smolagents}[kind]
     marker = "react_steps.json" if kind == "dataflow" else "model-request-trace.jsonl"

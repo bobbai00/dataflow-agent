@@ -34,13 +34,17 @@ harness, the agent or the engine that is not meant to change what a model sees.
   cases x 2 arms (smk2-pb), Script ReAct on the same KramaBench and PrepBench tasks (smk0-kbsmol, smk0-pbsmol). Ports:
   gate agent :3152, stub :3192.
 - `rgate-longds.sh <out>`: the three LongDS paper arms on the first 2 requests of netflix task2 (smk2-longds). Ports
-  :3153 and :3193.
+  :3153 and :3193. `LONGDS_SESSION` names the prepared session (default: `benchmark/longds/prepared/...`).
 - `allow-keys.txt`: the settings the agent removed after the smokes were recorded (Phase A). Nothing else may differ.
 
+- `smoke.sh <prefix>`: one real Haiku smoke through the command line (about $0.12), the same tasks and arms, into
+  `$STACK_DIR/runs/<prefix>-*`. `compare_smoke.py <runs dir> <base prefix> <smoke prefix>` compares two smokes.
+
 The references are the baseline smokes in `$STACK_DIR/runs` (`GATE_BASELINE` overrides), recorded on the cleanup
-stack (`STACK_DIR`, default `/var/tmp/texera-cleanup`). The stack's services must be up; each gate starts its own agent
-from this checkout. The runners get an invalid `OPENAI_API_KEY`, so a judge-cache miss shows as an unscored answer
-(and fails the comparison) instead of a paid call:
+stack (`STACK_DIR`, default `/var/tmp/texera-cleanup`); on another machine, record them with `smoke.sh` and point the
+gate at them with `GATE_PREFIX=<prefix>`. The stack's services must be up; each gate starts its own agent from this
+checkout. The runners get an invalid `OPENAI_API_KEY`, so a judge-cache miss shows as an unscored answer (and fails the
+comparison) instead of a paid call:
 
 ```bash
 benchmark/tests/gate/rgate.sh /var/tmp/texera-cleanup/tools/rgate/<name>

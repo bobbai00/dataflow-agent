@@ -36,7 +36,7 @@ import shutil
 import subprocess
 import sys
 
-from bobbench.paths import BENCHMARK, DATAMIND, ENVS, KB, PREPBENCH_REPO, REPO
+from bobbench.paths import BENCHMARK, DATAMIND, ENVS, KB, LONGDS_PREPARED, PACKAGE, PREPBENCH_REPO, REPO
 from bobbench.kramabench.tasks import WORKLOADS
 
 PREPBENCH = ("https://github.com/TsinghuaDatabaseGroup/prepbench.git", "993a3139da932e144d588f7b775d092827fc89c8")
@@ -44,9 +44,10 @@ DATAMIND_GIT = ("https://github.com/zjunlp/DataMind.git", "4b49ef052500c73b07b5a
 LONGDS_HF = ("zjunlp/LongDS", "bf41bb28474fa9540d98922a6f5e6310ed014e51")
 WEATHER = "data/wildfire/input/WeatherEvents_Jan2016-Dec2022.csv"
 WEATHER_BYTES = 1_085_964_816
-# Files a 2026-09-23 run left in netflix task3's data folder; the paper's prepared netflix task3 lists them (its
-# requests name them), LongDS does not ship them.
+# Tables a 2026-09-23 run left in netflix task3's data folder, there in every paper run. Its requests list them and
+# LongDS does not ship them, so they are kept in the harness.
 NETFLIX_TASK3_EXTRA = "business/netflix_movies_and_tv_shows/task3/data/working_tables"
+WORKING_TABLES = PACKAGE / "longds" / "data" / "netflix_task3_working_tables"
 
 
 def pinned(requirements):
@@ -230,7 +231,7 @@ class Setup:
 
     # LongDS ----------------------------------------------------------------------------------------------------------
 
-    def longds(self, prepared, tables_from, only=None):
+    def longds(self, prepared, only=None):
         self.base()
         datamind = DATAMIND
         self.checkout(*DATAMIND_GIT, datamind, sparse=["/longds/runners/DSGym/scripts/prompt.py", "/longds/README.md"])
@@ -258,16 +259,10 @@ class Setup:
         else:
             self.say(f"the {len(sessions)} Lite sessions' data are in {dataset}")
         extra = dataset / "data" / "longds" / NETFLIX_TASK3_EXTRA
-        netflix = NETFLIX_TASK3_EXTRA.rsplit("/data/", 1)[0] in sessions
-        if netflix and tables_from and not extra.exists():
-            source = Path(tables_from) / "longds" / "dataset" / "data" / "longds" / NETFLIX_TASK3_EXTRA
-            self.say(f"copy {source} -> {extra}")
+        if NETFLIX_TASK3_EXTRA.rsplit("/data/", 1)[0] in sessions and not extra.exists():
+            self.say(f"copy {WORKING_TABLES} -> {extra}")
             if not self.dry_run:
-                shutil.copytree(source, extra)
-        if netflix and not extra.exists():
-            self.note(f"{NETFLIX_TASK3_EXTRA}/ (7 tables a run wrote on 2026-09-23) is not part of LongDS; the paper's "
-                      "netflix task3 requests list them; copy them from a DataMind checkout that has them to "
-                      "reproduce those requests exactly (bench setup longds --working-tables-from <checkout>).")
+                shutil.copytree(WORKING_TABLES, extra)
         engine = KB / "data" / "longds"
         for session in sessions:
             source, target = dataset / "data" / "longds" / session / "data", engine / session / "data"
@@ -289,12 +284,9 @@ def main():
     parser.add_argument("what", nargs="?", default="all", choices=["kramabench", "prepbench", "longds", "all"])
     parser.add_argument("--datasets", type=Path, help="parent folder of the PrepBench checkout (default: ~/datasets, "
                         "or $PREPBENCH_REPO)")
-    parser.add_argument("--prepared", type=Path, default=BENCHMARK / "longds" / "prepared",
-                        help="where the prepared LongDS sessions go")
+    parser.add_argument("--prepared", type=Path, default=LONGDS_PREPARED, help="where the prepared LongDS sessions go")
     parser.add_argument("--copy-from", type=Path, help="a KramaBench checkout (or the csv itself) to copy wildfire's "
                         "WeatherEvents csv from instead of downloading it")
-    parser.add_argument("--working-tables-from", type=Path, help="a DataMind checkout holding netflix task3's "
-                        "data/working_tables, which the paper's prepared requests list")
     parser.add_argument("--sessions", nargs="+", metavar="DOMAIN/DATASET/TASK", help="longds: only these Lite sessions")
     parser.add_argument("--dry-run", action="store_true", help="report what would be done; change nothing")
     args = parser.parse_args()
@@ -304,7 +296,7 @@ def main():
     if args.what in ("prepbench", "all"):
         setup.prepbench(args.datasets)
     if args.what in ("longds", "all"):
-        setup.longds(args.prepared, args.working_tables_from, args.sessions)
+        setup.longds(args.prepared, args.sessions)
     print(f"setup {args.what}: done" + (f", {len(setup.notes)} note(s) above" if setup.notes else ""))
 
 

@@ -17,6 +17,7 @@
 # <project>-litellm-smol. Provider keys come from the checkout's .env. The gateway reads its config only at start:
 # recreate it only between runs.
 # Usage: [STACK_DIR=/var/tmp/texera-stable] [SMOL_GATEWAY_PORT=<offset + 4001>] start-smol-gateway.sh
+case "${1:-}" in -h|--help) awk 'NR > 13 && /^#/ { sub(/^# ?/, ""); print; s = 1; next } s { exit }' "$0"; exit 0;; esac
 set -euo pipefail
 S="${STACK_DIR:-/var/tmp/texera-stable}"
 [ -f "$S/profile.sh" ] || { echo "no stack at $S (write one with benchmark/campaign/stack/render.py)"; exit 2; }
