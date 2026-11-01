@@ -33,7 +33,9 @@ deserialization, the port topology from `operatorInfo`, that `getPhysicalOp`
 emits `OpExecWithCode` with a wrapper containing the expected framework class,
 and that link payloads connect ports by parameter index.
 
-Nothing here runs an operator. On a running stack, `bun run e2e` in
-`agent-service/` runs workflows of these operator types through the engine; its
-`[PythonOps]` W2, W3 and W4 check that each input port reaches the right
-parameter of a multi-input `DataProcessing` operator.
+Nothing here runs an operator. The offline test of how a multi-input operator
+receives its tables is
+`amber/src/test/python/pytexera/udf/test_udf_multi_table_operator.py`. On a
+running stack, `bun run e2e` in `agent-service/` runs workflows of these operator
+types through the engine; its `[PythonOps]` W2, W3 and W4 check that each input
+port reaches the right parameter of a multi-input `DataProcessing` operator.
