@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
@@ -100,6 +101,19 @@ class ScriptPythonTests(unittest.TestCase):
         path.write_text(f"#!/bin/sh\ncat <<'JSON'\n{reply}\nJSON\n")
         path.chmod(0o755)
         return path
+
+    def test_an_egg_info_in_the_current_folder_is_not_an_installed_package(self):
+        before = os.getcwd()
+        with tempfile.TemporaryDirectory() as temp:
+            egg = Path(temp) / "zz_only_here.egg-info"
+            egg.mkdir()
+            (egg / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: zz-only-here\nVersion: 0.1.0\n")
+            os.chdir(temp)
+            try:
+                _, packages = interpreter.interpreter(sys.executable)
+            finally:
+                os.chdir(before)
+        self.assertNotIn("zz-only-here", packages)
 
     def test_the_locked_interpreter_is_accepted_and_recorded(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=False):

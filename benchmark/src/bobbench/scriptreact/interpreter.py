@@ -39,10 +39,11 @@ def pinned(lines):
 
 
 def interpreter(python):
-    """An interpreter's Python version and installed packages, read by that interpreter."""
+    """An interpreter's Python version and installed packages, read by that interpreter. Isolated (-I): an egg-info in
+    the current folder (a checkout's texera.egg-info) or on PYTHONPATH is not installed in it."""
     probe = ("import importlib.metadata as m, json, platform; print(json.dumps({'python': platform.python_version(), "
              "'packages': sorted(f\"{d.metadata['Name']}=={d.version}\" for d in m.distributions())}))")
-    found = json.loads(subprocess.check_output([str(python), "-c", probe], text=True))
+    found = json.loads(subprocess.check_output([str(python), "-I", "-c", probe], text=True))
     return found["python"], pinned(found["packages"])
 
 
