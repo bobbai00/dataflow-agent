@@ -10,14 +10,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""KramaBench round for the script-agent baselines: plain smolagents and DSGym.
+"""KramaBench round for the script-agent baseline: smolagents' CodeAgent (Script ReAct).
 
-Both agents write Python against the task's files and get the same model,
-step limit and output limit. Every task runs once per system in its own
-process, sandboxed on the task's input directory, and is scored by the
-unchanged official evaluator. One queue limits large-input tasks across both
-systems; attempts are never retried or overwritten. Use the KramaBench venv;
-the smolagents agent itself runs on script-agent/.venv (see script-agent/).
+The agent writes Python against the task's files. Every task runs in its own process, sandboxed on the task's
+input directory, and is scored by the unchanged official evaluator. One queue limits large-input tasks; attempts are
+never retried or overwritten. Use the KramaBench venv; the smolagents agent itself runs on script-agent/.venv (see
+script-agent/).
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,15 +35,40 @@ from campaign import ResourceQueue, install_provider_prices, prepare_artifacts
 from metrics import current_price_schedule, reconcile_trace
 from catalog import inventory
 from run import KB, MODEL_TYPES, ROOT, save
-from run_comparison import audit_script
 
-SYSTEMS = {
-    "smolagents": {"prefix": "CodeAgentSystem", "adapter": "evaluate_script_task.py"},
-    "dsgym": {"prefix": "DSGymSystem", "adapter": "evaluate_dsgym_task.py"},
-}
+SYSTEMS = {"smolagents": {"prefix": "CodeAgentSystem", "adapter": "evaluate_script_task.py"}}
 SCRIPT_AGENT = Path(__file__).resolve().with_name("script-agent")
 # Packages that must match Texera's operator sandbox, besides the Python version.
 SANDBOX_PACKAGES = ("numpy", "pyarrow")
+
+
+def audit_script(path):
+    """The attempt's stats must equal the usage its request trace recorded."""
+    violations, warnings = [], []
+    stats_file, trace_file = path / "stats.json", path / "model-request-trace.jsonl"
+    if not stats_file.exists() or not trace_file.exists():
+        return {"violations": [], "warnings": ["missing_script_stats_or_trace"]}
+    stats = json.loads(stats_file.read_text())
+    events = [json.loads(line) for line in trace_file.read_text().splitlines()]
+    responses = [e for e in events if e["phase"] == "response"]
+    totals = {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "cache_creation_tokens": 0}
+    for response in responses:
+        usage = response["usage"]
+        details = usage.get("prompt_tokens_details") or {}
+        totals["input_tokens"] += usage["prompt_tokens"]
+        totals["output_tokens"] += usage["completion_tokens"]
+        totals["cached_tokens"] += details.get("cached_tokens", 0) or 0
+        totals["cache_creation_tokens"] += details.get("cache_creation_tokens", 0) or 0
+    for key, value in totals.items():
+        if value != stats[key]:
+            violations.append("script_usage_mismatch:" + key)
+    if (path / "wall-clock-stop.json").exists():
+        warnings.append("task_timeout_usage_incomplete")
+    elif not responses:
+        violations.append("no_successful_provider_calls")
+    if any(e["phase"] == "error" for e in events):
+        warnings.append("provider_request_error")
+    return {"violations": violations, "warnings": warnings, "provider_calls": len(responses), **totals}
 
 
 def revision(repository):
@@ -132,13 +155,6 @@ def main():
         "pitfalls-only variant",
     )
     parser.add_argument(
-        "--execution-timeout",
-        type=int,
-        default=600,
-        help="Seconds one DSGym execution may run; smolagents has no such limit",
-    )
-    parser.add_argument("--dsgym-home", type=Path, default=ROOT / "benchmark/DSGym")
-    parser.add_argument(
         "--script-python",
         type=Path,
         default=SCRIPT_AGENT / ".venv/bin/python",
@@ -158,7 +174,6 @@ def main():
             args.large_workers,
             args.repetitions,
             args.timeout,
-            args.execution_timeout,
             args.max_steps,
             args.output_chars,
         )
@@ -200,7 +215,6 @@ def main():
     from systems import cost_utils
 
     model = MODEL_TYPES[args.model]
-    dsgym_home = args.dsgym_home.resolve()
     tag = output.name.replace("-", "_")
     jobs = []
     for rep in range(1, args.repetitions + 1):
@@ -235,14 +249,12 @@ def main():
             "no_action_detail": False,
             "final_answer_tool_prompt": True,
         },
-        "dsgym_settings": {"max_turns": args.max_steps, "max_output_length": args.output_chars},
-        "dsgym_execution_timeout": args.execution_timeout,
         "selection": ("All 104 original top-level KramaBench tasks" if args.all_tasks else "Selected tasks")
         + "; each system once per repetition; no task exclusions or outcome-selected retries.",
         "attempt_policy": "One attempt per task and system; no recovery rounds or best-of selection.",
         "isolation": "bubblewrap: the task's input directory read-only at its relative path, a private working "
         "directory, no network. smolagents runs whole in the sandbox and reaches the gateway through "
-        "a Unix socket; DSGym's agent loop runs outside and its Jupyter kernel inside.",
+        "a Unix socket.",
         "pass_threshold": 1.0,
         "workers": args.workers,
         "large_workers": args.large_workers,
@@ -254,16 +266,6 @@ def main():
     }
     if script:
         manifest["script_python"] = script
-    if "dsgym" in args.systems:
-        manifest.update(
-            {
-                "dsgym_revision": revision(dsgym_home),
-                "dsgym_home": str(dsgym_home),
-                "dsgym_packages": subprocess.check_output(
-                    ["uv", "pip", "freeze", "--python", str(dsgym_home / ".venv/bin/python")], text=True
-                ).split(),
-            }
-        )
     output.mkdir(parents=True)
     save(output / "manifest.json", manifest)
     prepare_artifacts(KB / "system_scratch", output / "system_scratch", [j["sut"] for j in jobs])

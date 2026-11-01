@@ -31,10 +31,8 @@ from urllib.request import urlopen
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 KB = REPO / "benchmark/Kramabench"
-DSGYM = REPO / "benchmark/DSGym"
 sys.path.insert(0, str(HERE))
 from evaluate_script_task import discard_workspace  # noqa: E402
-import baseline_report  # noqa: E402
 import run_baselines  # noqa: E402
 from script_sandbox import gateway_socket  # noqa: E402
 
@@ -47,9 +45,7 @@ def harness_module(path):
     return module
 
 
-limit_output, usage_totals = (
-    getattr(harness_module(Path("systems/dsgym_runner.py")), name) for name in ("limit_output", "usage_totals")
-)
+usage_totals = harness_module(Path("systems/dsgym_runner.py")).usage_totals
 parse_answer, parse_explicit_answer = (
     getattr(harness_module(Path("utils/answer_parser.py")), name) for name in ("parse_answer", "parse_explicit_answer")
 )
@@ -89,9 +85,6 @@ class AccountingTests(unittest.TestCase):
         )
         self.assertAlmostEqual(totals["model_seconds"], 6.6)
 
-    def test_output_limit_cuts_like_upstream_cuts_tracebacks(self):
-        self.assertEqual(limit_output("x" * 5000, 5000), "x" * 5000)
-        self.assertEqual(limit_output("x" * 5001, 5000), "x" * 5000 + "\n... (truncated)")
 
     def test_explicit_answer_is_kept_whole(self):
         listed = "['Proton_flux_>30_Mev', -0.193]"
@@ -117,8 +110,8 @@ class AccountingTests(unittest.TestCase):
 
 
 class BaselineRunnerTests(unittest.TestCase):
-    def test_duplicate_systems_and_invalid_execution_timeout_are_rejected(self):
-        for arguments in (["--systems", "smolagents", "smolagents"], ["--execution-timeout", "0"]):
+    def test_duplicate_systems_and_invalid_limits_are_rejected(self):
+        for arguments in (["--systems", "smolagents", "smolagents"], ["--max-steps", "0"]):
             with self.subTest(arguments=arguments), tempfile.TemporaryDirectory() as temp:
                 command = [
                     "run_baselines.py",
@@ -141,7 +134,7 @@ class BaselineRunnerTests(unittest.TestCase):
                         run_baselines.main()
                 self.assertEqual(error.exception.code, 2)
 
-    def test_smol_only_manifest_does_not_require_dsgym(self):
+    def test_the_manifest_records_the_locked_interpreter(self):
         class ManifestSaved(Exception):
             pass
 
@@ -155,8 +148,6 @@ class BaselineRunnerTests(unittest.TestCase):
                 "smolagents",
                 "--tasks",
                 "legal-easy-3",
-                "--dsgym-home",
-                str(Path(temp) / "missing-dsgym"),
             ]
             cost_utils = SimpleNamespace(price_schedule=lambda model: {})
             # Stop after the manifest is written, before any job or gateway call.
@@ -177,11 +168,7 @@ class BaselineRunnerTests(unittest.TestCase):
                 patch.object(
                     run_baselines,
                     "revision",
-                    side_effect=lambda path: (
-                        "offline"
-                        if path in (REPO, KB)
-                        else self.fail("smolagents must not inspect the missing DSGym checkout")
-                    ),
+                    side_effect=lambda path: "offline" if path in (REPO, KB) else self.fail(f"unexpected {path}"),
                 ),
                 patch.object(run_baselines, "prepare_artifacts", side_effect=ManifestSaved),
                 patch.object(run_baselines, "script_python", return_value={"path": "/locked/python"}),
@@ -191,8 +178,6 @@ class BaselineRunnerTests(unittest.TestCase):
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual({job["arm"] for job in manifest["jobs"]}, {"smolagents"})
             self.assertEqual(manifest["script_python"], {"path": "/locked/python"})
-            self.assertNotIn("dsgym_revision", manifest)
-            self.assertNotIn("dsgym_packages", manifest)
 
 
 class ScriptPythonTests(unittest.TestCase):
@@ -258,67 +243,6 @@ class ScriptPythonTests(unittest.TestCase):
         self.assertEqual(found["texera_sandbox"], os.environ["NATIVE_ISOLATED_PYTHON"])
 
 
-class BaselineReportTests(unittest.TestCase):
-    def test_finished_unscored_tasks_keep_costs_and_render(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            attempts = []
-            for index, metric in enumerate((None, float("nan")), 1):
-                task = f"legal-easy-{index}"
-                scratch = root / "system_scratch" / "offline" / task
-                scratch.mkdir(parents=True)
-                (scratch / "evaluation.json").write_text(json.dumps({"llm_paraphrase": metric}))
-                (scratch / "stats.json").write_text(json.dumps({"cost_usd": 0.01, "input_tokens": 100}))
-                row = {
-                    "sut": "offline",
-                    "task": task,
-                    "arm": "smolagents",
-                    "rep": 1,
-                    "timeout": False,
-                    "exit_code": 0,
-                    "seconds": 1,
-                    "audit": {"violations": [], "warnings": []},
-                }
-                attempts.append(baseline_report.attempt(root, row))
-            summary = baseline_report.summarize(attempts, None)
-            self.assertEqual((summary["tasks"], summary["scored"], summary["unscored"]), (2, 0, 2))
-            self.assertIsNone(summary["score"])
-            self.assertEqual(summary["score_unscored_as_zero"], 0)
-            self.assertAlmostEqual(summary["cost_usd"], 0.02)
-            self.assertEqual(summary["input_tokens"], 200)
-            manifest = {
-                "models": {"Luna": "offline"},
-                "script_endpoint": "http://offline/v1",
-                "task_ids": [attempt["task"] for attempt in attempts],
-                "repetitions": 1,
-                "script_settings": {"max_steps": 25, "max_print_outputs_length": 5000},
-                "task_timeout_seconds": 1200,
-            }
-            report = baseline_report.render(root, manifest, {"smolagents": summary})
-            self.assertIn("| Score, this harness (%) | - |", report)
-            self.assertIn("| Cost (USD) | 0.0200 |", report)
-
-    def test_empty_choice_response_is_counted_without_crashing(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            scratch = root / "system_scratch" / "offline" / "legal-easy-1"
-            scratch.mkdir(parents=True)
-            (scratch / "model-request-trace.jsonl").write_text(
-                json.dumps({"phase": "response", "choices": [], "seconds": 1}) + "\n"
-            )
-            row = {
-                "sut": "offline",
-                "task": "legal-easy-1",
-                "arm": "smolagents",
-                "rep": 1,
-                "timeout": False,
-                "exit_code": 0,
-                "seconds": 1,
-                "audit": {"violations": [], "warnings": []},
-            }
-            attempt = baseline_report.attempt(root, row)
-            self.assertEqual(attempt["model_calls"], 1)
-            self.assertEqual(attempt["empty_responses"], 1)
 
 
 @unittest.skipUnless(httpx, "needs httpx")
@@ -381,88 +305,6 @@ class GatewayRelayTests(unittest.TestCase):
                     self.fail("An invalid gateway must not create a relay")
 
 
-@unittest.skipUnless(
-    shutil.which("bwrap") and (DSGYM / "executors").is_dir(), "needs bubblewrap and the DSGym checkout"
-)
-class DSGymExecutorTests(unittest.TestCase):
-    def test_kernel_sees_task_data_and_nothing_else(self):
-        with tempfile.TemporaryDirectory() as temp:
-            tmp = Path(temp)
-            data = tmp / "lake" / "input"
-            data.mkdir(parents=True)
-            (data / "numbers.csv").write_text("x\n3\n7\n")
-            (tmp / "lake" / "gold.json").write_text('{"answer": 10}')
-            executor = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(HERE / "dsgym_executor.py"),
-                    "--data-root",
-                    str(data),
-                    "--data-relative",
-                    "data/demo/input",
-                    "--workspace",
-                    str(tmp / "work"),
-                    "--log",
-                    str(tmp / "kernel.jsonl"),
-                ],
-                stdout=subprocess.PIPE,
-                text=True,
-            )
-            try:
-                url = json.loads(executor.stdout.readline())["manager_url"]
-
-                def post(path, payload=None):
-                    request = __import__("urllib.request").request.Request(
-                        url + path,
-                        data=json.dumps(payload or {}).encode(),
-                        headers={"Content-Type": "application/json"},
-                        method="POST",
-                    )
-                    return json.loads(urlopen(request, timeout=180).read())
-
-                def run(code):
-                    outputs = post(f"/session/{container}/execute", {"code": code})["outputs"]
-                    return "".join(o.get("text", "") or o.get("name", "") for o in outputs)
-
-                container = post("/allocate")["container_id"]
-                self.assertEqual(
-                    run(
-                        "import pandas as pd\n"
-                        "total = int(pd.read_csv('data/demo/input/numbers.csv').x.sum())\n"
-                        "print(total)"
-                    ),
-                    "10\n",
-                )
-                # State persists across executions, as in DSGym's containers.
-                self.assertEqual(run("print(total + 1)"), "11\n")
-                self.assertEqual(
-                    run(
-                        "import os, socket\n"
-                        f"print(os.path.exists({str(tmp / 'lake' / 'gold.json')!r}),"
-                        f" os.path.exists({str(REPO / '.git')!r}),"
-                        f" os.path.exists({str(KB / 'workload')!r}))\n"
-                        "try:\n"
-                        "    socket.create_connection(('1.1.1.1', 53), timeout=3)\n"
-                        "except OSError as error:\n"
-                        "    print('no network')\n"
-                        "try:\n"
-                        "    open('data/demo/input/new.csv', 'w')\n"
-                        "except OSError:\n"
-                        "    print('read-only data')\n"
-                    ),
-                    "False False False\nno network\nread-only data\n",
-                )
-                self.assertEqual(run("1/0"), "ZeroDivisionError")
-                post(f"/deallocate/{container}")
-            finally:
-                executor.terminate()
-                executor.wait()
-                executor.stdout.close()
-            events = [json.loads(line) for line in (tmp / "kernel.jsonl").read_text().splitlines()]
-            self.assertEqual(
-                [e["event"] for e in events], ["allocate", "execute", "execute", "execute", "execute", "deallocate"]
-            )
-            self.assertEqual(events[4]["errors"], ["ZeroDivisionError"])
 
 
 if __name__ == "__main__":

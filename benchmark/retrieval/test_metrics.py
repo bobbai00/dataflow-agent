@@ -18,7 +18,6 @@ import tempfile
 
 from benchmark.retrieval.metrics import (cost_for_usage, current_price_schedule, normalize_usage, reconcile_run,
                                          reconcile_trace, recost, response_cost, retrieval_results, edit_operations)
-from benchmark.retrieval.audit import audit
 
 
 class MetricsTests(unittest.TestCase):
@@ -226,21 +225,6 @@ class MetricsTests(unittest.TestCase):
                 self.assertEqual(audit["cost_estimate_assumptions"], assumptions)
                 self.assertEqual(audit["cache_usage_reporting"], stats["cache_usage_reporting"])
 
-    def test_offline_audit_handles_successful_target_in_failed_batch(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            task = root / "system_scratch/SUT/task"
-            task.mkdir(parents=True)
-            (root / "analysis.json").write_text(json.dumps({"rows": [{"sut": "SUT", "task": "task",
-                "model": "test", "arm": "evidence_data1_flow0", "rep": 1}]}))
-            (task / "react_steps.json").write_text(json.dumps([{"toolResults": [{"output": {"actions": [{
-                "action": {"type": "retrieve", "operator_ids": ["a", "b"], "view": "full"},
-                "status": "error", "output": {"results": [
-                    {"operator_id": "a", "status": "ok", "text": "result", "table": {"complete": True}},
-                    {"operator_id": "b", "status": "error", "error": "stale"}]}}]}}]}]))
-            result = audit(root)
-            self.assertEqual(len(result["reads"]), 1)
-            self.assertEqual(result["reads"][0]["operator"], "a")
 
 
 if __name__ == "__main__":

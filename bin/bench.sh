@@ -16,7 +16,7 @@
 #       bin/bench.sh kb systems
 #       bin/bench.sh kb tasks --sut DataflowSystemStableHaiku --ids "legal-easy-1"
 #       bin/bench.sh kb scores --sut DataflowSystemStableHaiku
-#   bin/bench.sh retrieval run|analyze <args...>  matched native campaigns and reports
+#   bin/bench.sh retrieval run|reconcile <args...>  native campaigns and their accounting
 #
 set -euo pipefail
 
@@ -119,11 +119,9 @@ cmd_retrieval() {
     need_venv
     local sub="${1:-}"; shift || true
     case "$sub" in
-        run)     "$PY" -u "$BENCH_DIR/retrieval/run.py" "$@" ;;
-        analyze) "$PY" "$BENCH_DIR/retrieval/analyze.py" "$@" ;;
+        run)     PYTHONPATH="$BENCH_DIR/src" "$PY" -u "$BENCH_DIR/retrieval/run.py" "$@" ;;
         reconcile) "$PY" "$BENCH_DIR/retrieval/metrics.py" "$@" ;;
-        audit) "$PY" "$BENCH_DIR/retrieval/audit.py" "$@" ;;
-        *) die "retrieval subcommand must be run, reconcile, analyze or audit" ;;
+        *) die "retrieval subcommand must be run or reconcile" ;;
     esac
 }
 

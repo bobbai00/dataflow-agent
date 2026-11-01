@@ -81,11 +81,11 @@ for r in "${RUNS[@]}"; do
           --arms evidence_full_flow0 evidence_data1_flow0_opt --repetitions 1 --workers 2 --timeout 900 \
           --large-input-bytes 5000000000 --full-result-char-limit 5000 --sample-char-limit 2000 --direct-artifacts \
           --wire-dir "$OUT/wire" --selection "rgate replay of ${REF[pb]}" --tasks $PB_TASKS > "$OUT/pb.log" 2>&1 ;;
-    kbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" $PY benchmark/retrieval/run_baselines.py --output "$OUT/kbsmol" \
+    kbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH=benchmark/src $PY benchmark/retrieval/run_baselines.py --output "$OUT/kbsmol" \
           --script-endpoint http://localhost:3192/v1 --model Haiku55 --systems smolagents --tasks $KB_TASKS \
           --repetitions 1 --large-workers 1 --large-input-bytes 100000000 --workers 3 --timeout 1200 \
           --max-steps 25 --output-chars 5000 --prompt custom > "$OUT/kbsmol.log" 2>&1 ;;
-    pbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" $PY benchmark/prepbench/smol_run.py --output "$OUT/pbsmol" \
+    pbsmol) setsid -w bash "$S/run-env.sh" "${JUDGE[@]}" PYTHONPATH=benchmark/src $PY benchmark/prepbench/smol_run.py --output "$OUT/pbsmol" \
           --script-endpoint http://localhost:3192/v1 --model Haiku55 --systems smolagents --repetitions 1 \
           --workers 2 --timeout 900 --large-input-bytes 5000000000 --tasks $PB_TASKS > "$OUT/pbsmol.log" 2>&1 ;;
   esac

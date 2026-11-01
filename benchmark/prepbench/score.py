@@ -22,7 +22,7 @@ usage.cost). Model tags are the runner's (benchmark/retrieval/run.py MODEL_TYPES
 
 PREPBENCH_REPO points at a checkout of TsinghuaDatabaseGroup/prepbench (the runs used 993a313); the default is
 ~/datasets/prepbench. Run from the checkout root with the KramaBench venv:
-  benchmark/Kramabench/.venv/bin/python benchmark/prepbench/score.py <out.json> <run dir> [<run dir> ...]"""
+  PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/prepbench/score.py <out.json> <run dir> [<run dir> ...]"""
 import collections
 import json
 import os

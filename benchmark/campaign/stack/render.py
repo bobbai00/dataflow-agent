@@ -27,7 +27,7 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FILES = {"profile.sh": 0o644, "run-env.sh": 0o755, "compose.json": 0o644, "isolation.json": 0o644, "empty-overlay.yml": 0o644}
+FILES = {"profile.sh": 0o644, "run-env.sh": 0o755, "compose.json": 0o644, "empty-overlay.yml": 0o644}
 DIRS = ["logs", "wire", "native-workspaces", "native-workspaces-agent", "runs"]
 
 

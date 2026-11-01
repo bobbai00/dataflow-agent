@@ -29,7 +29,7 @@ TASKS=${*:-$(python3 -I -c "import json, sys; print(' '.join(t['id'] for t in js
 if [ -e "$S/runs/$OUT" ]; then echo "refusing: $S/runs/$OUT exists"; exit 1; fi
 mkdir -p "$S/runs" "$S/logs"
 cd "$W"
-setsid -f bash "$S/run-env.sh" benchmark/Kramabench/.venv/bin/python benchmark/prepbench/smol_run.py --output "$S/runs/$OUT" \
+setsid -f bash "$S/run-env.sh" env PYTHONPATH=benchmark/src benchmark/Kramabench/.venv/bin/python benchmark/prepbench/smol_run.py --output "$S/runs/$OUT" \
   --script-endpoint "http://localhost:$GATEWAY/v1" --model "$MODEL" --systems smolagents --repetitions 1 \
   --workers "$WORKERS" --timeout 900 --large-input-bytes 5000000000 --tasks $TASKS > "$S/logs/$OUT.log" 2>&1 < /dev/null
 echo "launched PrepBench smolagents $OUT ($MODEL; $WORKERS workers; checkout $W; gateway :$GATEWAY)"
