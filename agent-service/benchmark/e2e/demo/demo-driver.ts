@@ -20,7 +20,7 @@
 /**
  * Multi-turn agent demo driver over the agent-service REST API.
  *
- *   cd agent-service && bun run benchmark/e2e/demo/demo-driver.ts benchmark/e2e/demo/northwind-lite.json
+ *   cd agent-service && bun run benchmark/e2e/demo/demo-driver.ts benchmark/e2e/demo/northwind-simple.json
  *
  * Scenario JSON: { name, workflowName?, agentName?, model?, maxSteps?,
  *                  turns: [ { say: "…" } | { checkout: <1-based turn index whose head to restore> } ] }
