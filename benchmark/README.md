@@ -134,9 +134,9 @@ bash $S/run-env.sh benchmark/bench run kramabench bobflow --output $S/runs/demo-
 | + optimizations | `evidence_data1_flow0_opt` on Opus, `evidence_data1_flow0_opt_strict` on the others | 1 | 1 |
 | Flow Evidence | `evidence_full_flow1`, `evidence_data1_flow1` | 3 repetitions | - |
 
-GPT-6.1 Sol and Gemini 4 Argon first ran once on KramaBench; their two later repetitions are the `r3-kb-*` runs. For the
-four close "+ optimizations" KramaBench cells (GPT-6.1 Sol, Gemini 4 Argon, DeepSeek, Opus) the package also holds two
-reruns of their flip-prone tasks.
+GPT-6.1 Sol and Gemini 4 Argon first ran once on KramaBench; their two later repetitions are the `r3-kb-*` runs. The four
+close "+ optimizations" KramaBench cells (GPT-6.1 Sol, Gemini 4 Argon, DeepSeek, Opus) also have two reruns of their
+flip-prone tasks.
 
 ```bash
 benchmark/campaign/launch.sh kb-luna Luna 3 6      # the default arms: evidence_full_flow0, evidence_data1_flow0
@@ -165,8 +165,9 @@ lists attempts killed by a slow provider: rerun those tasks into a new run and r
 | DeepSeek V4.1 Flash | 69.2% $0.66 | 66.7% $0.62 | 88.9% $1.31 | 85.6% $1.40 |
 | Claude Opus 5.5 | 73.1% $4.35 | 74.7% $4.76 | 90.5% $16.89 | 90.2% $17.76 |
 
-The 89.5% for Gemini 3.8 Flash on PrepBench counts one attempt as failed: `--fail opt2-pb-gemflash:prepbench-hard-277`
-(it fetched the published solution).
+The 89.5% for Gemini 3.8 Flash on PrepBench counts one attempt as failed, `--fail opt2-pb-gemflash:prepbench-hard-277`:
+it fetched the published solution. The engine's sandbox does not block the network; `campaign/integrity_scan.py` lists
+model code that reached outside the task data.
 
 **LongDS.** Three arms, 24 sessions, one run per model:
 
