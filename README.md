@@ -17,271 +17,302 @@
   ~ under the License.
 -->
 
-# Dataflow Agent — Texera + an LLM agent that builds dataflows
+# BobFlow
 
-A fork of [Apache Texera](https://texera.apache.org/) (human-AI collaborative
-data science using visual workflows) extended with a **dataflow agent**: an LLM
-agent that answers data-science questions by building, executing, and iterating
-on Texera dataflow operators — plus the KramaBench harness used to evaluate
-it.
+BobFlow is an LLM agent that answers data-science questions by building a dataflow. It adds operators to a workflow on
+[Apache Texera](https://texera.apache.org/), runs them on Texera's engine, reads each result, and then decides what to do
+next. A person sees the same dataflow on a canvas, and can edit or rerun any operator or go back to any earlier version.
+
+This repository holds three things:
+
+| Part | Where | What it is |
+|---|---|---|
+| Texera | `amber/`, `common/`, `*-service/`, `frontend/`, `sql/` | A fork of Apache Texera: the engine, its web services and the UI |
+| The agent | `agent-service/` | The agent, in TypeScript on Bun. The model has one tool, `dataflow(python, statements)` |
+| The benchmarks | `benchmark/` | The harness behind the paper's numbers: KramaBench, PrepBench and LongDS, on BobFlow and on a script agent |
 
 ```
-┌──────────┐   REST/WS    ┌───────────────┐   proxied LLM calls   ┌─────────┐
-│ benchmark  ───────────▶ │ agent-service │ ────────────────────▶ │ LiteLLM │
-└──────────┘              │    (:3001)    │      (:9096→:4000)    └─────────┘
-                          └──────┬────────┘
-                                 │ workflow CRUD + execution
-                          ┌──────▼────────────────────────────────┐
-                          │ Texera JVM services + Python workers  │
-                          └───────────────────────────────────────┘
+browser ──▶ frontend :4200 ─────────┐
+                                    ▼
+benchmark runner ─────────▶ agent-service :3001 ──▶ access-control-service :9096 ──▶ LiteLLM :4000 ──▶ model providers
+                                    │
+                                    ▼
+             texera-web :8080, file service :9092, computing units :8888, engine :8085 ──▶ Python workers
 ```
 
-## 1. Quick start
+## 1. Install
 
-Prerequisites: JDK 17, sbt, Docker with **Compose v2.20+**, Bun,
-Node 24 + yarn, Python 3.12 with [uv](https://docs.astral.sh/uv/), and
-`protoc` (any 3.2x) on PATH.
+You need these tools. This README was run from a fresh clone on Ubuntu 20.04 with the versions in the second column.
 
-Two prerequisites bite specifically on a *fresh clone*, because both failures
-are silent rather than loud: an older Compose plugin rejects the `--progress`
-flag the launcher passes, so infra prints "containers up" while nothing
-started and the build then fails jOOQ codegen with `not found: value
-SITE_SETTINGS`; and the generated Python protos are gitignored, so without
-step 1 below every UDF worker dies at import and agent turns hang until the
-engine's 240 s execution timeout.
+| Tool | Tested with | For |
+|---|---|---|
+| JDK 17 and [sbt](https://www.scala-sbt.org/) | OpenJDK 17.0.15, sbt 1.9.3 | Texera's services |
+| Docker with Compose v2.20 or newer | Docker 23.0.4, Compose 5.4.0 | Postgres, MinIO, LakeFS, the LiteLLM gateway |
+| [Bun](https://bun.sh/) | 1.3.5 | the agent |
+| Node 24, with `corepack enable` for yarn | Node 24.19.0, yarn 4.14.1 | the UI |
+| [uv](https://docs.astral.sh/uv/) and any `python3` | uv 0.9.21 | Python environments |
+| `git`, `curl`, `lsof`, `ip`, [bubblewrap](https://github.com/containers/bubblewrap) | bubblewrap 0.4.0 | the launcher; `bwrap` sandboxes the code models write in benchmarks |
+
+Then, from an empty folder:
 
 ```bash
-# 0. Python venv for the engine's UDF workers
-uv sync --all-extras
-
-# 1. Generated Python protos — REQUIRED once per clone (gitignored, needs protoc)
-source .venv/bin/activate && bash bin/python-proto-gen.sh
-
-# 2. API keys — read by BOTH the stack launcher and the benchmark driver
-cp .env.example .env          # fill in OPENAI_API_KEY / ANTHROPIC_API_KEY
-
-# 3. the whole stack: docker infra (postgres/minio/lakefs/lakekeeper/LiteLLM),
-#    JVM services, agent-service, frontend
-bin/local-dev.sh up
-
-# 4. check
-bin/local-dev.sh status       # 14 services; frontend at http://localhost:4200
+git clone git@github.com:bobbai00/dataflow-agent.git
+cd dataflow-agent
+git checkout stable
+cp .env.example .env            # then open .env and add your API keys
+benchmark/bench setup base      # Python environments, generated code, the KramaBench submodule
 ```
 
-`bin/local-dev.sh` owns everything: it bootstraps the postgres schema, runs
-`sbt dist`, starts every service, and brings up the **LiteLLM proxy**
-(`localhost:4000`) with your provider keys from `.env`. Models served by
-default (see `bin/single-node/litellm-config.yaml`): `claude-haiku-4.5`,
-`claude-sonnet-5`, `claude-sonnet-5.5`, `claude-opus-5`, `gpt-5.2`, `gpt-5-mini`, `gpt-5.6`, and the
-reasoning variants `gpt-5.6-luna` / `gpt-5.6-tara` (pinned to medium reasoning
-effort). You only need keys for the providers you actually call.
+You only need keys for the models you call:
 
-To use an external OpenAI-compatible gateway instead of the local LiteLLM, set
-`LITELLM_BASE_URL` / `LITELLM_MASTER_KEY` in `.env` — nothing else changes.
+| Key in `.env` | Models |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude. A new chat in the UI starts on Claude Haiku 5.5 |
+| `OPENAI_API_KEY` | GPT-5.6 and GPT-6.1. KramaBench's scoring also needs it, for its gpt-5-mini judge |
+| `OPENROUTER_API_KEY` | Gemini 4 Argon and DeepSeek. LongDS's judge also needs it |
+| `GEMINI_API_KEY` | Gemini 3.8 Flash |
 
-Deep dive on the launcher (per-service ops, logs, troubleshooting — including
-what breaks when your laptop switches networks):
+## 2. Launch
+
+### Everything together
+
+```bash
+bin/local-dev.sh up             # the first run builds everything, which takes several minutes
+bin/local-dev.sh status         # 13 services, all running
+```
+
+Open <http://localhost:4200> and sign in as `texera` with password `texera`. Create a workflow and it opens with the chat
+panel on the right, already on a chat with the agent. Ask it something, and watch it build the dataflow on the canvas.
+Select an operator to run it, edit it, or send the agent feedback about it. The version tree on the left goes back to any
+earlier version.
+
+```bash
+bin/local-dev.sh down           # stop everything; your data stays in Docker volumes
+```
+
+### One part at a time
+
+Each of these takes a service name from the table below.
+
+```bash
+bin/local-dev.sh up --skip=frontend         # everything except the UI
+bin/local-dev.sh up agent-service           # start or restart one service, rebuilding it if its source changed
+bin/local-dev.sh down agent-service         # stop one service
+bin/local-dev.sh logs agent-service         # follow one service's log
+bin/local-dev.sh auto                       # after editing code: rebuild and restart only what changed
+```
+
+| Service | Port | What it does |
+|---|---|---|
+| `postgres`, `minio`, `lakefs`, `litellm` | 5432, 9000, 8000, 4000 | Storage and the model gateway, in Docker |
+| `config-service` | 9094 | Site settings |
+| `access-control-service` | 9096 | Sign-in checks and the path to the model gateway |
+| `file-service` | 9092 | Datasets |
+| `workflow-compiling-service` | 9090 | Checks a workflow and works out its schemas |
+| `computing-unit-managing-service` | 8888 | Computing units |
+| `computing-unit-master` | 8085 | The engine, which starts the Python workers |
+| `texera-web` | 8080 | Workflows, users, and the REST API behind the UI |
+| `agent-service` | 3001 | The agent |
+| `frontend` | 4200 | The UI |
+
+More on the launcher, including its logs and what to do when a service will not start:
 [docs/local-dev-with-agent.md](docs/local-dev-with-agent.md).
 
-## 2. Calling the agent
+### Call the agent over HTTP
 
-The agent-service (`:3001`) exposes a small REST surface. One full loop:
+The UI is one client of the agent's REST API, and the benchmark runner is another. With the stack up, this block asks the
+agent one question. It prints the agent's answer, which should say 385.
 
 ```bash
-BASE=http://localhost:3001/api
+json() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)"; }
+HEADER='Content-Type: application/json'
 
-# JWT from the Texera backend (the agent acts on your behalf)
-TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"texera","password":"texera"}' | jq -r .accessToken)
+# Sign in. The agent acts on your behalf with this token.
+TOKEN=$(curl -s -X POST localhost:8080/api/auth/login -H "$HEADER" \
+  -d '{"username":"texera","password":"texera"}' | json '["accessToken"]')
+AUTH="Authorization: Bearer $TOKEN"
 
-# 1. create an agent bound to a workflow + computing unit
-#    (no `settings` = DELTA context, sample_stats/full retrieval, flow evidence off;
-#     pass e.g. {"flowEvidence":true} to change them)
-AGENT=$(curl -s -X POST $BASE/agents/ \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"modelType":"gpt-5.2","workflowId":1,"computingUnitId":1}' | jq -r .id)
+# A workflow for the agent to build in, and a computing unit to run it on.
+WORKFLOW=$(curl -s -X POST localhost:8080/api/workflow/create -H "$AUTH" -H "$HEADER" \
+  -d '{"name":"first dataflow","description":"","content":"{\"operators\":[],\"operatorPositions\":{},\"links\":[],\"commentBoxes\":[],\"settings\":{\"dataTransferBatchSize\":400}}"}' \
+  | json '["wid"]')
+UNIT=$(curl -s -X POST localhost:8888/api/computing-unit/create -H "$AUTH" -H "$HEADER" \
+  -d '{"name":"first unit","unitType":"local","cpuLimit":"NaN","memoryLimit":"NaN","gpuLimit":"NaN","jvmMemorySize":"NaN","shmSize":"NaN","uri":"http://localhost:8085"}' \
+  | json '["computingUnit"]["cuid"]')
 
-# 2. run one turn (synchronous — returns when the agent finishes)
-curl -s -X POST $BASE/agents/$AGENT/message \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"Load data/wildfire/input/noaa_wildfires_monthly_stats.csv and report the row count."}'
-# -> {"status":"complete","state":"AVAILABLE","answer":"...","steps":N,"headId":"..."}
+# The agent. settings is optional; modelType is any model the gateway offers.
+AGENT=$(curl -s -X POST localhost:3001/api/agents -H "$AUTH" -H "$HEADER" \
+  -d "{\"modelType\":\"gpt-5.6-luna\",\"workflowId\":$WORKFLOW,\"computingUnitId\":$UNIT}" | json '["id"]')
 
-# 3. inspect what it did
-curl -s $BASE/agents/$AGENT/react-steps      # full ReAct trace
-curl -s $BASE/agents/$AGENT/workflow         # current workflow DAG
-curl -s $BASE/agents/$AGENT/operator-results # per-operator executed results
-curl -s $BASE/agents/$AGENT/snapshots/head   # steps + workflow at HEAD
+# One turn. This call returns when the agent has finished.
+curl -s -X POST localhost:3001/api/agents/$AGENT/message -H "$HEADER" \
+  -d '{"content":"Make a table of the numbers 1 to 10 and their squares, then tell me the sum of the squares."}' \
+  | json '["answer"]'
 
-# 4. clean up
-curl -s -X DELETE $BASE/agents/$AGENT
+# What it did: how many steps it took, and the operators of the dataflow it built.
+curl -s localhost:3001/api/agents/$AGENT/react-steps | json '["steps"].__len__()'
+curl -s localhost:3001/api/agents/$AGENT/workflow | json '["workflow"]["operators"].__len__()'
+
+# Later messages to the same agent continue on the same dataflow. When you are done:
+curl -s -X DELETE localhost:3001/api/agents/$AGENT
 ```
 
-### The tool
+The main routes, all under `/api/agents`:
 
-The model builds the dataflow through one tool, with explicit execution and
-retrieval statements.
-
-| Tool the model sees | What one call does |
+| Route | What it does |
 |---|---|
-| `dataflow(python, statements)` | `python` registers definitions; `statements` declares operators with `set id: type(inputs, settings)` or `delete id`, then runs and reads them with `execute` and `show` lines. A call's edits apply together or not at all. Thirteen built-ins and registered table functions share this graph. The model answers by replying without the tool after `show result` has displayed what the answer rests on. |
+| `POST /` | Create an agent: `modelType`, `workflowId`, `computingUnitId`, and optional `settings` |
+| `POST /:id/message` | Run one turn and wait for it; `409` if one is already running |
+| `WS /:id/react` | The same turn with one frame per step, which is what the UI uses |
+| `GET /:id/react-steps`, `/workflow`, `/operator-results` | The steps, the dataflow, and each operator's results |
+| `GET`, `PATCH /:id/settings` | Read or change the agent's settings. An unknown key is refused with a `400` |
+| `GET /:id/snapshot-tree`, `POST /:id/checkout-version` | The versions of the dataflow, and going back to one |
+| `POST /:id/stop`, `DELETE /:id` | Stop a turn, delete the agent |
 
-Provider parallel tool calls are off and a tool call is never forced, so models
-can think before calling and answer with a plain reply. After an execution
-error, later `show` lines still read the results that completed.
-
-Each native operator runs as a Python UDF, but the canvas draws it as its
-native type: the label reads `id: Aggregate` (or the registered function's
-name), the icon is Texera's equivalent operator, and the box shows the
-operator's doc, else its statement. Selecting it opens its panel on the
-canvas with three actions:
-
-- **Run** computes the operator and shows its result.
-- **Edit** shows one field per argument of its statement (plus its
-  description, and the Python of a registered function it calls); "Edit as
-  code" edits the statement itself. Save, or Save & run.
-- **Feedback** sends the agent a message about the operator, which starts a
-  turn.
-
-A run or an edit goes through the agent (`POST /api/agents/:id/operators/:operatorId/run`
-and `/edit`; `GET …/form` splits the statement into fields). The agent applies
-it as one of its own `dataflow` calls and records it as a user step
-(`messageSource: "action"`). That step's content says what the user did, with
-the call's receipt, at that point in the conversation. A run (Run, or Save &
-run) is answered by the agent in a turn of its own. A plain edit is read at the
-agent's next turn. An edit the planner rejects returns 400 with the reason and
-records nothing. An edit that keeps a doc written for the old definition asks
-the agent to restate the operator with one that fits.
-
-**Versions.** Every edit is a version of the dataflow, numbered from v0, the
-dataflow the agent started with:
-
-- each `set` or `delete` of an agent call, and each canvas edit, is its own
-  version, so a call that adds three operators makes v1, v2 and v3;
-- a step that only runs or reads the dataflow makes none.
-
-A step's own snapshot is its last version, and its results attach to it.
-
-In the chat, a step's row lists its edits with the versions they made
-(`add records v1`, `add kept v2`), then what it ran and read. The version
-tree on the left shows the versions, the user's in green. Clicking one checks
-it out (`POST /:id/checkout-version`):
-
-- a step's last version moves HEAD to the end of that step's turn;
-- a version in the middle of a call is restored as a user step under that
-  step, which tells the agent which edits were undone.
-
-Playback previews each version on the canvas (`GET /:id/versions/:snapshotId`)
-without moving HEAD.
-Decisions based on returned results belong in the next call. See
-[Registered Python Dataflows](docs/native-registered-python-design.md) for
-declarations, namespace isolation, statements, and inspection, and
-[native-mode/](native-mode/) for the complete system prompt, the exact tool
-definitions and the operator reference as the model receives them (generated
-from the code; `bun run render:native-reference` in `agent-service/`).
-
-For measured filtering, declare `filter(rows, predicate="keep", settings={...})`
-with a registered row predicate; its boolean/null verdicts produce retained,
-rejected, and null counts, and rejected values written like the condition's
-literals or kept values are reported as near misses. Custom table
-functions remain available for general pandas work. `show schema <id>` pages
-exact parsed column names; a scanned workbook's receipt lists its sheet names.
-
-### Default configuration
-
-An agent created with no `settings` uses
-(`DEFAULT_AGENT_SETTINGS` in `agent-service/src/types/agent.ts`):
-
-| Setting | Default | What it gives the model |
-|---|---|---|
-| `contextMode` | `delta` (the only context) | the trajectory replayed per event (Thought / Action / Observation), not just a snapshot |
-| `dataEvidence` | `true` | legacy switch; native statistics depend only on `retrievalViews` and the requested view |
-| `retrievalViews` | `["sample_stats", "full"]` | also the fallback when omitted; inspect samples and statistics first; `["full"]` disables native statistics |
-| `flowEvidence` | `false` | adds measured operator effects to execution observations and bounded flow summaries, including producing ancestors, to retrieved results |
-| `operatorDoc` | `false` (agents made in the UI: `true`) | asks for a one-line `doc='...'` on every operator (the prompt's examples carry one) and names operators set without one; the canvas captions an operator with its doc |
-| `nativeProfileCollection` | `true` | the engine collects the counters behind both evidence kinds, so they can be switched on later without rebuilding the workflow; it cannot change on an existing workflow |
-| `maxOperatorResultCharLimit` | `2000` | per-result budget for schema and sample rows; each enabled evidence kind appends within its own 2,000-character budget (native data statistics, automatic flow evidence), so evidence never displaces rows; a complete small table takes priority |
-| `maxResultRows` | `0` | additional sample row limit; zero leaves the sample bounded by characters |
-| `fullResultCharLimit` | `5000` | full-record display cap; native transport independently retains up to 100,000 characters; incomplete views remain labeled |
-| `maxSteps` | `100` | per-turn step budget |
-| `executionTimeoutMinutes` | `4` min | per workflow execution |
-
-Display settings can also be changed live with `PATCH /api/agents/:id/settings`.
-Increasing a retrieval budget does not recover records absent from an earlier
-execution. See [Retrieval views](docs/retrieval-views.md) for the tool contract,
-prompt behavior, result caching and experiment driver.
-A key that is not a setting, such as a retired one (`agentMode`,
-`thoughtReplay`, `messageLayout`, `nativeToolMode`, `allowedOperatorTypes`, the
-old level/statistics overlays), is refused with a 400 that names it (`<key> is
-not a setting`), not translated.
-`inspectResult` is not a tool. For the evidence formulas, budgets and rendered
-examples of all four evidence configurations, see
-[Data and flow evidence](docs/data-flow-evidence.md).
-
-Key endpoints (all under `/api/agents`):
-
-| Method | Path | What |
-|---|---|---|
-| POST | `/` | create agent — `modelType` (any LiteLLM model above), `workflowId`, `computingUnitId`, optional `settings` (evidence flags, budgets, every knob in the table above) |
-| GET | `/` | list agents |
-| POST | `/:id/message` | **run one turn synchronously**; body `{content}`; 409 while a turn is running |
-| GET | `/:id/react-steps` | full ReAct trace (thoughts, tool calls, observations) |
-| GET | `/:id/workflow` | current workflow content |
-| GET | `/:id/operator-results` | executed result summaries per operator |
-| GET | `/:id/snapshots/:stepId` | steps + workflow at any step (`head` for latest) |
-| GET/PATCH | `/:id/settings` | read / tune context parameters live |
-| POST | `/:id/stop`, `/:id/clear`, `/:id/checkout` | stop turn / reset history / move HEAD |
-| GET | `/:id/snapshot-tree` | the snapshots, each edit's a version (`version`, `edit`), and `headSnapshotId` |
-| POST | `/:id/checkout-version` | check out a version; one inside a call is restored as a user step |
-| GET | `/:id/versions/:snapshotId` | one version's workflow, to preview it |
-| GET/POST | `/:id/operators/:opId/form`, `/edit`, `/run` | the canvas editor's fields; a user's edit or run, recorded as a user step |
-| DELETE | `/:id` | delete agent |
-| WS | `/:id/react` | streaming protocol (per-step frames) — what the frontend uses |
-
-Later messages to the same agent continue on the same dataflow: operators,
-results, and history carry over.
-Programmatic clients: TypeScript helpers in
-`agent-service/src/api/agent-service-api.ts`, Python in
-`benchmark/Kramabench/dataflow_agent.py`.
+The prompt and tool the model sees are in [native-mode/](native-mode/), generated from the code. The default settings are
+`DEFAULT_AGENT_SETTINGS` in [agent-service/src/types/agent.ts](agent-service/src/types/agent.ts), and
+[docs/retrieval-views.md](docs/retrieval-views.md) explains the ones that decide what the model reads.
 
 ## 3. Benchmarks
 
-KramaBench runs through one driver, from the repo root:
+The paper compares two systems on three benchmarks. BobFlow is the agent above. Script ReAct is
+[smolagents](https://github.com/huggingface/smolagents)' `CodeAgent`, a model that writes and runs Python scripts.
+
+| Benchmark | Size | How an answer is scored |
+|---|---|---|
+| KramaBench | 104 questions over 6 data lakes | KramaBench's evaluator, which calls a small model to compare answers |
+| PrepBench | 306 data-preparation cases | PrepBench's evaluator, on the output tables |
+| LongDS v1.1 Lite | 24 sessions, 777 requests in a row on one dataset | A judge model, against the expected answers |
+
+### Set up once
 
 ```bash
-bin/bench.sh setup            # one-time: submodule, venv, data, symlinks
-                              #   (--copy-from <old-checkout> skips the Kaggle download)
-
-# KramaBench (104 tasks, 6 domain data lakes; benchmark/Kramabench submodule)
-bin/bench.sh kb tasks --sut DataflowSystemGPT52LatestSchemaConverge \
-    --ids "legal-easy-3 wildfire-easy-1" --parallel
-bin/bench.sh kb scores --sut DataflowSystemGPT52LatestSchemaConverge
-bin/bench.sh kb systems       # every runnable SUT configuration
+benchmark/bench setup all       # adds the datasets, about 18.5 GB
+benchmark/bench stack up        # builds and starts a Texera just for benchmarks
 ```
 
-Run artifacts (per-task prompt, response, ReAct trace, workflow JSON, token
-and cost stats) land in `benchmark/Kramabench/system_scratch/<SUT>/<task>/`.
+The benchmark stack has its own ports, containers and data, so it can run beside the stack from section 2. Its folder is
+`/var/tmp/bobflow-bench`, and `benchmark/bench stack down` stops it.
 
-Full benchmark docs: [benchmark/README.md](benchmark/README.md).
+### Run a few tasks first
 
-## 4. Repo layout
+This runs BobFlow on 2 KramaBench questions with GPT-5.6 Luna, for about a cent, and prints the accuracy and cost.
 
-| Path | What |
+```bash
+WAIT=1 ARMS=evidence_full_flow0 benchmark/campaign/launch.sh demo-kb Luna 1 2 archeology-easy-6 legal-easy-25
+benchmark/bench report /var/tmp/bobflow-bench/runs/demo-kb
+```
+
+Each attempt keeps its prompt, every model request and response, the dataflow, the answer and its cost under
+`/var/tmp/bobflow-bench/runs/demo-kb/system_scratch/`. The same small run for every benchmark and system is in
+[benchmark/README.md](benchmark/README.md#one-small-run-per-benchmark-and-system).
+
+### Reproduce a number from the paper
+
+Each number in the paper is one model on one system. These two commands reproduce one: BobFlow with the optimizations on
+KramaBench, with GPT-5.6 Luna. The paper reports 72.1% at $0.30. Accuracy varies by about 2 points between runs, and cost
+by about 5%.
+
+```bash
+ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch.sh opt-kb-luna Luna 1 6
+benchmark/bench report /var/tmp/bobflow-bench/runs/opt-kb-luna      # once the run has finished
+```
+
+The launcher returns at once and the run continues on its own. `python3 -I benchmark/campaign/alert.py opt-kb-luna` follows
+it, with a line for each problem and when it ends.
+
+These are the paper's numbers, as accuracy and the cost of one pass over the benchmark:
+
+| Model | Tag | KramaBench, BobFlow | KramaBench, Script ReAct | PrepBench, BobFlow | PrepBench, Script ReAct |
+|---|---|---|---|---|---|
+| GPT-5.6 Luna | `Luna` | 72.1% $0.30 | 58.3% $0.40 | 83.3% $0.99 | 69.9% $1.21 |
+| GPT-5.6 Terra | `Terra` | 68.3% $2.76 | 65.4% $6.99 | 86.3% $8.67 | 79.4% $24.56 |
+| GPT-5.6 Sol | `Sol` | 73.1% $5.09 | 60.6% $10.22 | 88.6% $16.50 | 71.9% $45.97 |
+| GPT-6.1 Sol | `Sol61` | 74.0% $1.67 | 75.0% $3.35 | 90.8% $6.33 | 90.5% $17.33 |
+| Gemini 3.8 Flash | `Gemini38FlashVertex` | 78.8% $7.24 | 66.3% $11.27 | 89.5% $15.80 | 70.9% $40.87 |
+| Gemini 4 Argon | `Gemini4ArgonMedium` | 72.1% $6.15 | 74.0% $11.68 | 91.5% $15.42 | 88.6% $33.41 |
+| DeepSeek V4.1 Flash | `DeepSeek41Flash` | 69.2% $0.66 | 66.7% $0.62 | 88.9% $1.31 | 85.6% $1.40 |
+| Claude Opus 5.5 | `Opus55` | 73.1% $4.35 | 74.7% $4.76 | 90.5% $16.89 | 90.2% $17.76 |
+
+The BobFlow columns are the setting with the optimizations. The launchers run each of these cells, with `<tag>` from the
+table:
+
+```bash
+ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch.sh kb-<tag> <tag> 1 6       # KramaBench, BobFlow
+ARMS=evidence_data1_flow0_opt benchmark/campaign/launch.sh kb-opus Opus55 1 6              # the same, for Opus
+benchmark/campaign/launch-smol.sh smol-kb-<tag> <tag> 3 3                                  # KramaBench, Script ReAct
+ARMS=evidence_data1_flow0_opt_strict benchmark/campaign/launch-prep.sh pb-<tag> <tag> 6    # PrepBench, BobFlow
+ARMS=evidence_data1_flow0_opt benchmark/campaign/launch-prep.sh pb-opus Opus55 6           # the same, for Opus
+benchmark/campaign/launch-prep-smol.sh smol-pb-<tag> <tag> 3                               # PrepBench, Script ReAct
+```
+
+The rest is in [benchmark/README.md](benchmark/README.md): the plain BobFlow and statistics settings, Flow Evidence, and
+LongDS.
+
+### Read results for free
+
+These read files only. No model, judge or service runs.
+
+```bash
+S=/var/tmp/bobflow-bench/runs
+benchmark/bench report $S/opt-kb-luna                       # accuracy and cost per model and setting
+benchmark/bench compare $S/demo-kb $S/opt-kb-luna           # which tasks each one solves, and at what cost
+benchmark/bench audit $S/opt-kb-luna                        # check that each attempt did what its setting says
+```
+
+### Measure the system's overhead
+
+[benchmark/tracker/](benchmark/tracker/README.md) measures what keeping every version of the dataflow costs as a session
+grows: the agent's memory, with the tracker and without it, and the time to jump to a version. It replays recorded runs, so
+it calls no model.
+
+Each attempt also records what it cost as it runs: tokens, money, steps and time per attempt (`stats.json`, per-step timers
+in `react_steps.json`), and the machine's load and memory every 15 seconds (`host-resources.jsonl`). The paper's overhead
+of collecting statistics was measured on the `study/stats-overhead` branch, whose instrumentation is not on this one.
+
+## 4. Tests
+
+None of these calls a model.
+
+| Command | What it covers | Takes |
+|---|---|---|
+| `benchmark/bench test` | The benchmark harness | under a minute |
+| `(cd agent-service && bun test && bun run typecheck)` | The agent | 2 minutes |
+| `(cd amber && ../.venv/bin/python -m pytest -m "not integration" src/test/python)` | The engine's Python workers | 1 minute |
+| `(cd frontend && yarn test)` | The UI | under a minute |
+| `bin/test-scala.sh` | Texera's Scala code, with a throwaway Postgres | 5 minutes |
+
+With the stack up, these exercise the real system:
+
+| Command | What it covers |
 |---|---|
-| `agent-service/` | the dataflow agent (Bun/TypeScript): ReAct loop, context assembly, tools |
-| `amber/` | Texera's execution engine (Scala + Python workers) |
-| `common/`, `*-service/` | Texera microservices (config, auth+LLM proxy, files, compiling, computing units) |
-| `frontend/` | Angular UI (`localhost:4200`) |
-| `bin/local-dev.sh` | full-stack launcher |
-| `bin/bench.sh` | benchmark driver |
-| `bin/single-node/litellm-config.yaml` | LiteLLM model list |
-| `benchmark/` | KramaBench submodule + native campaign harness (`benchmark/retrieval`) |
-| `docs/local-dev-with-agent.md` | launcher deep dive + troubleshooting |
+| `(cd agent-service && bun run e2e)` | Workflows through the engine, without the agent or a model |
+| `(cd frontend && npx playwright install chromium && node e2e/agent-jump.e2e.mjs)` | The UI in a real browser: going back to a version. It replays a recorded run, so it calls no model |
+| `(cd frontend && node e2e/agent-panel.e2e.mjs)` | The UI in a real browser: the chat panel, on Claude Haiku 5.5 (a few cents). `agent-dataflow-ux`, `agent-drop-upload` and `agent-operator-actions` work the same way |
 
-## 5. Upstream
+## 5. If something goes wrong
 
-This fork tracks [apache/texera](https://github.com/apache/texera). For the
-upstream platform documentation, see the
-[Texera official site](https://texera.apache.org/) and
-[docs.texera.io](https://docs.texera.io).
+| What you see | Why, and what to do |
+|---|---|
+| An agent turn fails with `401` | A provider key in `.env` is missing or invalid. Fix it, then run `bin/local-dev.sh up litellm`, or `benchmark/bench stack up` for the benchmark stack |
+| The first run of a fresh stack fails with `iceberg_namespace_properties_pkey` | Two first executions raced to create the results catalog. It happens once. Run it again, or run `bin/local-dev.sh up computing-unit-master` |
+| A service will not start | `bin/local-dev.sh logs <service>` |
+| A benchmark run fails on missing packages after you ran `uv sync` | `uv sync` removes the extra packages the paper's engine had. Run `benchmark/bench setup base` again |
+
+## 6. Where things are
+
+| Folder | What is there |
+|---|---|
+| `agent-service/` | The agent: its loop, its tool, what the model reads |
+| `native-mode/` | The system prompt and tool definition as the model receives them, generated from the code |
+| `amber/` | Texera's engine and web app (Scala), and its Python workers |
+| `common/`, `*-service/` | Texera's shared libraries and services |
+| `frontend/` | The UI (Angular), and its browser tests in `frontend/e2e/` |
+| `benchmark/` | [The harness](benchmark/README.md): `benchmark/bench`, the launchers in `campaign/`, the overhead experiments in `tracker/` |
+| `smolagents-service/` | The script agent with a UI, for the user study |
+| `bin/` | `local-dev.sh` and the deployment scripts |
+| `sql/` | The database schema |
+| `docs/` | [The launcher](docs/local-dev-with-agent.md), [the tool's design](docs/native-registered-python-design.md), [result views](docs/retrieval-views.md), and Texera's upstream docs |
+
+This fork tracks [apache/texera](https://github.com/apache/texera). For the platform itself, see
+[Texera's site](https://texera.apache.org/).
