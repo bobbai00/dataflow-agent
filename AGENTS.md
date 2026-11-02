@@ -33,7 +33,7 @@ of [Apache Texera](https://texera.apache.org/). On top of the upstream platform,
 3. **`benchmark/`**: the harness behind the paper's numbers (KramaBench, PrepBench, LongDS; BobFlow and Script ReAct) and
    the overhead experiments.
 
-The active branch is **`stable`**.
+The repository is [Texera/bobflow](https://github.com/Texera/bobflow); work lands on **`main`**.
 
 ## 2. How to run things
 
@@ -205,7 +205,7 @@ its example.
   hang until the execution timeout rather than showing an error.
 - **Formatting, lint, license headers**: [CONTRIBUTING.md](CONTRIBUTING.md); every source file carries the ASF header
   (`.licenserc.yaml`).
-- **Upstream sync**: this fork tracks `apache/texera`; merges land on the fork's main line and then on `stable`.
+- **Upstream sync**: this fork tracks `apache/texera`; merges land on `main`.
 
 ## 9. Where things live
 

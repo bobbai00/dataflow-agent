@@ -56,9 +56,8 @@ You need these tools. This README was run from a fresh clone on Ubuntu 20.04 wit
 Then, from an empty folder:
 
 ```bash
-git clone git@github.com:bobbai00/dataflow-agent.git
-cd dataflow-agent
-git checkout stable
+git clone --recurse-submodules https://github.com/Texera/bobflow.git
+cd bobflow
 cp .env.example .env            # then open .env and add your API keys
 benchmark/bench setup base      # Python environments, generated code, the KramaBench submodule
 ```
